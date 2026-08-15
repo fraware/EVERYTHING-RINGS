@@ -9,6 +9,12 @@ export {
   evaluateGateCRelease,
 } from "./evaluate";
 export {
+  deriveEvidenceRecurrence,
+  deriveMedianModalDriftCents,
+  medianFinite,
+  successfulFingerprint,
+} from "./derive";
+export {
   mergeValidationEvidence,
   type EvidenceMergeResult,
 } from "./merge";
@@ -18,6 +24,7 @@ export {
   type EvidenceParseResult,
 } from "./parse";
 export type {
+  AnalysisFailureReasonEvidence,
   CaptureQualityEvidence,
   CaptureSettingsEvidence,
   DeviceClass,
@@ -41,7 +48,8 @@ export type {
   ReleaseVerdict,
   ReviewTarget,
   Score1To5,
-  ValidationEvidenceRecord,
-  ValidationEvidenceV3,
+  ValidationAttemptAnalysis,
+  ValidationEvidenceAttempt,
+  ValidationEvidenceV4,
   ValidationObjectMetadata,
 } from "./types";
