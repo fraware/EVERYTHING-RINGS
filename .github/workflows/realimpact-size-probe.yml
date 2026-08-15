@@ -1,0 +1,35 @@
+name: realimpact-size-probe
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/realimpact-size-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  sizes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Probe representative object archive sizes
+        run: |
+          set -euo pipefail
+          objects=(
+            64_CeramicMug
+            94_GlassGoblet
+            33_WoodWineGlass
+            100_Frisbee
+            17_IronSkillet
+            91_MetalSpoon
+            35_MeasuringCup
+          )
+          printf '%-24s %14s %10s\n' OBJECT BYTES MIB
+          for object in "${objects[@]}"; do
+            url="https://downloads.cs.stanford.edu/viscam/RealImpact/${object}.zip"
+            bytes="$(curl --fail --silent --show-error --location --head --max-time 60 "${url}" \
+              | awk 'BEGIN{IGNORECASE=1} /^content-length:/ {gsub("\\r", "", $2); value=$2} END{print value}')"
+            mib="$(python -c "print(f'{int(${bytes}) / 1024 / 1024:.2f}')")"
+            printf '%-24s %14s %10s\n' "${object}" "${bytes}" "${mib}"
+          done
