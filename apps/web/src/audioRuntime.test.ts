@@ -82,7 +82,7 @@ describe("exclusive sample playback", () => {
   it("clears the slot when the active source ends", async () => {
     const replacement = sourceDouble();
     const { context } = contextDouble("running", replacement);
-    const playback: ActivePlayback = {};
+    const playback: ActivePlayback = { current: undefined };
 
     await playExclusiveSamples(context, playback, new Float32Array([0.1]), 44_100);
     replacement.onended?.();
