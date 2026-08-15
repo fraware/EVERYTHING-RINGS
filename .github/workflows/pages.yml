@@ -16,8 +16,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pages-status:
+    runs-on: ubuntu-24.04
+    outputs:
+      enabled: ${{ steps.pages.outputs.enabled }}
+    steps:
+      - name: Check Pages configuration
+        id: pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages")"
+          case "${status}" in
+            200)
+              echo "enabled=true" >> "${GITHUB_OUTPUT}"
+              ;;
+            404)
+              echo "enabled=false" >> "${GITHUB_OUTPUT}"
+              echo "Pages is not enabled; deployment is skipped."
+              ;;
+            *)
+              echo "Unexpected Pages API response: ${status}" >&2
+              exit 1
+              ;;
+          esac
+
   build:
     runs-on: ubuntu-24.04
+    needs: pages-status
+    if: needs.pages-status.outputs.enabled == 'true'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
