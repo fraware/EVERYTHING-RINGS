@@ -48,6 +48,8 @@ jobs:
 
   build:
     runs-on: ubuntu-24.04
+    env:
+      VITE_SOFTWARE_REVISION: ${{ github.sha }}
     needs: pages-status
     if: needs.pages-status.outputs.enabled == 'true'
     steps:

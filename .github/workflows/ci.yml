@@ -11,6 +11,8 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    env:
+      VITE_SOFTWARE_REVISION: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6

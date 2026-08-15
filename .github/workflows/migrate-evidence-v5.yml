@@ -7,6 +7,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: migrate-evidence-v5
+  cancel-in-progress: true
+
 jobs:
   migrate:
     if: github.actor != 'github-actions[bot]'
@@ -41,7 +45,7 @@ jobs:
       - name: Commit verified migration
         run: |
           set -euo pipefail
-          git rm -f scripts/migrate-validation-v5.py scripts/patch-migration-v5.py .github/workflows/migrate-evidence-v5.yml
+          git checkout -- scripts/migrate-validation-v5.py scripts/patch-migration-v5.py .github/workflows/migrate-evidence-v5.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
