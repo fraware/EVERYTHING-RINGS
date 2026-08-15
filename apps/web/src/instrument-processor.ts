@@ -1,8 +1,10 @@
 import {
   ModalInstrumentEngine,
+  type ModalInstrumentWorkletEvent,
   type ModalInstrumentWorkletMessage,
 } from "@everything-rings/instrument";
 
+declare const currentFrame: number;
 declare const sampleRate: number;
 declare abstract class AudioWorkletProcessor {
   readonly port: MessagePort;
@@ -35,7 +37,16 @@ class EverythingRingsInstrumentProcessor extends AudioWorkletProcessor {
         return;
       }
       if (message.type === "NOTE_ON") {
-        this.engine?.noteOn(message.midiNote, message.velocity);
+        const voiceId = this.engine?.noteOn(message.midiNote, message.velocity);
+        if (message.eventId !== undefined) {
+          const response: ModalInstrumentWorkletEvent = {
+            type: "NOTE_STARTED",
+            eventId: message.eventId,
+            frame: currentFrame,
+            voiceId,
+          };
+          this.port.postMessage(response);
+        }
         return;
       }
       this.engine?.allNotesOff();
