@@ -309,14 +309,14 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
           setState("error");
           return;
         }
-        const retained = settleCurrentAttempt(
+        settleCurrentAttempt(
           pendingRequest,
           { status: "failure", reason: "ANALYSIS_INTERNAL_ERROR" },
         );
         requestId.current += 1;
         setFingerprint(undefined);
         setFailureReason(event.message || "Analysis worker failed");
-        setState(retained ? "failure" : "error");
+        setState("error");
       };
     } catch (error) {
       retainInterruptedQualifiedAttempt();
