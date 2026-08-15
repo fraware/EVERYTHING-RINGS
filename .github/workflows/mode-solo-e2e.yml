@@ -106,7 +106,11 @@ jobs:
             const firstPressed = await page.$eval(`${selector}[data-mode-index="0"]`, node => node.getAttribute('aria-pressed'));
             if (firstPressed !== 'true') throw new Error('first mode did not become selected');
 
-            await page.focus(`${selector}[data-mode-index="1"]`);
+            const focused = await page.$eval(`${selector}[data-mode-index="1"]`, node => {
+              node.focus();
+              return document.activeElement === node;
+            });
+            if (!focused) throw new Error('second SVG mode did not accept keyboard focus');
             await page.keyboard.press('Space');
             await page.waitForFunction(label => document.body.innerText.includes(`SOLO ${label} HZ`), {}, frequencies[1].toFixed(1));
             const pressed = await page.$$eval(selector, nodes => nodes.map(node => node.getAttribute('aria-pressed')));
@@ -123,6 +127,7 @@ jobs:
               interactiveModeCount: count,
               frequenciesHz: frequencies,
               clickSolo: true,
+              keyboardFocus: focused,
               keyboardSolo: true,
               reconstructionClearsSolo: true,
               pageErrors: pageErrors.length,
