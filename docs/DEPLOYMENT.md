@@ -8,7 +8,9 @@ The repository includes `.github/workflows/pages.yml`, which builds the web app 
 
 GitHub Pages must be enabled for the repository once, with **GitHub Actions** selected as the Pages source. Repository workflow credentials cannot perform this first administrative enablement.
 
-After Pages is enabled, pushes to `main` run the deployment workflow automatically. No application server, account service, or audio-upload backend is required.
+The deployment workflow checks that repository state first. Until Pages is enabled, deployment is skipped cleanly instead of producing a false application failure. After Pages is enabled, pushes to `main` run the build and deployment automatically; a manual workflow dispatch is also available.
+
+No application server, account service, or audio-upload backend is required.
 
 ## Privacy boundary
 
