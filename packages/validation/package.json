@@ -1,0 +1,17 @@
+{
+  "name": "@everything-rings/validation",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@everything-rings/acquisition": "workspace:*",
+    "@everything-rings/dsp": "workspace:*",
+    "@everything-rings/fingerprint": "workspace:*"
+  }
+}
