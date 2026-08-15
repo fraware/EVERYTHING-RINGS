@@ -6,14 +6,16 @@ The baseline renderer is deliberately constrained. Each accepted mode contribute
 
 ## Blinded protocol
 
-Only objects that pass Gate A are eligible. A reviewer starts a randomized A/B trial and sees only `A` and `B`; the application stores the hidden original/reconstruction presentation order for audit. Reviewers score:
+Only objects that pass Gate A are eligible. The review target is the exact fifth accepted measurement of a passing Gate A session. Each review stores the object label, session ID, and record ID; a review targeting another session or measurement does not count.
+
+A reviewer starts a randomized A/B trial and sees only `A` and `B`; the application stores the hidden original/reconstruction presentation order for audit. Reviewers score:
 
 - same-object identity, 1–5;
 - brightness match, 1–5;
 - decay-character match, 1–5;
 - artifact severity, 1–5, where 1 means none and 5 means severe.
 
-At least two distinct reviewer IDs are required per object. An unblinded judgment does not count toward the release contract.
+At least two distinct reviewer IDs are required per object. Reviewer IDs are normalized for counting, so capitalization or surrounding whitespace cannot make one reviewer count twice. An unblinded judgment does not count toward the release contract.
 
 ## Frozen release contract — `gate-b-1`
 
@@ -21,13 +23,13 @@ These thresholds are fixed before release listening data is collected.
 
 An eligible object passes when:
 
-- at least two blinded reviewers are present;
+- at least two blinded reviewers are present on eligible passing-session targets;
 - median same-object identity is at least 4/5;
 - median brightness match is at least 3/5;
 - median decay-character match is at least 3/5;
 - median artifact severity is at most 2/5.
 
-Gate B passes when at least five Gate A objects have blinded reviews, at least four objects pass, and the passing reconstruction set contains metal, glass, and ceramic examples.
+Gate B passes when at least five Gate A objects have eligible blinded reviews, at least four objects pass, and the passing reconstruction set contains metal, glass, and ceramic examples.
 
 The numerical regression suite verifies deterministic output, attack continuity, measured decay preservation, and Nyquist filtering. Those checks remain necessary and remain insufficient for Gate B.
 
