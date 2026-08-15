@@ -14,6 +14,7 @@ export type MaterialClass =
 export type Score1To5 = 1 | 2 | 3 | 4 | 5;
 export type DeviceClass = "desktop" | "mobile" | "tablet" | "other";
 export type GateBPresentationOrder = "original-model" | "model-original";
+export type AnalysisFailureReasonEvidence = "SIGNAL_TOO_SHORT" | "NO_STABLE_RESONANCES";
 
 export interface CaptureSettingsEvidence {
   readonly sampleRate?: number;
@@ -52,19 +53,29 @@ export interface RealtimeAudioTimingEvidence {
   readonly lastSchedulingMs?: number;
 }
 
-export interface ValidationEvidenceRecord {
+export type ValidationAttemptAnalysis =
+  | {
+      readonly status: "success";
+      readonly fingerprint: AcousticFingerprintV1;
+    }
+  | {
+      readonly status: "failure";
+      readonly reason: AnalysisFailureReasonEvidence;
+    };
+
+export interface ValidationEvidenceAttempt {
   readonly id: number;
   readonly quality: CaptureQualityEvidence;
-  readonly fingerprint: AcousticFingerprintV1;
+  readonly analysis: ValidationAttemptAnalysis;
 }
 
 export interface EvidenceRecurrence extends FingerprintRecurrence {
-  readonly recordId: number;
+  readonly attemptId: number;
 }
 
 export interface ReviewTarget {
   readonly sessionId: string;
-  readonly recordId: number;
+  readonly attemptId: number;
 }
 
 export interface GateBReview extends ReviewTarget {
@@ -91,34 +102,33 @@ export interface GateCReview extends ReviewTarget {
   readonly latencyAcceptable: boolean;
 }
 
-export interface ValidationEvidenceV3 {
-  readonly schemaVersion: 3;
-  readonly evidenceContractVersion: "validation-evidence-3";
-  readonly gateAContractVersion: "gate-a-1";
+export interface ValidationEvidenceV4 {
+  readonly schemaVersion: 4;
+  readonly evidenceContractVersion: "validation-evidence-4";
+  readonly gateAContractVersion: "gate-a-2";
   readonly sessionId: string;
   readonly createdAt: string;
   readonly object: ValidationObjectMetadata;
   readonly protocol: FixedSetupProtocol;
   readonly captureSettings: CaptureSettingsEvidence | null;
   readonly realtimeAudioTiming: RealtimeAudioTimingEvidence | null;
-  readonly recordCount: number;
+  readonly attemptCount: number;
   readonly medianModalDriftCents: number | null;
   readonly recurrence: readonly EvidenceRecurrence[];
-  readonly records: readonly ValidationEvidenceRecord[];
+  readonly attempts: readonly ValidationEvidenceAttempt[];
   readonly gateBReviews: readonly GateBReview[];
   readonly gateCReviews: readonly GateCReview[];
   readonly rawMicrophoneSamplesIncluded: false;
 }
 
 export interface GateAThresholds {
-  readonly contractVersion: "gate-a-1";
-  readonly acceptedStrikesPerObject: number;
+  readonly contractVersion: "gate-a-2";
+  readonly qualifiedAttemptsPerObject: number;
+  readonly requiredSuccessfulAnalyses: number;
   readonly minimumPeakAmplitude: number;
   readonly minimumSnrDb: number;
   readonly maximumClippedFraction: number;
   readonly maximumSecondaryTransientRatio: number;
-  readonly minimumStableModes: number;
-  readonly minimumStrikesWithStableModes: number;
   readonly minimumMatchedModesPerComparison: number;
   readonly maximumSessionMedianDriftCents: number;
   readonly maximumComparisonMedianDriftCents: number;
@@ -127,9 +137,10 @@ export interface GateAThresholds {
 }
 
 export interface GateASessionMetrics {
-  readonly acceptedStrikes: number;
-  readonly qualityPassingStrikes: number;
-  readonly strikesWithStableModes: number;
+  readonly qualifiedAttempts: number;
+  readonly qualityPassingAttempts: number;
+  readonly successfulAnalyses: number;
+  readonly analyticalFailures: number;
   readonly recurrenceComparisons: number;
   readonly comparisonsWithEnoughMatches: number;
   readonly sessionMedianDriftCents: number | null;
@@ -140,14 +151,14 @@ export interface GateASessionVerdict {
   readonly sessionId: string;
   readonly objectLabel: string;
   readonly material: MaterialClass;
-  readonly reviewRecordId: number | null;
+  readonly reviewAttemptId: number | null;
   readonly passed: boolean;
   readonly metrics: GateASessionMetrics;
   readonly reasons: readonly string[];
 }
 
 export interface GateAReleaseVerdict {
-  readonly contractVersion: "gate-a-1";
+  readonly contractVersion: "gate-a-2";
   readonly passed: boolean;
   readonly passingObjectCount: number;
   readonly distinctPassingObjectCount: number;
