@@ -1,0 +1,163 @@
+name: session-reliability-e2e
+
+on:
+  push:
+    branches: [validation/consumer-e2e]
+
+permissions:
+  contents: read
+
+jobs:
+  browser-recovery:
+    runs-on: ubuntu-latest
+    env:
+      TARGET_REVISION: e6abc1b1cd3a7558851c229eea6f3e0921a79aa2
+      VITE_SOFTWARE_REVISION: e6abc1b1cd3a7558851c229eea6f3e0921a79aa2
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TARGET_REVISION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "${TARGET_REVISION}"
+      - name: Generate deterministic strike
+        run: |
+          python - <<'PY'
+          import math, os, random, wave
+          sr = 48_000
+          duration = 6.0
+          onset = 1.0
+          random.seed(0x45525232)
+          path = os.path.join(os.environ['RUNNER_TEMP'], 'session-recovery.wav')
+          with wave.open(path, 'wb') as wav:
+              wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(sr)
+              frames = bytearray()
+              for i in range(round(sr * duration)):
+                  t = i / sr
+                  value = random.uniform(-0.00012, 0.00012)
+                  if t >= onset:
+                      dt = t - onset
+                      value += 0.45 * math.exp(-dt / 1.20) * math.cos(2 * math.pi * 440 * dt)
+                      value += 0.24 * math.exp(-dt / 0.70) * math.cos(2 * math.pi * 997 * dt)
+                      value += 0.12 * math.exp(-dt / 0.38) * math.cos(2 * math.pi * 2413 * dt)
+                  value = max(-0.90, min(0.90, value))
+                  frames += int(round(value * 32767)).to_bytes(2, 'little', signed=True)
+              wav.writeframes(frames)
+          PY
+      - run: pnpm build
+      - name: Install browser driver
+        run: |
+          mkdir -p "${RUNNER_TEMP}/session-reliability"
+          cd "${RUNNER_TEMP}/session-reliability"
+          npm init -y >/dev/null
+          npm install --no-save --package-lock=false puppeteer-core@25.4.0
+          node -e "const p=require('puppeteer-core/package.json'); if(p.version!=='25.4.0') process.exit(1)"
+      - name: Exercise permission and suspended-audio recovery
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "${CHROME}"
+          pnpm --filter @everything-rings/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort >"${RUNNER_TEMP}/session-vite.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "${SERVER_PID}" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do curl --fail --silent http://127.0.0.1:4173/ >/dev/null && break; sleep 0.25; done
+          cat >"${RUNNER_TEMP}/session-reliability/test.mjs" <<'JS'
+          import puppeteer from 'puppeteer-core';
+          import fs from 'node:fs';
+
+          const executablePath = process.env.CHROME;
+          const baseArgs = ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--autoplay-policy=no-user-gesture-required'];
+          const pageErrors = [];
+
+          const deniedBrowser = await puppeteer.launch({ executablePath, headless: true, args: baseArgs });
+          try {
+            const page = await deniedBrowser.newPage();
+            page.on('pageerror', error => pageErrors.push(`denied:${error.message}`));
+            await page.evaluateOnNewDocument(() => {
+              const mediaDevices = navigator.mediaDevices;
+              if (mediaDevices !== undefined) {
+                mediaDevices.getUserMedia = async () => { throw new DOMException('Permission denied', 'NotAllowedError'); };
+              }
+            });
+            await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle0', timeout: 30_000 });
+            await page.evaluate(() => [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'START LISTENING')?.click());
+            await page.waitForFunction(() => document.body.innerText.includes('Microphone access is blocked.'), { timeout: 5_000 });
+          } finally {
+            await deniedBrowser.close();
+          }
+
+          const browser = await puppeteer.launch({
+            executablePath,
+            headless: true,
+            args: [...baseArgs, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', `--use-file-for-fake-audio-capture=${process.env.RUNNER_TEMP}/session-recovery.wav`],
+          });
+          let suspendedPlaybackRecovered = false;
+          let suspendedInstrumentRecovered = false;
+          try {
+            const page = await browser.newPage();
+            page.on('pageerror', error => pageErrors.push(`recovery:${error.message}`));
+            await page.evaluateOnNewDocument(() => {
+              const NativeAudioContext = window.AudioContext;
+              const contexts = [];
+              Object.defineProperty(window, '__ER_CONTEXTS__', { value: contexts });
+              window.AudioContext = new Proxy(NativeAudioContext, {
+                construct(target, args, newTarget) {
+                  const context = Reflect.construct(target, args, newTarget);
+                  contexts.push(context);
+                  return context;
+                },
+              });
+            });
+            await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle0', timeout: 30_000 });
+            await page.evaluate(() => [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'START LISTENING')?.click());
+            await page.waitForFunction(() => document.body.innerText.includes('We estimated 3 audible resonances.'), { timeout: 15_000, polling: 100 });
+
+            const suspend = () => page.evaluate(async () => {
+              const context = window.__ER_CONTEXTS__?.[0];
+              if (!(context instanceof AudioContext)) throw new Error('tracked AudioContext missing');
+              await context.suspend();
+              return context.state;
+            });
+            const waitRunning = () => page.waitForFunction(() => window.__ER_CONTEXTS__?.[0]?.state === 'running', { timeout: 5_000, polling: 50 });
+
+            if (await suspend() !== 'suspended') throw new Error('playback context did not suspend');
+            await page.evaluate(() => [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'HEAR ORIGINAL')?.click());
+            await waitRunning();
+            suspendedPlaybackRecovered = true;
+
+            await page.evaluate(() => [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'PLAY IT')?.click());
+            await page.waitForSelector('.consumer-keyboard button[aria-label="C4"]');
+            if (await suspend() !== 'suspended') throw new Error('instrument context did not suspend');
+            await page.focus('.consumer-keyboard button[aria-label="C4"]');
+            await page.keyboard.press('Enter');
+            await waitRunning();
+            suspendedInstrumentRecovered = true;
+
+            const text = await page.evaluate(() => document.body.innerText);
+            if (text.includes('Audio output is paused.')) throw new Error('playback recovery surfaced a false failure');
+          } finally {
+            await browser.close();
+          }
+
+          if (pageErrors.length > 0) throw new Error(pageErrors.join('\n'));
+          const report = {
+            targetRevision: process.env.TARGET_REVISION,
+            permissionDeniedCopy: true,
+            suspendedPlaybackRecovered,
+            suspendedInstrumentRecovered,
+            pageErrors: pageErrors.length,
+          };
+          fs.writeFileSync(`${process.env.RUNNER_TEMP}/session-reliability-report.json`, JSON.stringify(report, null, 2));
+          console.log(JSON.stringify(report, null, 2));
+          JS
+          CHROME="${CHROME}" RUNNER_TEMP="${RUNNER_TEMP}" TARGET_REVISION="${TARGET_REVISION}" node "${RUNNER_TEMP}/session-reliability/test.mjs"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: session-reliability-e2e
+          path: |
+            ${{ runner.temp }}/session-reliability-report.json
+            ${{ runner.temp }}/session-vite.log
