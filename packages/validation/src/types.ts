@@ -172,6 +172,7 @@ export interface GateBObjectVerdict {
   readonly objectLabel: string;
   readonly material?: MaterialClass;
   readonly eligibleTargets: readonly ReviewTarget[];
+  readonly selectedTarget: ReviewTarget | null;
   readonly passed: boolean;
   readonly reviewerCount: number;
   readonly identityMedian: number | null;
