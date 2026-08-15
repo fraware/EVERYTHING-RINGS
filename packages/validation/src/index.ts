@@ -9,6 +9,10 @@ export {
   evaluateGateCRelease,
 } from "./evaluate";
 export {
+  mergeValidationEvidence,
+  type EvidenceMergeResult,
+} from "./merge";
+export {
   parseValidationEvidence,
   parseValidationEvidenceJson,
   type EvidenceParseResult,
