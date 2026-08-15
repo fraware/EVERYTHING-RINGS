@@ -1,0 +1,163 @@
+name: pr31-full-system-stress
+
+on:
+  push:
+    branches:
+      - stress/pr31-full-system-2026-08-15
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr31-full-system-stress-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cross-platform:
+    name: ${{ matrix.os }} / node-${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [20, 22, 24]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      VITE_SOFTWARE_REVISION: 556175c7749b8c2ef9e582f1328bcba668ac7f50
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Frozen install
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Test
+        run: pnpm test
+      - name: Build
+        run: pnpm build
+
+  repeated-packages:
+    name: repeat / ${{ matrix.package }}
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - "@everything-rings/acquisition"
+          - "@everything-rings/dsp"
+          - "@everything-rings/fingerprint"
+          - "@everything-rings/fixtures"
+          - "@everything-rings/instrument"
+          - "@everything-rings/synth"
+          - "@everything-rings/validation"
+          - "@everything-rings/visual"
+          - "@everything-rings/web"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Repeat package tests 20 times
+        shell: bash
+        run: |
+          set -euo pipefail
+          for iteration in $(seq 1 20); do
+            echo "${{ matrix.package }} iteration ${iteration}/20"
+            pnpm --filter "${{ matrix.package }}" test
+          done
+
+  repeated-full-suite:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Repeat full suite 25 times
+        shell: bash
+        run: |
+          set -euo pipefail
+          for iteration in $(seq 1 25); do
+            echo "full-suite iteration ${iteration}/25"
+            pnpm test
+          done
+
+  browser-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      VITE_SOFTWARE_REVISION: 556175c7749b8c2ef9e582f1328bcba668ac7f50
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: bash scripts/browser-smoke.sh
+
+  realimpact:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      OBJECT_NAME: 64_CeramicMug
+      MAX_MEASUREMENTS: "8"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Download RealImpact positive control
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .realimpact
+          curl --fail --show-error --location --retry 6 --retry-all-errors --retry-delay 5 \
+            --output ".realimpact/${OBJECT_NAME}.zip" \
+            "https://downloads.cs.stanford.edu/viscam/RealImpact/${OBJECT_NAME}.zip"
+          unzip -q ".realimpact/${OBJECT_NAME}.zip" -d .realimpact/extracted
+          rm ".realimpact/${OBJECT_NAME}.zip"
+      - name: Run external recurrence benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          response_path="$(find .realimpact/extracted -path '*/preprocessed/deconvolved_0db.npy' -print -quit)"
+          test -n "${response_path}"
+          object_dir="$(realpath "$(dirname "$(dirname "${response_path}")")")"
+          REALIMPACT_DIR="${object_dir}" \
+          REALIMPACT_MAX_MEASUREMENTS="${MAX_MEASUREMENTS}" \
+          REALIMPACT_REPORT=/tmp/everything-rings-realimpact.json \
+          pnpm --filter @everything-rings/fingerprint test:realimpact
+      - name: Verify RealImpact emits er-dsp-2
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('fs');
+          const report = JSON.parse(fs.readFileSync('/tmp/everything-rings-realimpact.json', 'utf8'));
+          if (report.accepted !== report.attempted || report.accepted !== 8) throw new Error(`unexpected RealImpact acceptance ${JSON.stringify({ attempted: report.attempted, accepted: report.accepted })}`);
+          NODE
+      - name: Print RealImpact report
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/everything-rings-realimpact.json ]; then cat /tmp/everything-rings-realimpact.json; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr31-realimpact-ceramic-mug
+          path: /tmp/everything-rings-realimpact.json
+          if-no-files-found: warn
