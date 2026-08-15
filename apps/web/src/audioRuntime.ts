@@ -1,5 +1,5 @@
 export interface ActivePlayback {
-  current: AudioBufferSourceNode | undefined;
+  current?: AudioBufferSourceNode | undefined;
 }
 
 export async function resumeAudioContext(context: AudioContext): Promise<boolean> {
