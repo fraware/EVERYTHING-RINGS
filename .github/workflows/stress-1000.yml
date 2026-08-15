@@ -1,0 +1,94 @@
+name: stress-1000
+
+on:
+  push:
+    branches: [validation/stress-1000]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stress-1000
+  cancel-in-progress: true
+
+env:
+  VITE_SOFTWARE_REVISION: 447f98dd511201367d6051704e10607d645735dd
+
+jobs:
+  runtime-matrix:
+    name: node-${{ matrix.node }}-full
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  package-matrix:
+    name: package-${{ matrix.package }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - acquisition
+          - dsp
+          - fingerprint
+          - fixtures
+          - instrument
+          - synth
+          - validation
+          - visual
+          - web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter "@everything-rings/${{ matrix.package }}" test
+
+  repeat-full-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Repeat full suite 20 times
+        run: |
+          set -euo pipefail
+          for run in $(seq 1 20); do
+            echo "full-suite repetition ${run}/20"
+            pnpm test
+          done
+
+  browser-repeat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Repeat browser smoke 10 times
+        run: |
+          set -euo pipefail
+          for run in $(seq 1 10); do
+            echo "browser smoke repetition ${run}/10"
+            bash scripts/browser-smoke.sh
+          done
