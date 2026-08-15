@@ -2,7 +2,7 @@ import type { AcousticMode } from "@everything-rings/dsp";
 import { fingerprintRecurrence } from "@everything-rings/fingerprint";
 import { chooseAnchorMode, renderPlayableNote } from "@everything-rings/instrument";
 import { renderAcousticFingerprint } from "@everything-rings/synth";
-import { useMemo, useRef, useEffect } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { AcousticDnaView } from "./AcousticDnaView";
 import { failureCopy } from "./failureCopy";
 import { useStrikeSession } from "./useStrikeSession";
@@ -23,6 +23,16 @@ function median(values: readonly number[]): number | undefined {
   if (value === undefined) return undefined;
   if (ordered.length % 2 === 1) return value;
   return ((ordered[middle - 1] ?? value) + value) / 2;
+}
+
+function downloadJson(filename: string, value: unknown): void {
+  const blob = new Blob([`${JSON.stringify(value, null, 2)}\n`], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function Waveform({ samples, triggerSample }: { readonly samples: Float32Array; readonly triggerSample: number }) {
@@ -97,6 +107,29 @@ export function LabApp() {
     const note = renderPlayableNote(fingerprint, midiNote, sampleRate);
     session.play(note.samples, sampleRate);
   }
+  function exportEvidence(): void {
+    if (session.records.length === 0) return;
+    const reference = session.records[0]?.fingerprint;
+    const recurrence = reference === undefined ? [] : session.records.slice(1).map((record) => ({
+      recordId: record.id,
+      ...fingerprintRecurrence(reference, record.fingerprint),
+    }));
+    const report = {
+      schemaVersion: 1,
+      createdAt: new Date().toISOString(),
+      captureSettings: session.settings,
+      recordCount: session.records.length,
+      medianModalDriftCents: drift ?? null,
+      recurrence,
+      records: session.records.map((record) => ({
+        id: record.id,
+        quality: record.quality,
+        fingerprint: record.fingerprint,
+      })),
+      rawMicrophoneSamplesIncluded: false,
+    };
+    downloadJson(`everything-rings-validation-${Date.now()}.json`, report);
+  }
 
   return (
     <main className="shell">
@@ -123,6 +156,7 @@ export function LabApp() {
           {session.state !== "idle" ? <button onClick={session.reset}>NEW STRIKE</button> : null}
           {session.capture !== undefined ? <button onClick={playOriginal}>PLAY ORIGINAL</button> : null}
           {fingerprint !== undefined ? <button onClick={playModel}>PLAY MODEL</button> : null}
+          {session.records.length > 0 ? <button onClick={exportEvidence}>EXPORT EVIDENCE</button> : null}
           {session.state !== "idle" ? <button className="secondary" onClick={session.stop}>STOP</button> : null}
         </div>
       </section>
