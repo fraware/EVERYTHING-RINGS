@@ -53,10 +53,12 @@ describe("acoustic mode measurement floor", () => {
       mode(441, 0.5, 0.7),
       mode(441.5, 0.4, 0.95),
       mode(997, 0.3, 0.54),
+      mode(1500, 0.2, 0.8),
     ]);
 
     expect(selected).toHaveLength(2);
     expect(selected.some((entry) => entry.frequencyHz === 441.5)).toBe(true);
+    expect(selected.some((entry) => entry.frequencyHz === 1500)).toBe(true);
     expect(selected.some((entry) => entry.frequencyHz === 997)).toBe(false);
   });
 });
