@@ -243,7 +243,9 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
 
       openingMicrophone = await openMicrophone();
       openingContext = new AudioContext();
-      await openingContext.resume();
+      if (!(await resumeAudioContext(openingContext))) {
+        throw new Error("AUDIO_CONTEXT_UNAVAILABLE");
+      }
       openingGraph = await createCaptureGraph(openingContext, openingMicrophone.stream, captureWorkletUrl);
       openingWorker = new Worker(new URL("./analysis.worker.ts", import.meta.url), { type: "module" });
 
@@ -253,8 +255,8 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
       const worker = openingWorker;
       const current: SessionResources = { context, microphone, graph, worker, playback: {} };
       current.microphoneEnded = () => terminateForMicrophoneLoss(current);
-      resources.current = current;
       microphone.track.addEventListener("ended", current.microphoneEnded, { once: true });
+      resources.current = current;
       if (microphone.track.readyState === "ended") {
         terminateForMicrophoneLoss(current);
         return;
