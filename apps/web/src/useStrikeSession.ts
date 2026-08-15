@@ -18,6 +18,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import captureWorkletUrl from "../../../packages/acquisition/src/worklet/capture-processor.ts?worker&url";
 import instrumentWorkletUrl from "./instrument-processor.ts?worker&url";
+import { ensureAudioContextRunning, normalizeMediaRuntimeFailure } from "./mediaRuntime";
 import {
   beginQualifiedAttempt,
   clearQualifiedAttemptLedger,
@@ -96,6 +97,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
   const [attempts, setAttempts] = useState<QualifiedAttempt[]>([]);
   const [instrumentReady, setInstrumentReady] = useState(false);
   const [instrumentFailure, setInstrumentFailure] = useState<string>();
+  const [playbackFailure, setPlaybackFailure] = useState<string>();
   const [audioTiming, setAudioTiming] = useState<RealtimeAudioTiming>();
   const resources = useRef<SessionResources | undefined>(undefined);
   const requestId = useRef(0);
@@ -228,8 +230,13 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
       setCapture(undefined);
       setQuality(undefined);
       setInstrumentFailure(undefined);
+      setPlaybackFailure(undefined);
       setAudioTiming(undefined);
       setState("warming");
+
+      if (typeof navigator === "undefined" || navigator.mediaDevices?.getUserMedia === undefined) {
+        throw new Error("MICROPHONE_UNSUPPORTED");
+      }
 
       openingMicrophone = await openMicrophone();
       openingContext = new AudioContext();
@@ -327,7 +334,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
         openingMicrophone?.stream.getTracks().forEach((track) => track.stop());
         if (openingContext !== undefined) void openingContext.close();
       }
-      setFailureReason(error instanceof Error ? error.message : String(error));
+      setFailureReason(normalizeMediaRuntimeFailure(error));
       setState("error");
     }
   }
@@ -342,6 +349,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     setQuality(undefined);
     setInstrumentReady(false);
     setInstrumentFailure(undefined);
+    setPlaybackFailure(undefined);
     pendingInstrumentEvents.current.clear();
     postInstrument({ type: "ALL_NOTES_OFF" });
     const node = resources.current?.graph.node;
@@ -368,6 +376,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     setFingerprint(undefined);
     setFailureReason(undefined);
     setInstrumentFailure(undefined);
+    setPlaybackFailure(undefined);
     if (alreadyIdle) {
       const clearedLedger = clearQualifiedAttemptLedger();
       attemptLedger.current = clearedLedger;
@@ -379,19 +388,40 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
   }
 
   function play(samples: Float32Array, sampleRate: number): void {
-    const context = resources.current?.context;
-    if (context === undefined) return;
-    playSamples(context, samples, sampleRate);
+    const current = resources.current;
+    if (current === undefined) return;
+    setPlaybackFailure(undefined);
+    void (async () => {
+      if (!(await ensureAudioContextRunning(current.context)) || resources.current !== current) {
+        if (resources.current === current) setPlaybackFailure("AUDIO_PLAYBACK_UNAVAILABLE");
+        return;
+      }
+      playSamples(current.context, samples, sampleRate);
+    })();
   }
 
-  function noteOn(midiNote: number, velocity = 1): boolean {
-    const current = resources.current;
-    if (!instrumentReady || current?.instrument === undefined) return false;
+  function dispatchNote(current: SessionResources, midiNote: number, velocity: number): boolean {
+    if (!instrumentReady || current.instrument === undefined || resources.current !== current) return false;
     const eventId = nextInstrumentEventId.current;
     nextInstrumentEventId.current += 1;
     pendingInstrumentEvents.current.set(eventId, current.context.currentTime);
     const message: ModalInstrumentWorkletMessage = { type: "NOTE_ON", midiNote, velocity, eventId };
     current.instrument.port.postMessage(message);
+    return true;
+  }
+
+  function noteOn(midiNote: number, velocity = 1): boolean {
+    const current = resources.current;
+    if (!instrumentReady || current?.instrument === undefined) return false;
+    setPlaybackFailure(undefined);
+    if (current.context.state === "running") return dispatchNote(current, midiNote, velocity);
+    void (async () => {
+      if (!(await ensureAudioContextRunning(current.context)) || resources.current !== current) {
+        if (resources.current === current) setPlaybackFailure("AUDIO_PLAYBACK_UNAVAILABLE");
+        return;
+      }
+      dispatchNote(current, midiNote, velocity);
+    })();
     return true;
   }
 
@@ -416,6 +446,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     attempts,
     instrumentReady,
     instrumentFailure,
+    playbackFailure,
     audioTiming,
     start,
     reset,
