@@ -12,12 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      TARGET_REVISION: 73c0641af57b0ccaabcfa453c34008b2417e7678
-      VITE_SOFTWARE_REVISION: 73c0641af57b0ccaabcfa453c34008b2417e7678
+      TARGET_REVISION: 9f27f94708cea3bf9122758b315be186d3cd7723
+      VITE_SOFTWARE_REVISION: 9f27f94708cea3bf9122758b315be186d3cd7723
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 73c0641af57b0ccaabcfa453c34008b2417e7678
+          ref: 9f27f94708cea3bf9122758b315be186d3cd7723
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -80,6 +80,7 @@ jobs:
           const revision = process.env.TARGET_REVISION;
           if (!/^[0-9a-f]{40}$/.test(revision ?? '')) throw new Error('target revision is invalid');
           const objectLabel = 'gate a2 synthetic ceramic mug';
+          const expectedAlgorithmVersion = 'er-dsp-2';
           const expectedModes = [
             { frequencyHz: 440, decaySeconds: 1.20 },
             { frequencyHz: 997, decaySeconds: 0.70 },
@@ -136,7 +137,7 @@ jobs:
           }
 
           function assertFingerprint(fingerprint, attemptId) {
-            if (fingerprint?.algorithmVersion !== 'er-dsp-2') throw new Error(`attempt ${attemptId} has wrong algorithm provenance`);
+            if (fingerprint?.algorithmVersion !== expectedAlgorithmVersion) throw new Error(`attempt ${attemptId} has wrong algorithm provenance`);
             if (!Number.isFinite(fingerprint?.sampleRate) || fingerprint.sampleRate <= 0) throw new Error(`attempt ${attemptId} has invalid sample rate`);
             if (!Array.isArray(fingerprint?.modes) || fingerprint.modes.length !== 3) {
               throw new Error(`attempt ${attemptId} expected exactly 3 supported modes, got ${fingerprint?.modes?.length}`);
@@ -171,9 +172,11 @@ jobs:
               const snapshot = await page.evaluate(() => ({
                 text: document.body.innerText,
                 modeCount: document.querySelectorAll('.mode-row:not(.mode-head)').length,
+                algorithmVersion: document.querySelector('.result-head .eyebrow')?.textContent?.trim() ?? null,
               }));
               if (!snapshot.text.includes(`${attempt} / 5`)) throw new Error(`attempt ${attempt} was not retained`);
               if (snapshot.modeCount !== 3) throw new Error(`attempt ${attempt} expected exactly three visible modes, got ${snapshot.modeCount}`);
+              if (snapshot.algorithmVersion !== expectedAlgorithmVersion) throw new Error(`attempt ${attempt} displayed ${snapshot.algorithmVersion} instead of ${expectedAlgorithmVersion}`);
               if (attempt < 5) {
                 await clickButton('NEW QUALIFIED ATTEMPT');
                 await page.waitForFunction(() => document.querySelector('.status')?.textContent?.trim() !== 'success', { timeout: 3_000, polling: 50 });
@@ -183,6 +186,7 @@ jobs:
             const finalText = await page.evaluate(() => document.body.innerText);
             if (!finalText.includes('Five qualified attempts complete. Gate A2 passes')) throw new Error('Gate A2 session did not pass after five repeated strikes');
             if (!finalText.includes('Gate A2\nPASS')) throw new Error('Gate A2 session metric did not report PASS');
+            const renderedAlgorithmVersion = await page.$eval('.result-head .eyebrow', node => node.textContent?.trim() ?? '');
 
             await clickButton('EXPORT EVIDENCE');
             const evidencePath = await waitForJsonDownload();
@@ -199,6 +203,8 @@ jobs:
               }
               assertFingerprint(attempt.analysis.fingerprint, attempt.id);
             }
+            const exportedAlgorithmVersion = evidence.attempts[evidence.attempts.length - 1].analysis.fingerprint.algorithmVersion;
+            if (renderedAlgorithmVersion !== exportedAlgorithmVersion) throw new Error('rendered and exported algorithm provenance diverged');
             if (evidence.recurrence?.length !== 4) throw new Error('evidence does not contain four recurrence comparisons');
             if (evidence.recurrence.some(comparison => comparison.matchedCount < 3 || comparison.medianCents > 50)) throw new Error('recurrence comparison violates Gate A2 bounds');
             if (!(evidence.medianModalDriftCents <= 25)) throw new Error('session median drift violates Gate A2 bound');
@@ -235,6 +241,7 @@ jobs:
             const fingerprints = evidence.attempts.map(attempt => attempt.analysis.fingerprint);
             const report = {
               targetRevision: revision,
+              renderedAlgorithmVersion,
               algorithmVersions: [...new Set(fingerprints.map(fingerprint => fingerprint.algorithmVersion))],
               attemptCount: evidence.attemptCount,
               modeCounts: fingerprints.map(fingerprint => fingerprint.modes.length),
