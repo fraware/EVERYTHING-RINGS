@@ -14,6 +14,8 @@ export {
   type EvidenceParseResult,
 } from "./parse";
 export type {
+  CaptureQualityEvidence,
+  CaptureSettingsEvidence,
   DeviceClass,
   EvidenceRecurrence,
   FixedSetupProtocol,
