@@ -138,6 +138,7 @@ export function LabApp() {
     && Number.isFinite(microphoneDistanceCm)
     && microphoneDistanceCm > 0;
   const protocolLocked = activeObject !== undefined && activeProtocol !== undefined;
+  const strikeLimitReached = session.records.length >= 5;
 
   function startSession(): void {
     if (!protocolReady) return;
@@ -258,13 +259,14 @@ export function LabApp() {
             {session.state === "armed" && "Ready. Tap the object once."}
             {session.state === "capturing" && "Capturing the decay…"}
             {session.state === "analyzing" && "Finding stable resonances…"}
-            {session.state === "success" && `${fingerprint?.modes.length ?? 0} stable resonances found.`}
+            {session.state === "success" && !strikeLimitReached && `${fingerprint?.modes.length ?? 0} stable resonances found.`}
+            {session.state === "success" && strikeLimitReached && "Five accepted strikes collected. Run the listening reviews and export this session."}
             {(session.state === "failure" || session.state === "error") && failureCopy(session.failureReason)}
           </p>
         </div>
         <div className="actions">
           {session.state === "idle" && !protocolLocked ? <button disabled={!protocolReady} onClick={startSession}>ARM MICROPHONE</button> : null}
-          {session.state !== "idle" ? <button onClick={session.reset}>NEW STRIKE</button> : null}
+          {session.state !== "idle" ? <button disabled={strikeLimitReached} onClick={session.reset}>NEW STRIKE</button> : null}
           {session.records.length > 0 && protocolLocked ? <button onClick={exportEvidence}>EXPORT EVIDENCE</button> : null}
           {session.state !== "idle" ? <button className="secondary" onClick={session.stop}>STOP</button> : null}
           {session.state === "idle" && protocolLocked ? <button className="secondary" onClick={prepareNewObject}>NEW OBJECT SETUP</button> : null}
