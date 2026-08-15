@@ -24,6 +24,8 @@ function ScoreField({ label, value, onChange }: {
 }
 
 export function GateReviewPanel({
+  sessionId,
+  recordId,
   objectLabel,
   canListen,
   instrumentReady,
@@ -34,6 +36,8 @@ export function GateReviewPanel({
   onGateBReview,
   onGateCReview,
 }: {
+  readonly sessionId: string;
+  readonly recordId?: number;
   readonly objectLabel: string;
   readonly canListen: boolean;
   readonly instrumentReady: boolean;
@@ -59,6 +63,7 @@ export function GateReviewPanel({
 
   const objectReady = objectLabel.trim().length > 0;
   const reviewerReady = reviewerId.trim().length > 0;
+  const targetReady = sessionId.trim().length > 0 && recordId !== undefined;
 
   function startBlindTrial(): void {
     setPresentationOrder(Math.random() < 0.5 ? "original-model" : "model-original");
@@ -72,11 +77,13 @@ export function GateReviewPanel({
   }
 
   function submitGateB(): void {
-    if (!objectReady || !reviewerReady || presentationOrder === undefined) return;
+    if (!objectReady || !reviewerReady || !targetReady || recordId === undefined || presentationOrder === undefined) return;
     onGateBReview({
       reviewId: createReviewId("gate-b"),
       reviewerId: reviewerId.trim(),
       objectLabel: objectLabel.trim(),
+      sessionId,
+      recordId,
       blinded: true,
       presentationOrder,
       identity,
@@ -88,11 +95,13 @@ export function GateReviewPanel({
   }
 
   function submitGateC(): void {
-    if (!objectReady || !reviewerReady || deviceId.trim().length === 0) return;
+    if (!objectReady || !reviewerReady || !targetReady || recordId === undefined || deviceId.trim().length === 0) return;
     onGateCReview({
       reviewId: createReviewId("gate-c"),
       reviewerId: reviewerId.trim(),
       objectLabel: objectLabel.trim(),
+      sessionId,
+      recordId,
       deviceId: deviceId.trim(),
       deviceClass,
       identityAcrossRange: rangeIdentity,
@@ -105,14 +114,14 @@ export function GateReviewPanel({
   return <section className="review-stack">
     <div className="review-identity">
       <label><span>reviewer ID</span><input value={reviewerId} onChange={(event) => setReviewerId(event.target.value)} placeholder="reviewer-01" /></label>
-      <p className="small">Use the same reviewer ID across objects. No account or personal identifier is required.</p>
+      <p className="small">Use the same reviewer ID across objects. No account or personal identifier is required. Reviews unlock only after all five accepted strikes.</p>
     </div>
 
     <article className="review-card">
       <div className="review-head"><div><p className="eyebrow">GATE B / BLINDED</p><h3>Original / reconstruction identity</h3></div><strong>{gateBReviews.length} reviews</strong></div>
       <p className="small">Start a trial, listen to A and B in any order, then score whether they preserve the same object identity. The mapping remains hidden during scoring.</p>
       {presentationOrder === undefined
-        ? <button disabled={!canListen || !objectReady || !reviewerReady} onClick={startBlindTrial}>START BLIND TRIAL</button>
+        ? <button disabled={!canListen || !objectReady || !reviewerReady || !targetReady} onClick={startBlindTrial}>START BLIND TRIAL</button>
         : <div className="blind-trial">
           <div className="actions"><button onClick={() => playBlind("A")}>PLAY A</button><button onClick={() => playBlind("B")}>PLAY B</button></div>
           <div className="review-grid">
@@ -137,7 +146,7 @@ export function GateReviewPanel({
         <label><span>useful range</span><div className="input-unit"><input type="number" min="0" step="1" value={usefulSemitoneSpan} onChange={(event) => setUsefulSemitoneSpan(Number(event.target.value))} /><span>semitones</span></div></label>
         <label className="check-field"><input type="checkbox" checked={latencyAcceptable} onChange={(event) => setLatencyAcceptable(event.target.checked)} /><span>note-on latency acceptable</span></label>
       </div>
-      <button disabled={!instrumentReady || !objectReady || !reviewerReady || deviceId.trim().length === 0} onClick={submitGateC}>SUBMIT DEVICE REVIEW</button>
+      <button disabled={!instrumentReady || !objectReady || !reviewerReady || !targetReady || deviceId.trim().length === 0} onClick={submitGateC}>SUBMIT DEVICE REVIEW</button>
     </article>
   </section>;
 }
