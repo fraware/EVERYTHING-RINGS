@@ -1,14 +1,14 @@
-import type { GateBReview, GateCReview, ValidationEvidenceV3 } from "./types";
+import type { GateBReview, GateCReview, ValidationEvidenceV4 } from "./types";
 
 export type EvidenceMergeResult =
-  | { readonly ok: true; readonly evidence: ValidationEvidenceV3 }
+  | { readonly ok: true; readonly evidence: ValidationEvidenceV4 }
   | { readonly ok: false; readonly error: string };
 
 function normalizedIdentifier(value: string): string {
   return value.trim().toLocaleLowerCase("en-US");
 }
 
-function stableCore(evidence: ValidationEvidenceV3): string {
+function stableCore(evidence: ValidationEvidenceV4): string {
   return JSON.stringify({
     schemaVersion: evidence.schemaVersion,
     evidenceContractVersion: evidence.evidenceContractVersion,
@@ -17,17 +17,17 @@ function stableCore(evidence: ValidationEvidenceV3): string {
     object: evidence.object,
     protocol: evidence.protocol,
     captureSettings: evidence.captureSettings,
-    recordCount: evidence.recordCount,
+    attemptCount: evidence.attemptCount,
     medianModalDriftCents: evidence.medianModalDriftCents,
     recurrence: evidence.recurrence,
-    records: evidence.records,
+    attempts: evidence.attempts,
     rawMicrophoneSamplesIncluded: evidence.rawMicrophoneSamplesIncluded,
   });
 }
 
 function logicalReviewKey(review: GateBReview | GateCReview): string {
   const reviewer = normalizedIdentifier(review.reviewerId);
-  const target = `${review.sessionId}\u0000${review.recordId}`;
+  const target = `${review.sessionId}\u0000${review.attemptId}`;
   if ("deviceId" in review) {
     return `C\u0000${reviewer}\u0000${normalizedIdentifier(review.deviceId)}\u0000${target}`;
   }
@@ -61,8 +61,8 @@ function mergeReviews<T extends GateBReview | GateCReview>(
 }
 
 export function mergeValidationEvidence(
-  existing: ValidationEvidenceV3,
-  incoming: ValidationEvidenceV3,
+  existing: ValidationEvidenceV4,
+  incoming: ValidationEvidenceV4,
 ): EvidenceMergeResult {
   if (existing.sessionId !== incoming.sessionId) {
     return { ok: false, error: "cannot merge different session IDs" };
