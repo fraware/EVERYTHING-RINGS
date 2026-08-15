@@ -146,8 +146,8 @@ function selectRepeatedVertex(vertexIds: readonly number[], micIds: readonly num
 const datasetDirectory = process.env.REALIMPACT_DIR;
 const manual = datasetDirectory === undefined ? describe.skip : describe;
 
-manual("RealImpact Gate A external benchmark", () => {
-  it("recovers recurrent modal structure across separate measurements", () => {
+manual("RealImpact cross-field recurrence benchmark", () => {
+  it("recovers modal frequencies across separate listener positions", () => {
     if (datasetDirectory === undefined) throw new Error("REALIMPACT_DIR is required");
     const preprocessed = path.join(datasetDirectory, "preprocessed");
     const responsePath = path.join(preprocessed, "deconvolved_0db.npy");
@@ -173,63 +173,75 @@ manual("RealImpact Gate A external benchmark", () => {
       throw new Error("Could not select a repeated impact vertex");
     }
 
-    const maximumStrikes = Number(process.env.REALIMPACT_MAX_STRIKES ?? 8);
+    const maximumMeasurements = Number(process.env.REALIMPACT_MAX_MEASUREMENTS ?? 8);
     const rowIndices = vertexIds
       .map((value, index) => ({ value, index }))
       .filter(({ value, index }) => value === vertexId && microphoneIds[index] === microphoneId)
-      .slice(0, maximumStrikes)
+      .slice(0, maximumMeasurements)
       .map(({ index }) => index);
     expect(rowIndices.length).toBeGreaterThanOrEqual(3);
 
     const sampleRate = 48_000;
-    const fingerprints = rowIndices.flatMap((rowIndex) => {
+    const attempts = rowIndices.map((rowIndex, measurementOrdinal) => {
       const response = readFloatMatrixRow(responsePath, rowIndex);
       const coarse = coarseImpactSample(response, sampleRate);
       const ringdown = extractImpactRingdown(response, sampleRate, coarse);
       const result = analyzeImpact(ringdown.samples, sampleRate);
-      return result.ok ? [{ rowIndex, fingerprint: result.fingerprint }] : [];
+      return { rowIndex, measurementOrdinal, coarseImpactSample: coarse, ringdownStartSample: ringdown.startSample, result };
     });
-    expect(fingerprints.length).toBeGreaterThanOrEqual(3);
+    const fingerprints = attempts.flatMap(({ rowIndex, measurementOrdinal, result }) =>
+      result.ok ? [{ rowIndex, measurementOrdinal, fingerprint: result.fingerprint }] : [],
+    );
 
     const reference = fingerprints[0];
-    if (reference === undefined) throw new Error("No reference fingerprint");
-    const comparisons = fingerprints.slice(1).map(({ rowIndex, fingerprint }) => ({
+    const comparisons = reference === undefined ? [] : fingerprints.slice(1).map(({ rowIndex, measurementOrdinal, fingerprint }) => ({
       rowIndex,
+      measurementOrdinal,
       recurrence: fingerprintRecurrence(reference.fingerprint, fingerprint),
     }));
-    const strikeDrifts = comparisons.map(({ recurrence }) => recurrence.medianCents);
+    const measurementDrifts = comparisons.map(({ recurrence }) => recurrence.medianCents);
 
     const report = {
-      schemaVersion: 2,
+      schemaVersion: 4,
       dataset: "RealImpact",
+      validationScope: "cross-field-modal-recurrence",
+      releaseGateEquivalent: false,
       signal: "deconvolved_0db",
       objectDirectory: path.basename(datasetDirectory),
       sampleRate,
       vertexId,
       microphoneId,
       attemptedRows: rowIndices,
+      attempts: attempts.map(({ rowIndex, measurementOrdinal, coarseImpactSample, ringdownStartSample, result }) =>
+        result.ok
+          ? { rowIndex, measurementOrdinal, coarseImpactSample, ringdownStartSample, ok: true, modeCount: result.fingerprint.modes.length }
+          : { rowIndex, measurementOrdinal, coarseImpactSample, ringdownStartSample, ok: false, reason: result.reason },
+      ),
       acceptedRows: fingerprints.map(({ rowIndex }) => rowIndex),
       acceptanceRate: fingerprints.length / rowIndices.length,
-      medianStrikeDriftCents: median(strikeDrifts),
-      strikeDriftsCents: strikeDrifts,
-      comparisons: comparisons.map(({ rowIndex, recurrence }) => ({
+      medianCrossFieldDriftCents: median(measurementDrifts),
+      crossFieldDriftsCents: measurementDrifts,
+      comparisons: comparisons.map(({ rowIndex, measurementOrdinal, recurrence }) => ({
         rowIndex,
+        measurementOrdinal,
         medianCents: recurrence.medianCents,
         meanCents: recurrence.meanCents,
         matchedCount: recurrence.matchedCount,
         unmatchedReferenceCount: recurrence.unmatchedReferenceCount,
       })),
-      referenceModes: reference.fingerprint.modes.slice(0, 8).map((mode) => ({
+      referenceModes: reference?.fingerprint.modes.slice(0, 8).map((mode) => ({
         frequencyHz: mode.frequencyHz,
         decaySeconds: mode.decaySeconds,
         confidence: mode.confidence,
-      })),
+      })) ?? [],
     };
 
     if (process.env.REALIMPACT_REPORT !== undefined) {
       fs.writeFileSync(process.env.REALIMPACT_REPORT, `${JSON.stringify(report, null, 2)}\n`);
     }
     console.log(JSON.stringify(report, null, 2));
-    expect(Number.isFinite(report.medianStrikeDriftCents)).toBe(true);
-  });
+
+    expect(fingerprints.length).toBeGreaterThanOrEqual(3);
+    expect(Number.isFinite(report.medianCrossFieldDriftCents)).toBe(true);
+  }, 30_000);
 });

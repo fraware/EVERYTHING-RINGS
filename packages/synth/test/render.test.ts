@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AcousticFingerprintV1, AcousticMode } from "@everything-rings/dsp";
+import { analyzeImpact, type AcousticFingerprintV1, type AcousticMode } from "@everything-rings/dsp";
 import { renderAcousticFingerprint } from "../src/render";
 
 function mode(frequencyHz: number, decaySeconds: number, relativeAmplitude = 1): AcousticMode {
@@ -38,6 +38,13 @@ function rms(samples: Float32Array, start: number, end: number): number {
     count += 1;
   }
   return count === 0 ? 0 : Math.sqrt(sum / count);
+}
+
+function nearestMode(modes: readonly AcousticMode[], targetFrequencyHz: number): AcousticMode | undefined {
+  return [...modes].sort(
+    (left, right) =>
+      Math.abs(left.frequencyHz - targetFrequencyHz) - Math.abs(right.frequencyHz - targetFrequencyHz),
+  )[0];
 }
 
 describe("renderAcousticFingerprint", () => {
@@ -90,5 +97,25 @@ describe("renderAcousticFingerprint", () => {
     });
     expect(rendered.some((value) => value !== 0)).toBe(true);
     expect(source.modes[0]?.frequencyHz).toBe(originalFrequency);
+  });
+
+  it("round-trips the canonical modal structure through the estimator", () => {
+    const source = fingerprint([
+      mode(440, 1.2, 1),
+      mode(997, 0.7, 0.62),
+      mode(2413, 0.38, 0.35),
+    ], 1.5);
+    const rendered = renderAcousticFingerprint(source);
+    const result = analyzeImpact(rendered, source.sampleRate);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.reason);
+
+    for (const expected of source.modes) {
+      const recovered = nearestMode(result.fingerprint.modes, expected.frequencyHz);
+      expect(recovered).toBeDefined();
+      if (recovered === undefined) continue;
+      expect(Math.abs(recovered.frequencyHz - expected.frequencyHz)).toBeLessThan(3);
+      expect(Math.abs(recovered.decaySeconds - expected.decaySeconds) / expected.decaySeconds).toBeLessThan(0.15);
+    }
   });
 });
