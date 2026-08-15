@@ -95,6 +95,7 @@ export function ConsumerApp() {
       <button type="button" className="consumer-primary" disabled={!session.instrumentReady} aria-expanded={showKeyboard} aria-controls="consumer-keyboard" onClick={toggleKeyboard}>{playLabel}</button>
       <button type="button" className="consumer-ghost" onClick={strikeAgain}>STRIKE ANOTHER</button>
     </div>
+    {session.playbackFailure !== undefined ? <p className="consumer-playback-error" role="alert">{failureCopy(session.playbackFailure)}</p> : null}
     {showKeyboard && session.instrumentReady ? <section className="consumer-instrument" id="consumer-keyboard"><p className="consumer-kicker">PLAY</p><div className="consumer-keyboard" role="group" aria-label="Chromatic instrument">{PLAY_NOTES.map((note, index) => <button type="button" aria-label={noteName(note.midi, note.label)} key={`${note.midi}-${index}`} onPointerDown={() => session.noteOn(note.midi)} onKeyDown={(event) => playKeyFromKeyboard(event, note.midi)}>{note.label}</button>)}</div></section> : null}
     <a className="lab-link" href="?lab=1">open measurements</a>
   </main>;
