@@ -1,9 +1,18 @@
 name: realimpact-benchmark
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/realimpact-probe.yml"
+  workflow_dispatch:
+    inputs:
+      object_name:
+        description: RealImpact object archive name
+        required: true
+        default: 64_CeramicMug
+        type: string
+      max_strikes:
+        description: Maximum separate strikes to analyze
+        required: true
+        default: "8"
+        type: string
 
 permissions:
   contents: read
@@ -13,7 +22,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      OBJECT_NAME: 64_CeramicMug
+      OBJECT_NAME: ${{ inputs.object_name }}
+      MAX_STRIKES: ${{ inputs.max_strikes }}
     steps:
       - uses: actions/checkout@v7
 
@@ -34,7 +44,7 @@ jobs:
           url="https://downloads.cs.stanford.edu/viscam/RealImpact/${OBJECT_NAME}.zip"
           echo "Downloading ${url}"
           df -h .
-          curl --fail --show-error --location --retry 3 --retry-delay 5 --output ".realimpact/${OBJECT_NAME}.zip" "${url}"
+          curl --fail --show-error --location --retry 3 --retry-all-errors --retry-delay 5 --output ".realimpact/${OBJECT_NAME}.zip" "${url}"
           ls -lh ".realimpact/${OBJECT_NAME}.zip"
 
       - name: Extract object archive
@@ -56,7 +66,7 @@ jobs:
           object_dir="$(dirname "$(dirname "${sounds_path}")")"
           echo "REALIMPACT_DIR=${object_dir}"
           REALIMPACT_DIR="${object_dir}" \
-          REALIMPACT_MAX_STRIKES=8 \
+          REALIMPACT_MAX_STRIKES="${MAX_STRIKES}" \
           REALIMPACT_REPORT=/tmp/everything-rings-realimpact.json \
           pnpm --filter @everything-rings/dsp test:realimpact
           echo "--- Gate A external report ---"
