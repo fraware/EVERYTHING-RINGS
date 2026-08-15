@@ -12,12 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      TARGET_REVISION: 5de7e472982da3451c1b43d7a421701648105fa2
-      VITE_SOFTWARE_REVISION: 5de7e472982da3451c1b43d7a421701648105fa2
+      TARGET_REVISION: 7ae302e8a5af32ebea699100234fedaa8369c2fa
+      VITE_SOFTWARE_REVISION: 7ae302e8a5af32ebea699100234fedaa8369c2fa
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 5de7e472982da3451c1b43d7a421701648105fa2
+          ref: 7ae302e8a5af32ebea699100234fedaa8369c2fa
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -60,7 +60,7 @@ jobs:
           npm init -y >/dev/null
           npm install --no-save --package-lock=false puppeteer-core@24.31.0
           node -e "const p=require('puppeteer-core/package.json'); if(p.version!=='24.31.0') process.exit(1)"
-      - name: Exercise consumer flow
+      - name: Exercise consumer lifecycle
         run: |
           set -euo pipefail
           CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
@@ -90,13 +90,39 @@ jobs:
           const pageErrors = [];
           page.on('pageerror', error => pageErrors.push(error.message));
 
-          async function button(label) {
-            return page.evaluateHandle(text => {
-              const match = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === text);
-              if (!(match instanceof HTMLButtonElement)) throw new Error(`${text} missing`);
-              return match;
-            }, label);
-          }
+          await page.evaluateOnNewDocument(() => {
+            window.__erContexts = [];
+            window.__erStream = undefined;
+            window.__erSourceStarts = 0;
+            window.__erSourceStops = 0;
+
+            const OriginalAudioContext = window.AudioContext;
+            window.AudioContext = new Proxy(OriginalAudioContext, {
+              construct(target, args, newTarget) {
+                const context = Reflect.construct(target, args, newTarget);
+                window.__erContexts.push(context);
+                return context;
+              },
+            });
+
+            const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+            navigator.mediaDevices.getUserMedia = async (...args) => {
+              const stream = await originalGetUserMedia(...args);
+              window.__erStream = stream;
+              return stream;
+            };
+
+            const originalStart = AudioBufferSourceNode.prototype.start;
+            const originalStop = AudioBufferSourceNode.prototype.stop;
+            AudioBufferSourceNode.prototype.start = function (...args) {
+              window.__erSourceStarts += 1;
+              return originalStart.apply(this, args);
+            };
+            AudioBufferSourceNode.prototype.stop = function (...args) {
+              window.__erSourceStops += 1;
+              return originalStop.apply(this, args);
+            };
+          });
 
           async function clickButton(label) {
             await page.evaluate(text => {
@@ -114,21 +140,33 @@ jobs:
               { timeout: 15_000, polling: 100 },
             );
 
-            const reveal = await page.evaluate(() => ({
-              text: document.body.innerText,
+            const initial = await page.evaluate(() => ({
+              contexts: window.__erContexts.length,
               dna: document.querySelector('.dna-view') !== null,
-              originalDisabled: [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'HEAR ORIGINAL')?.disabled ?? true,
-              reconstructionDisabled: [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'HEAR RECONSTRUCTION')?.disabled ?? true,
+              streamPresent: window.__erStream instanceof MediaStream,
             }));
-            if (!reveal.dna) throw new Error('Acoustic DNA missing');
-            if (!reveal.text.includes('stable resonance supported by this recording')) throw new Error('truth-qualified reveal copy missing');
-            if (reveal.originalDisabled) throw new Error('original playback unavailable after successful capture');
-            if (reveal.reconstructionDisabled) throw new Error('reconstruction playback unavailable after successful analysis');
+            if (initial.contexts !== 1 || !initial.dna || !initial.streamPresent) {
+              throw new Error(`runtime instrumentation failed: ${JSON.stringify(initial)}`);
+            }
+
+            const suspendedBeforeOriginal = await page.evaluate(async () => {
+              const context = window.__erContexts[0];
+              await context.suspend();
+              return context.state;
+            });
+            if (suspendedBeforeOriginal !== 'suspended') throw new Error(`could not suspend context: ${suspendedBeforeOriginal}`);
 
             await clickButton('HEAR ORIGINAL');
-            await new Promise(resolve => setTimeout(resolve, 150));
+            await page.waitForFunction(() => window.__erContexts[0]?.state === 'running' && window.__erSourceStarts >= 1, { timeout: 3_000, polling: 50 });
+            const afterOriginal = await page.evaluate(() => ({ starts: window.__erSourceStarts, stops: window.__erSourceStops }));
+            if (afterOriginal.starts !== 1 || afterOriginal.stops !== 0) throw new Error(`unexpected first playback counts: ${JSON.stringify(afterOriginal)}`);
+
             await clickButton('HEAR RECONSTRUCTION');
-            await new Promise(resolve => setTimeout(resolve, 150));
+            await page.waitForFunction(() => window.__erSourceStarts >= 2 && window.__erSourceStops >= 1, { timeout: 3_000, polling: 50 });
+            const afterReplacement = await page.evaluate(() => ({ starts: window.__erSourceStarts, stops: window.__erSourceStops }));
+            if (afterReplacement.starts !== 2 || afterReplacement.stops < 1) {
+              throw new Error(`sample playback was not exclusive: ${JSON.stringify(afterReplacement)}`);
+            }
 
             await page.waitForFunction(() => {
               const match = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'PLAY IT');
@@ -136,40 +174,44 @@ jobs:
             }, { timeout: 5_000, polling: 100 });
             await clickButton('PLAY IT');
 
-            const keyboard = await page.evaluate(() => ({
-              keyCount: document.querySelectorAll('.consumer-keyboard button').length,
-              expanded: [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'HIDE KEYS')?.getAttribute('aria-expanded'),
-              c4: document.querySelector('.consumer-keyboard button[aria-label="C4"]') !== null,
-              d4: document.querySelector('.consumer-keyboard button[aria-label="D4"]') !== null,
-            }));
-            if (keyboard.keyCount !== 13 || keyboard.expanded !== 'true' || !keyboard.c4 || !keyboard.d4) {
-              throw new Error(`keyboard contract failed: ${JSON.stringify(keyboard)}`);
-            }
-
-            await page.focus('.consumer-keyboard button[aria-label="C4"]');
-            await page.keyboard.press('Enter');
-            await page.$eval('.consumer-keyboard button[aria-label="D4"]', node => {
+            const suspendedBeforeNote = await page.evaluate(async () => {
+              const context = window.__erContexts[0];
+              await context.suspend();
+              return context.state;
+            });
+            if (suspendedBeforeNote !== 'suspended') throw new Error('context did not suspend before note');
+            await page.$eval('.consumer-keyboard button[aria-label="C4"]', node => {
               node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' }));
             });
+            await page.waitForFunction(() => window.__erContexts[0]?.state === 'running', { timeout: 3_000, polling: 50 });
 
-            await clickButton('HIDE KEYS');
-            const closed = await page.evaluate(() => ({
-              keyboardPresent: document.querySelector('.consumer-keyboard') !== null,
-              expanded: [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'PLAY IT')?.getAttribute('aria-expanded'),
+            await page.evaluate(() => {
+              const track = window.__erStream?.getAudioTracks()[0];
+              if (track === undefined) throw new Error('active microphone track missing');
+              track.stop();
+              track.dispatchEvent(new Event('ended'));
+            });
+            const disconnectedCopy = 'The microphone disconnected. Reconnect or reselect the input, then start again.';
+            await page.waitForFunction(text => document.body.innerText.includes(text), { timeout: 3_000, polling: 50 }, disconnectedCopy);
+            const terminal = await page.evaluate(() => ({
+              text: document.body.innerText,
+              contextState: window.__erContexts[0]?.state,
+              trackState: window.__erStream?.getAudioTracks()[0]?.readyState,
             }));
-            if (closed.keyboardPresent || closed.expanded !== 'false') throw new Error(`keyboard did not close cleanly: ${JSON.stringify(closed)}`);
+            if (!terminal.text.includes('TRY AGAIN') || !terminal.text.includes('START OVER')) throw new Error('disconnect recovery actions missing');
+            if (terminal.contextState !== 'closed') throw new Error(`audio context remained live after input loss: ${terminal.contextState}`);
+            if (terminal.trackState !== 'ended') throw new Error(`microphone track did not end: ${terminal.trackState}`);
             if (pageErrors.length > 0) throw new Error(pageErrors.join('\n'));
 
             const report = {
               targetRevision: process.env.TARGET_REVISION,
-              revealCopy: 'estimated audible resonances',
-              originalPlayback: true,
-              reconstructionPlayback: true,
-              playableKeyCount: keyboard.keyCount,
-              keyboardActivation: true,
-              pointerActivation: true,
-              closeSilencesInstrumentPath: true,
-              pageErrors: pageErrors.length,
+              suspendedSamplePlaybackResumed: true,
+              originalToReconstructionExclusive: true,
+              replacementStopCount: afterReplacement.stops,
+              suspendedInstrumentResumed: true,
+              microphoneDisconnectRecovered: true,
+              audioContextClosedOnDisconnect: true,
+              pageErrors: 0,
             };
             console.log(JSON.stringify(report, null, 2));
             fs.writeFileSync(`${process.env.RUNNER_TEMP}/consumer-e2e-report.json`, JSON.stringify(report, null, 2));
