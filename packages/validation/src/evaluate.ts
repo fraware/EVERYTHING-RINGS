@@ -78,10 +78,11 @@ export function evaluateGateASession(
     (comparison) => comparison.matchedCount >= thresholds.minimumMatchedModesPerComparison,
   ).length;
   const recurrenceMedians = evidence.recurrence.map((comparison) => comparison.medianCents);
+  const finiteRecurrenceMedians = recurrenceMedians.filter(Number.isFinite);
   const sessionMedianDriftCents = median(recurrenceMedians);
-  const worstComparisonMedianDriftCents = recurrenceMedians.length === 0
+  const worstComparisonMedianDriftCents = finiteRecurrenceMedians.length === 0
     ? null
-    : Math.max(...recurrenceMedians.filter(Number.isFinite));
+    : Math.max(...finiteRecurrenceMedians);
 
   if (evidence.object.label.trim().length === 0) reasons.push("object label is missing");
   if (!evidence.protocol.fixedSetup) reasons.push("fixed-setup protocol is not declared");
@@ -91,15 +92,15 @@ export function evaluateGateASession(
   if (evidence.protocol.supportCondition.trim().length === 0) reasons.push("support condition is missing");
   if (evidence.rawMicrophoneSamplesIncluded !== false) reasons.push("raw microphone samples invariant failed");
   if (evidence.recordCount !== acceptedStrikes) reasons.push("record count does not match evidence records");
-  if (acceptedStrikes < thresholds.acceptedStrikesPerObject) {
-    reasons.push(`requires ${thresholds.acceptedStrikesPerObject} accepted strikes`);
+  if (acceptedStrikes !== thresholds.acceptedStrikesPerObject) {
+    reasons.push(`requires exactly ${thresholds.acceptedStrikesPerObject} accepted strikes`);
   }
   if (strikesWithStableModes < thresholds.minimumStrikesWithStableModes) {
     reasons.push(`requires ${thresholds.minimumStrikesWithStableModes} strikes with at least ${thresholds.minimumStableModes} stable modes`);
   }
   const requiredComparisons = Math.max(0, thresholds.acceptedStrikesPerObject - 1);
-  if (recurrenceComparisons < requiredComparisons) {
-    reasons.push(`requires ${requiredComparisons} recurrence comparisons`);
+  if (recurrenceComparisons !== requiredComparisons) {
+    reasons.push(`requires exactly ${requiredComparisons} recurrence comparisons`);
   }
   if (comparisonsWithEnoughMatches < requiredComparisons) {
     reasons.push(`each release comparison needs at least ${thresholds.minimumMatchedModesPerComparison} matched modes`);
@@ -137,10 +138,24 @@ export function evaluateGateARelease(
 ): GateAReleaseVerdict {
   const sessions = evidence.map((bundle) => evaluateGateASession(bundle, thresholds));
   const passing = sessions.filter((session) => session.passed);
-  const distinctLabels = new Set(passing.map((session) => normalizedLabel(session.objectLabel)));
-  const materialCoverage = [...new Set(passing.map((session) => session.material))];
+  const materialByLabel = new Map<string, MaterialClass>();
+  const conflictingMaterialLabels = new Set<string>();
+  for (const session of passing) {
+    const label = normalizedLabel(session.objectLabel);
+    const previous = materialByLabel.get(label);
+    if (previous !== undefined && previous !== session.material) {
+      conflictingMaterialLabels.add(label);
+    } else {
+      materialByLabel.set(label, session.material);
+    }
+  }
+  const distinctLabels = new Set(materialByLabel.keys());
+  const materialCoverage = [...new Set(materialByLabel.values())];
   const reasons: string[] = [];
 
+  if (conflictingMaterialLabels.size > 0) {
+    reasons.push(`conflicting material labels for: ${[...conflictingMaterialLabels].join(", ")}`);
+  }
   if (distinctLabels.size < thresholds.minimumDistinctObjects) {
     reasons.push(`requires ${thresholds.minimumDistinctObjects} distinct passing objects`);
   }
