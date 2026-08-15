@@ -1,128 +1,44 @@
 import { describe, expect, it } from "vitest";
-import {
-  evaluateGateASession,
-  mergeValidationEvidence,
-  type GateBReview,
-  type ValidationEvidenceV3,
-} from "../src";
-import { deriveEvidenceRecurrence, deriveMedianModalDriftCents } from "../src/derive";
+import { evaluateGateASession, mergeValidationEvidence } from "../src";
+import { evidence, gateBReview, fingerprint } from "./helpers";
 
-function fingerprint(cents = 0) {
-  const ratio = 2 ** (cents / 1200);
-  return {
-    version: 1 as const,
-    algorithmVersion: "er-dsp-1" as const,
-    sampleRate: 48000,
-    durationSeconds: 2,
-    modes: [440, 880, 1320].map((frequencyHz, index) => ({
-      frequencyHz: frequencyHz * ratio,
-      relativeAmplitude: 1 / (index + 1),
-      decaySeconds: 0.4 / (index + 1),
-      q: 100,
-      confidence: 0.9,
-      diagnostics: {
-        prominenceDb: 20,
-        persistenceSeconds: 0.2,
-        frequencyStdCents: 2,
-        decayFitScore: 0.95,
-        observationCount: 12,
-      },
-    })),
-  };
-}
-
-function bundle(): ValidationEvidenceV3 {
-  const cents = [0, 5, 8, 10, 12];
-  const records = cents.map((drift, index) => ({
-    id: index + 1,
-    quality: {
-      score: 0.9,
-      snrDb: 30,
-      clippedFraction: 0,
-      peakAmplitude: 0.4,
-      secondaryTransientRatio: 0.1,
-    },
-    fingerprint: fingerprint(drift),
-  }));
-  return {
-    schemaVersion: 3,
-    evidenceContractVersion: "validation-evidence-3",
-    gateAContractVersion: "gate-a-1",
-    sessionId: "session-bell",
-    createdAt: "2026-08-15T12:00:00.000Z",
-    object: { label: "bell", material: "metal" },
-    protocol: {
-      fixedSetup: true,
-      microphoneDistanceCm: 20,
-      striker: "wooden dowel",
-      strikeLocation: "rim mark",
-      supportCondition: "held at base",
-    },
-    captureSettings: null,
-    realtimeAudioTiming: null,
-    recordCount: records.length,
-    medianModalDriftCents: deriveMedianModalDriftCents(records),
-    recurrence: deriveEvidenceRecurrence(records),
-    records,
-    gateBReviews: [],
-    gateCReviews: [],
-    rawMicrophoneSamplesIncluded: false,
-  };
-}
-
-function review(reviewId: string, reviewerId: string): GateBReview {
-  return {
-    reviewId,
-    reviewerId,
-    objectLabel: "bell",
-    sessionId: "session-bell",
-    recordId: 5,
-    blinded: true,
-    presentationOrder: "original-model",
-    identity: 4,
-    brightness: 4,
-    decayCharacter: 4,
-    artifactSeverity: 2,
-  };
-}
-
-describe("Gate A capture quality", () => {
-  it("requires all five retained strikes to satisfy the frozen acquisition bounds", () => {
-    const valid = bundle();
+describe("Gate A2 capture quality", () => {
+  it("requires all five retained qualified attempts to satisfy the frozen acquisition bounds", () => {
+    const valid = evidence("bell", "metal");
     expect(evaluateGateASession(valid).passed).toBe(true);
 
-    const records = valid.records.map((record, index) => index === 2
-      ? { ...record, quality: { ...record.quality, snrDb: 11.99 } }
-      : record);
-    const verdict = evaluateGateASession({ ...valid, records });
+    const attempts = valid.attempts.map((attempt, index) => index === 2
+      ? { ...attempt, quality: { ...attempt.quality, snrDb: 11.99 } }
+      : attempt);
+    const verdict = evaluateGateASession({ ...valid, attempts });
     expect(verdict.passed).toBe(false);
-    expect(verdict.metrics.qualityPassingStrikes).toBe(4);
+    expect(verdict.metrics.qualityPassingAttempts).toBe(4);
     expect(verdict.reasons.some((reason) => reason.includes("acquisition-quality"))).toBe(true);
   });
 
   it("accepts values exactly on the frozen quality boundaries", () => {
-    const valid = bundle();
-    const records = valid.records.map((record) => ({
-      ...record,
+    const valid = evidence("bell", "metal");
+    const attempts = valid.attempts.map((attempt) => ({
+      ...attempt,
       quality: {
-        ...record.quality,
+        ...attempt.quality,
         peakAmplitude: 0.02,
         snrDb: 12,
         clippedFraction: 0.001,
         secondaryTransientRatio: 0.65,
       },
     }));
-    expect(evaluateGateASession({ ...valid, records }).passed).toBe(true);
+    expect(evaluateGateASession({ ...valid, attempts }).passed).toBe(true);
   });
 });
 
-describe("evidence session merging", () => {
-  it("merges additional reviews only when the immutable measurement core matches", () => {
-    const first = bundle();
+describe("v4 evidence session merging", () => {
+  it("merges additional reviews only when the immutable qualified-attempt core matches", () => {
+    const first = evidence("bell", "metal");
     const second = {
       ...first,
       createdAt: "2026-08-15T12:05:00.000Z",
-      gateBReviews: [review("review-1", "r1")],
+      gateBReviews: [gateBReview("bell", "r1", { reviewId: "review-1" })],
     };
     const merged = mergeValidationEvidence(first, second);
     expect(merged.ok).toBe(true);
@@ -131,33 +47,44 @@ describe("evidence session merging", () => {
     expect(merged.evidence.createdAt).toBe(second.createdAt);
   });
 
-  it("rejects reuse of a session ID with different measurement evidence", () => {
-    const first = bundle();
-    const records = first.records.map((record, index) => index === 4
-      ? { ...record, fingerprint: fingerprint(20) }
-      : record);
-    const second = { ...first, records };
+  it("rejects reuse of a session ID with different qualified-attempt evidence", () => {
+    const first = evidence("bell", "metal");
+    const attempts = first.attempts.map((attempt, index) => index === 4 && attempt.analysis.status === "success"
+      ? { ...attempt, analysis: { status: "success" as const, fingerprint: fingerprint(20) } }
+      : attempt);
+    const second = { ...first, attempts };
+    const merged = mergeValidationEvidence(first, second);
+    expect(merged.ok).toBe(false);
+    if (!merged.ok) expect(merged.error).toContain("different measurement evidence");
+  });
+
+  it("rejects a changed analytical failure outcome under the same session ID", () => {
+    const first = evidence("bell", "metal", { failureAttemptIds: [3] });
+    const second = evidence("bell", "metal", { sessionId: first.sessionId });
     const merged = mergeValidationEvidence(first, second);
     expect(merged.ok).toBe(false);
     if (!merged.ok) expect(merged.error).toContain("different measurement evidence");
   });
 
   it("rejects one review ID reused with conflicting contents", () => {
-    const first = { ...bundle(), gateBReviews: [review("same", "r1")] };
+    const first = { ...evidence("bell", "metal"), gateBReviews: [gateBReview("bell", "r1", { reviewId: "same" })] };
     const second = {
-      ...bundle(),
-      gateBReviews: [{ ...review("same", "r1"), identity: 1 as const }],
+      ...evidence("bell", "metal"),
+      gateBReviews: [gateBReview("bell", "r1", { reviewId: "same", identity: 1 })],
     };
     const merged = mergeValidationEvidence(first, second);
     expect(merged.ok).toBe(false);
     if (!merged.ok) expect(merged.error).toContain("conflicting contents");
   });
 
-  it("rejects a second logical submission from the same reviewer and target", () => {
-    const first = { ...bundle(), gateBReviews: [review("first", "Reviewer-1")] };
+  it("rejects a second logical submission from the same normalized reviewer and target", () => {
+    const first = {
+      ...evidence("bell", "metal"),
+      gateBReviews: [gateBReview("bell", "Reviewer-1", { reviewId: "first" })],
+    };
     const second = {
-      ...bundle(),
-      gateBReviews: [{ ...review("second", "reviewer-1"), identity: 3 as const }],
+      ...evidence("bell", "metal"),
+      gateBReviews: [gateBReview("bell", "reviewer-1", { reviewId: "second", identity: 3 })],
     };
     const merged = mergeValidationEvidence(first, second);
     expect(merged.ok).toBe(false);
