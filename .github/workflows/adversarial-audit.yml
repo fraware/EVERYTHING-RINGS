@@ -1,0 +1,138 @@
+name: adversarial-audit
+
+on:
+  push:
+    branches:
+      - stress/adversarial-audit-2026-08-15
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Audit dependencies at high severity
+        run: pnpm audit --audit-level=high
+      - name: Verify install leaves tracked files unchanged
+        run: git diff --exit-code
+
+  production-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      VITE_SOFTWARE_REVISION: 447f98dd511201367d6051704e10607d645735dd
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Assert frozen revision is embedded
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R -Fq "447f98dd511201367d6051704e10607d645735dd" apps/web/dist
+      - name: Assert no source maps are accidentally shipped
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find apps/web/dist -type f -name '*.map' -print -quit | grep -q .; then
+            echo 'Unexpected source maps in production bundle' >&2
+            find apps/web/dist -type f -name '*.map' -print >&2
+            exit 1
+          fi
+      - name: Assert production bundle contains no raw microphone fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find apps/web/dist -type f \( -name '*.wav' -o -name '*.npy' -o -name '*.pcm' \) -print -quit | grep -q .; then
+            echo 'Unexpected raw audio/data fixture in production bundle' >&2
+            exit 1
+          fi
+
+  browser-engines:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      VITE_SOFTWARE_REVISION: 447f98dd511201367d6051704e10607d645735dd
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Install isolated browser harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/everything-rings-browser-audit
+          cd /tmp/everything-rings-browser-audit
+          npm init -y >/dev/null
+          npm install --save-exact playwright@1.55.0
+          npx playwright install --with-deps chromium firefox webkit
+      - name: Cross-engine rendered-route and API audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @everything-rings/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort >/tmp/everything-rings-browser-audit-vite.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4173 >/dev/null; then break; fi
+            sleep 0.25
+          done
+          cat >/tmp/everything-rings-browser-audit/audit.mjs <<'NODE'
+          import { chromium, firefox, webkit } from 'playwright';
+          const engines = { chromium, firefox, webkit };
+          const routes = [
+            ['/', 'Hit anything.'],
+            ['/?lab=1', 'Acoustic analysis lab'],
+            ['/?release=1', 'Empirical release gates'],
+            ['/?lab=1&release=1', 'Empirical release gates'],
+          ];
+          for (const [name, engine] of Object.entries(engines)) {
+            const args = name === 'chromium'
+              ? ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream']
+              : [];
+            const browser = await engine.launch({ headless: true, args });
+            const page = await browser.newPage();
+            const errors = [];
+            page.on('pageerror', (error) => errors.push(String(error)));
+            for (const [route, expected] of routes) {
+              const response = await page.goto(`http://127.0.0.1:4173${route}`, { waitUntil: 'networkidle' });
+              if (!response?.ok()) throw new Error(`${name} ${route}: HTTP ${response?.status()}`);
+              const body = await page.locator('body').innerText();
+              if (!body.includes(expected)) throw new Error(`${name} ${route}: missing ${expected}`);
+              if (route.includes('lab=1') && !route.includes('release=1')) {
+                if (!body.includes('software revision 447f98dd511201367d6051704e10607d645735dd')) {
+                  throw new Error(`${name}: missing frozen revision in lab`);
+                }
+                const capabilities = await page.evaluate(() => ({
+                  audioContext: typeof AudioContext !== 'undefined' || typeof webkitAudioContext !== 'undefined',
+                  mediaDevices: typeof navigator.mediaDevices?.getUserMedia === 'function',
+                  worker: typeof Worker !== 'undefined',
+                  crypto: typeof crypto?.randomUUID === 'function',
+                }));
+                if (!capabilities.audioContext || !capabilities.mediaDevices || !capabilities.worker) {
+                  throw new Error(`${name}: missing required browser API ${JSON.stringify(capabilities)}`);
+                }
+              }
+            }
+            if (errors.length > 0) throw new Error(`${name}: uncaught page errors: ${errors.join(' | ')}`);
+            await browser.close();
+          }
+          NODE
+          cd /tmp/everything-rings-browser-audit
+          node audit.mjs
