@@ -20,7 +20,9 @@ For at least five strongly resonant objects:
 - mode-solo interpretation can later be tied to components audible in the source recording;
 - results are not dominated by obvious false tracks.
 
-The analysis lab reports median nearest-mode drift in cents relative to the first accepted strike. This is a diagnostic, not yet a universal similarity score.
+The analysis lab reports one-to-one fingerprint recurrence relative to the first accepted strike, including median modal drift in cents and unmatched reference modes. This is a diagnostic, not yet a universal similarity score.
+
+External cross-field recurrence is supporting evidence only. It does not satisfy this gate because microphone position and other acquisition conditions vary across those measurements.
 
 ## Failure handling
 
