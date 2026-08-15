@@ -29,7 +29,7 @@ function ScoreField({ label, value, onChange }: {
 
 export function GateReviewPanel({
   sessionId,
-  recordId,
+  attemptId,
   objectLabel,
   canListen,
   instrumentReady,
@@ -41,7 +41,7 @@ export function GateReviewPanel({
   onGateCReview,
 }: {
   readonly sessionId: string;
-  readonly recordId: number | undefined;
+  readonly attemptId: number | undefined;
   readonly objectLabel: string;
   readonly canListen: boolean;
   readonly instrumentReady: boolean;
@@ -67,19 +67,19 @@ export function GateReviewPanel({
 
   const objectReady = objectLabel.trim().length > 0;
   const reviewerReady = reviewerId.trim().length > 0;
-  const targetReady = sessionId.trim().length > 0 && recordId !== undefined;
+  const targetReady = sessionId.trim().length > 0 && attemptId !== undefined;
   const reviewerKey = normalizedIdentifier(reviewerId);
   const deviceKey = normalizedIdentifier(deviceId);
   const gateBSubmitted = targetReady && gateBReviews.some((review) => (
     normalizedIdentifier(review.reviewerId) === reviewerKey
     && review.sessionId === sessionId
-    && review.recordId === recordId
+    && review.attemptId === attemptId
   ));
   const gateCSubmitted = targetReady && gateCReviews.some((review) => (
     normalizedIdentifier(review.reviewerId) === reviewerKey
     && normalizedIdentifier(review.deviceId) === deviceKey
     && review.sessionId === sessionId
-    && review.recordId === recordId
+    && review.attemptId === attemptId
   ));
 
   function changeReviewer(value: string): void {
@@ -100,13 +100,13 @@ export function GateReviewPanel({
   }
 
   function submitGateB(): void {
-    if (!objectReady || !reviewerReady || !targetReady || gateBSubmitted || recordId === undefined || presentationOrder === undefined) return;
+    if (!objectReady || !reviewerReady || !targetReady || gateBSubmitted || attemptId === undefined || presentationOrder === undefined) return;
     onGateBReview({
       reviewId: createReviewId("gate-b"),
       reviewerId: reviewerId.trim(),
       objectLabel: objectLabel.trim(),
       sessionId,
-      recordId,
+      attemptId,
       blinded: true,
       presentationOrder,
       identity,
@@ -122,13 +122,13 @@ export function GateReviewPanel({
   }
 
   function submitGateC(): void {
-    if (!objectReady || !reviewerReady || !targetReady || gateCSubmitted || recordId === undefined || deviceId.trim().length === 0) return;
+    if (!objectReady || !reviewerReady || !targetReady || gateCSubmitted || attemptId === undefined || deviceId.trim().length === 0) return;
     onGateCReview({
       reviewId: createReviewId("gate-c"),
       reviewerId: reviewerId.trim(),
       objectLabel: objectLabel.trim(),
       sessionId,
-      recordId,
+      attemptId,
       deviceId: deviceId.trim(),
       deviceClass,
       identityAcrossRange: rangeIdentity,
@@ -141,7 +141,7 @@ export function GateReviewPanel({
   return <section className="review-stack">
     <div className="review-identity">
       <label><span>reviewer ID</span><input value={reviewerId} onChange={(event) => changeReviewer(event.target.value)} placeholder="reviewer-01" /></label>
-      <p className="small">Use the same reviewer ID across objects. No account or personal identifier is required. Reviews unlock only after all five accepted strikes and are immutable once submitted for that target.</p>
+      <p className="small">Use the same reviewer ID across objects. Reviews unlock only after Gate A2 passes and are immutable for this exact session/attempt target.</p>
     </div>
 
     <article className="review-card">
