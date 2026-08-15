@@ -1,7 +1,3 @@
-import type {
-  CaptureQuality,
-  CaptureSettingsSnapshot,
-} from "@everything-rings/acquisition";
 import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
 import type { FingerprintRecurrence } from "@everything-rings/fingerprint";
 
@@ -18,6 +14,23 @@ export type MaterialClass =
 export type Score1To5 = 1 | 2 | 3 | 4 | 5;
 export type DeviceClass = "desktop" | "mobile" | "tablet" | "other";
 export type GateBPresentationOrder = "original-model" | "model-original";
+
+export interface CaptureSettingsEvidence {
+  readonly sampleRate?: number;
+  readonly channelCount?: number;
+  readonly echoCancellation?: boolean;
+  readonly noiseSuppression?: boolean;
+  readonly autoGainControl?: boolean;
+  readonly deviceId?: string;
+}
+
+export interface CaptureQualityEvidence {
+  readonly score: number;
+  readonly snrDb: number;
+  readonly clippedFraction: number;
+  readonly peakAmplitude: number;
+  readonly secondaryTransientRatio: number;
+}
 
 export interface ValidationObjectMetadata {
   readonly label: string;
@@ -41,7 +54,7 @@ export interface RealtimeAudioTimingEvidence {
 
 export interface ValidationEvidenceRecord {
   readonly id: number;
-  readonly quality: CaptureQuality;
+  readonly quality: CaptureQualityEvidence;
   readonly fingerprint: AcousticFingerprintV1;
 }
 
@@ -81,7 +94,7 @@ export interface ValidationEvidenceV3 {
   readonly createdAt: string;
   readonly object: ValidationObjectMetadata;
   readonly protocol: FixedSetupProtocol;
-  readonly captureSettings: CaptureSettingsSnapshot | null;
+  readonly captureSettings: CaptureSettingsEvidence | null;
   readonly realtimeAudioTiming: RealtimeAudioTimingEvidence | null;
   readonly recordCount: number;
   readonly medianModalDriftCents: number | null;
