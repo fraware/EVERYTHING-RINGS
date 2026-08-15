@@ -1,0 +1,193 @@
+name: gate-a2-browser-e2e
+
+on:
+  push:
+    branches: [validation/gate-a2-browser-e2e]
+
+permissions:
+  contents: read
+
+jobs:
+  five-attempt-session:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VITE_SOFTWARE_REVISION: 447f98dd511201367d6051704e10607d645735dd
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 447f98dd511201367d6051704e10607d645735dd
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Generate looping deterministic strike WAV
+        run: |
+          python - <<'PY'
+          import math, os, random, wave
+          sr = 48_000
+          duration = 6.0
+          onset = 1.0
+          random.seed(0x45524132)
+          path = os.path.join(os.environ['RUNNER_TEMP'], 'gate-a2-loop.wav')
+          with wave.open(path, 'wb') as wav:
+              wav.setnchannels(1)
+              wav.setsampwidth(2)
+              wav.setframerate(sr)
+              frames = bytearray()
+              for i in range(round(sr * duration)):
+                  t = i / sr
+                  value = random.uniform(-0.00012, 0.00012)
+                  if t >= onset:
+                      dt = t - onset
+                      value += 0.45 * math.exp(-dt / 1.20) * math.cos(2 * math.pi * 440 * dt)
+                      value += 0.24 * math.exp(-dt / 0.70) * math.cos(2 * math.pi * 997 * dt)
+                      value += 0.12 * math.exp(-dt / 0.38) * math.cos(2 * math.pi * 2413 * dt)
+                  value = max(-0.90, min(0.90, value))
+                  frames += int(round(value * 32767)).to_bytes(2, 'little', signed=True)
+              wav.writeframes(frames)
+          print(path)
+          PY
+      - run: pnpm build
+      - name: Install browser driver in temporary directory
+        run: |
+          mkdir -p "${RUNNER_TEMP}/gate-a2-e2e"
+          cd "${RUNNER_TEMP}/gate-a2-e2e"
+          npm init -y >/dev/null
+          npm install --no-save --package-lock=false puppeteer-core@24
+      - name: Collect five qualified attempts, export, and import evidence
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "${CHROME}"
+          pnpm --filter @everything-rings/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort >"${RUNNER_TEMP}/gate-a2-vite.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "${SERVER_PID}" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do
+            curl --fail --silent http://127.0.0.1:4173/ >/dev/null && break
+            sleep 0.25
+          done
+          cat >"${RUNNER_TEMP}/gate-a2-e2e/test.mjs" <<'JS'
+          import puppeteer from 'puppeteer-core';
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const revision = '447f98dd511201367d6051704e10607d645735dd';
+          const downloadDir = path.join(process.env.RUNNER_TEMP, 'gate-a2-downloads');
+          fs.mkdirSync(downloadDir, { recursive: true });
+          const browser = await puppeteer.launch({
+            executablePath: process.env.CHROME,
+            headless: true,
+            args: [
+              '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+              '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
+              `--use-file-for-fake-audio-capture=${process.env.RUNNER_TEMP}/gate-a2-loop.wav`,
+              '--autoplay-policy=no-user-gesture-required',
+            ],
+          });
+          const page = await browser.newPage();
+          const pageErrors = [];
+          page.on('pageerror', error => pageErrors.push(error.message));
+          const cdp = await page.createCDPSession();
+          await cdp.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadDir });
+
+          async function clickButton(label) {
+            await page.evaluate(text => {
+              const button = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === text);
+              if (!(button instanceof HTMLButtonElement) || button.disabled) throw new Error(`${text} unavailable`);
+              button.click();
+            }, label);
+          }
+
+          async function waitForState(expected, timeout = 15_000) {
+            await page.waitForFunction(state => document.querySelector('.status')?.textContent?.trim() === state, { timeout, polling: 100 }, expected);
+          }
+
+          try {
+            await page.goto('http://127.0.0.1:4173/?lab=1', { waitUntil: 'networkidle0', timeout: 30_000 });
+            if (!(await page.content()).includes(`software revision ${revision}`)) throw new Error('wrong or missing software revision');
+            await page.click('input[placeholder="lab-mug-01"]');
+            await page.type('input[placeholder="lab-mug-01"]', 'gate-a2-e2e-ceramic-01');
+            await page.click('input[placeholder="ceramic mug"]');
+            await page.type('input[placeholder="ceramic mug"]', 'gate a2 synthetic ceramic mug');
+            await page.select('select', 'ceramic');
+            await clickButton('ARM MICROPHONE');
+
+            for (let attempt = 1; attempt <= 5; attempt += 1) {
+              await waitForState('success', 15_000);
+              const snapshot = await page.evaluate(() => ({
+                text: document.body.innerText,
+                modeCount: document.querySelectorAll('.mode-row:not(.mode-head)').length,
+              }));
+              if (!snapshot.text.includes(`${attempt} / 5`)) throw new Error(`attempt ${attempt} was not retained`);
+              if (snapshot.modeCount < 3) throw new Error(`attempt ${attempt} has fewer than three modes`);
+              if (attempt < 5) {
+                await clickButton('NEW QUALIFIED ATTEMPT');
+                await page.waitForFunction(() => document.querySelector('.status')?.textContent?.trim() !== 'success', { timeout: 3_000, polling: 50 });
+              }
+            }
+
+            const finalText = await page.evaluate(() => document.body.innerText);
+            if (!finalText.includes('Five qualified attempts complete. Gate A2 passes')) throw new Error('Gate A2 did not pass after five repeated strikes');
+            if (!finalText.includes('Gate A2\nPASS')) throw new Error('Gate A2 metric did not report PASS');
+
+            await clickButton('EXPORT EVIDENCE');
+            let evidencePath;
+            for (let i = 0; i < 50; i += 1) {
+              const files = fs.readdirSync(downloadDir).filter(name => name.endsWith('.json'));
+              if (files.length > 0) {
+                evidencePath = path.join(downloadDir, files[0]);
+                break;
+              }
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            if (evidencePath === undefined) throw new Error('evidence download did not appear');
+            const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+            if (evidence.schemaVersion !== 5 || evidence.evidenceContractVersion !== 'validation-evidence-5') throw new Error('wrong evidence schema');
+            if (evidence.softwareRevision !== revision) throw new Error('evidence software revision mismatch');
+            if (evidence.attemptCount !== 5 || evidence.attempts?.length !== 5) throw new Error('evidence does not contain exactly five attempts');
+            if (evidence.attempts.some(attempt => attempt.analysis?.status !== 'success')) throw new Error('export contains a failed analysis');
+            if (evidence.recurrence?.length !== 4) throw new Error('evidence does not contain four recurrence comparisons');
+            if (evidence.rawMicrophoneSamplesIncluded !== false) throw new Error('raw microphone sample invariant failed');
+
+            await page.goto('http://127.0.0.1:4173/?release=1', { waitUntil: 'networkidle0', timeout: 30_000 });
+            const input = await page.$('input[type="file"]');
+            if (input === null) throw new Error('Release Console file input missing');
+            await input.uploadFile(evidencePath);
+            await page.waitForFunction(() => document.body.innerText.includes('1 sessions'), { timeout: 5_000, polling: 100 });
+            let releaseText = await page.evaluate(() => document.body.innerText);
+            if (releaseText.includes('Rejected files')) throw new Error('Release Console rejected valid exported evidence');
+            if (!releaseText.includes(`Software revision: ${revision}`)) throw new Error('Release Console lost software provenance');
+            if (!releaseText.includes('gate a2 synthetic ceramic mug')) throw new Error('imported session missing from Release Console');
+
+            await input.uploadFile(evidencePath);
+            await new Promise(resolve => setTimeout(resolve, 300));
+            releaseText = await page.evaluate(() => document.body.innerText);
+            if (!releaseText.includes('1 sessions')) throw new Error('idempotent repeated import duplicated the session');
+            if (pageErrors.length > 0) throw new Error(pageErrors.join('\n'));
+
+            const report = {
+              softwareRevision: evidence.softwareRevision,
+              attemptCount: evidence.attemptCount,
+              recurrenceComparisons: evidence.recurrence.length,
+              medianModalDriftCents: evidence.medianModalDriftCents,
+              importedSessionCount: 1,
+              gateA2SessionPassed: true,
+            };
+            console.log(JSON.stringify(report, null, 2));
+            fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'gate-a2-browser-report.json'), JSON.stringify(report, null, 2));
+          } finally {
+            await browser.close();
+          }
+          JS
+          CHROME="${CHROME}" RUNNER_TEMP="${RUNNER_TEMP}" node "${RUNNER_TEMP}/gate-a2-e2e/test.mjs"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gate-a2-browser-e2e
+          path: |
+            ${{ runner.temp }}/gate-a2-browser-report.json
+            ${{ runner.temp }}/gate-a2-downloads/*.json
+            ${{ runner.temp }}/gate-a2-vite.log
+          if-no-files-found: ignore
