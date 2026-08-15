@@ -25,6 +25,50 @@ function score(value: unknown): boolean {
   return Number.isInteger(value) && typeof value === "number" && value >= 1 && value <= 5;
 }
 
+function optionalFiniteNumber(value: unknown): boolean {
+  return value === undefined || finiteNumber(value);
+}
+
+function optionalBoolean(value: unknown): boolean {
+  return value === undefined || typeof value === "boolean";
+}
+
+function optionalString(value: unknown): boolean {
+  return value === undefined || typeof value === "string";
+}
+
+function validCaptureSettings(value: unknown): boolean {
+  if (value === null) return true;
+  const settings = record(value);
+  return settings !== undefined
+    && optionalFiniteNumber(settings.sampleRate)
+    && optionalFiniteNumber(settings.channelCount)
+    && optionalBoolean(settings.echoCancellation)
+    && optionalBoolean(settings.noiseSuppression)
+    && optionalBoolean(settings.autoGainControl)
+    && optionalString(settings.deviceId);
+}
+
+function validAudioTiming(value: unknown): boolean {
+  if (value === null) return true;
+  const timing = record(value);
+  return timing !== undefined
+    && finiteNumber(timing.baseLatencyMs)
+    && finiteNumber(timing.renderQuantumMs)
+    && optionalFiniteNumber(timing.outputLatencyMs)
+    && optionalFiniteNumber(timing.lastSchedulingMs);
+}
+
+function validQuality(value: unknown): boolean {
+  const quality = record(value);
+  return quality !== undefined
+    && finiteNumber(quality.score)
+    && finiteNumber(quality.snrDb)
+    && finiteNumber(quality.clippedFraction)
+    && finiteNumber(quality.peakAmplitude)
+    && finiteNumber(quality.secondaryTransientRatio);
+}
+
 function validFingerprint(value: unknown): boolean {
   const fingerprint = record(value);
   if (fingerprint === undefined) return false;
@@ -110,6 +154,8 @@ export function parseValidationEvidence(value: unknown): EvidenceParseResult {
   if (!nonEmptyString(protocol.striker)) return { ok: false, error: "striker is missing" };
   if (!nonEmptyString(protocol.strikeLocation)) return { ok: false, error: "strike location is missing" };
   if (!nonEmptyString(protocol.supportCondition)) return { ok: false, error: "support condition is missing" };
+  if (!validCaptureSettings(evidence.captureSettings)) return { ok: false, error: "capture settings are invalid" };
+  if (!validAudioTiming(evidence.realtimeAudioTiming)) return { ok: false, error: "realtime audio timing is invalid" };
 
   if (!finiteNumber(evidence.recordCount) || evidence.recordCount < 0) return { ok: false, error: "recordCount is invalid" };
   if (!(evidence.medianModalDriftCents === null || finiteNumber(evidence.medianModalDriftCents))) {
@@ -120,7 +166,7 @@ export function parseValidationEvidence(value: unknown): EvidenceParseResult {
   }
   if (!Array.isArray(evidence.records) || !evidence.records.every((value) => {
     const entry = record(value);
-    return entry !== undefined && finiteNumber(entry.id) && record(entry.quality) !== undefined && validFingerprint(entry.fingerprint);
+    return entry !== undefined && finiteNumber(entry.id) && validQuality(entry.quality) && validFingerprint(entry.fingerprint);
   })) {
     return { ok: false, error: "measurement records are invalid" };
   }
