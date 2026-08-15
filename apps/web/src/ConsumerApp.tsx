@@ -1,4 +1,3 @@
-import { renderPlayableNote } from "@everything-rings/instrument";
 import { renderAcousticFingerprint } from "@everything-rings/synth";
 import { useState } from "react";
 import { AcousticDnaView } from "./AcousticDnaView";
@@ -38,14 +37,6 @@ export function ConsumerApp() {
     session.play(renderAcousticFingerprint(fingerprint, sampleRate), sampleRate);
   }
 
-  function playNote(midiNote: number): void {
-    const fingerprint = session.fingerprint;
-    if (fingerprint === undefined) return;
-    const sampleRate = session.playbackSampleRate() ?? fingerprint.sampleRate;
-    const note = renderPlayableNote(fingerprint, midiNote, sampleRate);
-    session.play(note.samples, sampleRate);
-  }
-
   if (session.state === "idle") {
     return <main className="consumer-shell consumer-hero">
       <p className="consumer-mark">EVERYTHING RINGS</p>
@@ -69,13 +60,16 @@ export function ConsumerApp() {
 
   const fingerprint = session.fingerprint;
   if (fingerprint === undefined) return null;
+  const playLabel = session.instrumentFailure !== undefined
+    ? "PLAY UNAVAILABLE"
+    : session.instrumentReady ? "PLAY IT" : "PREPARING PLAY…";
 
   return <main className="consumer-shell consumer-reveal">
     <p className="consumer-mark">EVERYTHING RINGS</p>
     <section className="reveal-copy"><p className="consumer-kicker">REVEAL</p><h1>You found {fingerprint.modes.length} resonances.</h1><p>Each arc is one measured ring in this object.</p></section>
     <AcousticDnaView fingerprint={fingerprint} />
-    <div className="consumer-actions"><button className="consumer-primary" onClick={hearModel}>HEAR THE MODEL</button><button className="consumer-primary" onClick={() => setShowKeyboard((value) => !value)}>PLAY IT</button><button className="consumer-ghost" onClick={strikeAgain}>STRIKE ANOTHER</button></div>
-    {showKeyboard ? <section className="consumer-instrument"><p className="consumer-kicker">PLAY</p><div className="consumer-keyboard">{PLAY_NOTES.map((note, index) => <button key={`${note.midi}-${index}`} onClick={() => playNote(note.midi)}>{note.label}</button>)}</div></section> : null}
+    <div className="consumer-actions"><button className="consumer-primary" onClick={hearModel}>HEAR THE MODEL</button><button className="consumer-primary" disabled={!session.instrumentReady} onClick={() => setShowKeyboard((value) => !value)}>{playLabel}</button><button className="consumer-ghost" onClick={strikeAgain}>STRIKE ANOTHER</button></div>
+    {showKeyboard && session.instrumentReady ? <section className="consumer-instrument"><p className="consumer-kicker">PLAY</p><div className="consumer-keyboard">{PLAY_NOTES.map((note, index) => <button key={`${note.midi}-${index}`} onPointerDown={() => session.noteOn(note.midi)}>{note.label}</button>)}</div></section> : null}
     <a className="lab-link" href="?lab=1">open measurements</a>
   </main>;
 }
