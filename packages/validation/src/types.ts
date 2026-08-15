@@ -113,6 +113,10 @@ export interface ValidationEvidenceV3 {
 export interface GateAThresholds {
   readonly contractVersion: "gate-a-1";
   readonly acceptedStrikesPerObject: number;
+  readonly minimumPeakAmplitude: number;
+  readonly minimumSnrDb: number;
+  readonly maximumClippedFraction: number;
+  readonly maximumSecondaryTransientRatio: number;
   readonly minimumStableModes: number;
   readonly minimumStrikesWithStableModes: number;
   readonly minimumMatchedModesPerComparison: number;
@@ -124,6 +128,7 @@ export interface GateAThresholds {
 
 export interface GateASessionMetrics {
   readonly acceptedStrikes: number;
+  readonly qualityPassingStrikes: number;
   readonly strikesWithStableModes: number;
   readonly recurrenceComparisons: number;
   readonly comparisonsWithEnoughMatches: number;
