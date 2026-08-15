@@ -62,7 +62,12 @@ export interface EvidenceRecurrence extends FingerprintRecurrence {
   readonly recordId: number;
 }
 
-export interface GateBReview {
+export interface ReviewTarget {
+  readonly sessionId: string;
+  readonly recordId: number;
+}
+
+export interface GateBReview extends ReviewTarget {
   readonly reviewId: string;
   readonly reviewerId: string;
   readonly objectLabel: string;
@@ -74,7 +79,7 @@ export interface GateBReview {
   readonly artifactSeverity: Score1To5;
 }
 
-export interface GateCReview {
+export interface GateCReview extends ReviewTarget {
   readonly reviewId: string;
   readonly reviewerId: string;
   readonly objectLabel: string;
@@ -130,6 +135,7 @@ export interface GateASessionVerdict {
   readonly sessionId: string;
   readonly objectLabel: string;
   readonly material: MaterialClass;
+  readonly reviewRecordId: number | null;
   readonly passed: boolean;
   readonly metrics: GateASessionMetrics;
   readonly reasons: readonly string[];
@@ -160,6 +166,7 @@ export interface GateBThresholds {
 export interface GateBObjectVerdict {
   readonly objectLabel: string;
   readonly material?: MaterialClass;
+  readonly eligibleTargets: readonly ReviewTarget[];
   readonly passed: boolean;
   readonly reviewerCount: number;
   readonly identityMedian: number | null;
