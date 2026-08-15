@@ -1,7 +1,10 @@
 import { ConsumerApp } from "./ConsumerApp";
 import { LabApp } from "./LabApp";
+import { ReleaseApp } from "./ReleaseApp";
 
 export function App() {
-  const labMode = new URLSearchParams(window.location.search).get("lab") === "1";
-  return labMode ? <LabApp /> : <ConsumerApp />;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("release") === "1") return <ReleaseApp />;
+  if (params.get("lab") === "1") return <LabApp />;
+  return <ConsumerApp />;
 }
