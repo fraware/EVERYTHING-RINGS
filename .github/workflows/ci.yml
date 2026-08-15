@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
@@ -19,29 +19,7 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
       - name: Install
-        run: pnpm install --frozen-lockfile=false
-      - name: Bootstrap resolved lockfile on validation branch
-        if: github.event_name == 'pull_request' && github.head_ref == 'release-validation'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          status="$(curl --silent --output /tmp/lockfile-put.json --write-out '%{http_code}' \
-            --request PUT \
-            --header "Accept: application/vnd.github+json" \
-            --header "Authorization: Bearer ${GH_TOKEN}" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/pnpm-lock.yaml" \
-            --data "$(jq -nc \
-              --arg message 'Commit resolved pnpm lockfile' \
-              --arg content "$(base64 -w0 pnpm-lock.yaml)" \
-              --arg branch "${GITHUB_HEAD_REF}" \
-              '{message:$message,content:$content,branch:$branch}')")"
-          if [[ "${status}" != "201" ]]; then
-            cat /tmp/lockfile-put.json >&2
-            echo "Lockfile bootstrap returned HTTP ${status}" >&2
-            exit 1
-          fi
+        run: pnpm install --frozen-lockfile
       - name: Typecheck
         run: pnpm typecheck
       - name: Test
