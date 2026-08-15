@@ -37,7 +37,7 @@ export function GateReviewPanel({
   onGateCReview,
 }: {
   readonly sessionId: string;
-  readonly recordId?: number;
+  readonly recordId: number | undefined;
   readonly objectLabel: string;
   readonly canListen: boolean;
   readonly instrumentReady: boolean;
