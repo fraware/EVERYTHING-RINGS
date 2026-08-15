@@ -58,7 +58,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/gate-a2-e2e"
           cd "${RUNNER_TEMP}/gate-a2-e2e"
           npm init -y >/dev/null
-          npm install --no-save --package-lock=false puppeteer-core@24
+          npm install --no-save --package-lock=false puppeteer-core@24.31.0
       - name: Collect five qualified attempts and verify release provenance
         run: |
           set -euo pipefail
