@@ -3,6 +3,8 @@ export {
   PREFERRED_AUDIO_CONSTRAINTS,
   createCaptureGraph,
   openMicrophone,
+  type CaptureGraph,
+  type OpenedMicrophone,
 } from "./browser";
 export { DEFAULT_CAPTURE_CONFIG, type CaptureConfig } from "./config";
 export { ImpactCaptureEngine } from "./engine";
