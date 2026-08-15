@@ -1,0 +1,158 @@
+name: browser-mic-e2e
+
+on:
+  push:
+    branches: [validation/browser-mic-e2e]
+
+permissions:
+  contents: read
+
+jobs:
+  fake-microphone-strike:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VITE_SOFTWARE_REVISION: 447f98dd511201367d6051704e10607d645735dd
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 447f98dd511201367d6051704e10607d645735dd
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Generate deterministic 48 kHz fake microphone strike
+        run: |
+          python - <<'PY'
+          import math, random, wave, os
+          sample_rate = 48_000
+          duration = 6.0
+          onset = 1.0
+          random.seed(0x4552)
+          path = os.path.join(os.environ['RUNNER_TEMP'], 'everything-rings-strike.wav')
+          with wave.open(path, 'wb') as wav:
+              wav.setnchannels(1)
+              wav.setsampwidth(2)
+              wav.setframerate(sample_rate)
+              frames = bytearray()
+              for i in range(round(sample_rate * duration)):
+                  t = i / sample_rate
+                  value = random.uniform(-0.00015, 0.00015)
+                  if t >= onset:
+                      dt = t - onset
+                      value += 0.45 * math.exp(-dt / 1.20) * math.cos(2 * math.pi * 440 * dt)
+                      value += 0.24 * math.exp(-dt / 0.70) * math.cos(2 * math.pi * 997 * dt)
+                      value += 0.12 * math.exp(-dt / 0.38) * math.cos(2 * math.pi * 2413 * dt)
+                  value = max(-0.90, min(0.90, value))
+                  sample = int(round(value * 32767))
+                  frames += int(sample).to_bytes(2, byteorder='little', signed=True)
+              wav.writeframes(frames)
+          print(path)
+          PY
+          ls -lh "${RUNNER_TEMP}/everything-rings-strike.wav"
+      - name: Build frozen validation app
+        run: pnpm build
+      - name: Install browser driver only in temporary directory
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/browser-e2e"
+          cd "${RUNNER_TEMP}/browser-e2e"
+          npm init -y >/dev/null
+          npm install --no-save --package-lock=false puppeteer-core@24
+      - name: Exercise getUserMedia to retained acoustic fingerprint
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          if [[ -z "${CHROME}" ]]; then
+            echo 'No Chromium-compatible browser found' >&2
+            exit 1
+          fi
+          pnpm --filter @everything-rings/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort >"${RUNNER_TEMP}/vite-e2e.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "${SERVER_PID}" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do
+            curl --fail --silent http://127.0.0.1:4173/ >/dev/null && break
+            sleep 0.25
+          done
+          cat >"${RUNNER_TEMP}/browser-e2e/test.mjs" <<'JS'
+          import puppeteer from 'puppeteer-core';
+          import fs from 'node:fs';
+
+          const revision = '447f98dd511201367d6051704e10607d645735dd';
+          const audio = `${process.env.RUNNER_TEMP}/everything-rings-strike.wav%noloop`;
+          const browser = await puppeteer.launch({
+            executablePath: process.env.CHROME,
+            headless: true,
+            args: [
+              '--no-sandbox',
+              '--disable-gpu',
+              '--disable-dev-shm-usage',
+              '--use-fake-device-for-media-stream',
+              '--use-fake-ui-for-media-stream',
+              `--use-file-for-fake-audio-capture=${audio}`,
+              '--autoplay-policy=no-user-gesture-required',
+            ],
+          });
+          const page = await browser.newPage();
+          const errors = [];
+          page.on('pageerror', error => errors.push(`pageerror: ${error.message}`));
+          page.on('console', message => {
+            if (message.type() === 'error') errors.push(`console: ${message.text()}`);
+          });
+          try {
+            await page.goto('http://127.0.0.1:4173/?lab=1', { waitUntil: 'networkidle0', timeout: 30_000 });
+            const body = await page.content();
+            if (!body.includes(`software revision ${revision}`)) throw new Error('frozen software revision is not visible');
+
+            const specimen = 'input[placeholder="lab-mug-01"]';
+            const object = 'input[placeholder="ceramic mug"]';
+            await page.click(specimen);
+            await page.type(specimen, 'e2e-ceramic-01');
+            await page.click(object);
+            await page.type(object, 'synthetic ceramic mug');
+            await page.select('select', 'ceramic');
+
+            const armEnabled = await page.evaluate(() => {
+              const button = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'ARM MICROPHONE');
+              return button instanceof HTMLButtonElement && !button.disabled;
+            });
+            if (!armEnabled) throw new Error('ARM MICROPHONE did not become enabled');
+            await page.evaluate(() => {
+              const button = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'ARM MICROPHONE');
+              if (!(button instanceof HTMLButtonElement)) throw new Error('ARM MICROPHONE missing');
+              button.click();
+            });
+
+            await page.waitForFunction(() => {
+              const state = document.querySelector('.status')?.textContent?.trim();
+              return state === 'success' || state === 'failure' || state === 'error';
+            }, { timeout: 20_000, polling: 100 });
+
+            const result = await page.evaluate(() => {
+              const state = document.querySelector('.status')?.textContent?.trim() ?? '';
+              const text = document.body.innerText;
+              const modeRows = document.querySelectorAll('.mode-row:not(.mode-head)').length;
+              const waveform = document.querySelector('canvas.waveform') !== null;
+              return { state, text, modeRows, waveform };
+            });
+            console.log(JSON.stringify({ ...result, errors }, null, 2));
+            if (result.state !== 'success') throw new Error(`lab ended in ${result.state}`);
+            if (!result.waveform) throw new Error('captured waveform was not rendered');
+            if (result.modeRows < 3) throw new Error(`expected >=3 modes, got ${result.modeRows}`);
+            if (!result.text.includes('1 / 5')) throw new Error('qualified attempt was not retained');
+            if (errors.length > 0) throw new Error(errors.join('\n'));
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/browser-e2e-result.json`, JSON.stringify({ ...result, errors }, null, 2));
+          } finally {
+            await browser.close();
+          }
+          JS
+          CHROME="${CHROME}" RUNNER_TEMP="${RUNNER_TEMP}" node "${RUNNER_TEMP}/browser-e2e/test.mjs"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-mic-e2e-result
+          path: |
+            ${{ runner.temp }}/browser-e2e-result.json
+            ${{ runner.temp }}/vite-e2e.log
+          if-no-files-found: ignore
