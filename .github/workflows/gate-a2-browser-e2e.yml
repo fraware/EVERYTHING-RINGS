@@ -198,7 +198,8 @@ jobs:
             await page.waitForFunction(() => document.body.innerText.includes('1 sessions'), { timeout: 5_000, polling: 100 });
             let releaseText = await page.evaluate(() => document.body.innerText);
             if (releaseText.includes('Rejected files')) throw new Error('Release Console rejected valid exported evidence');
-            if (!releaseText.includes(`Software revision: ${revision}`)) throw new Error('Release Console lost software provenance');
+            if (!releaseText.includes(`Authorized collection revision: ${revision}`)) throw new Error('Release Console lost authorized collection revision');
+            if (!releaseText.includes(`Evidence revision: ${revision}`)) throw new Error('Release Console lost evidence revision');
             if (!releaseText.includes('gate a2 synthetic ceramic mug')) throw new Error('imported session missing from Release Console');
             if (!releaseText.includes('A2\nPASS')) throw new Error('valid current-revision session is not Gate A2 eligible');
 
