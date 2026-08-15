@@ -2,7 +2,7 @@ import {
   buildReleaseVerdict,
   mergeValidationEvidence,
   parseValidationEvidenceJson,
-  type ValidationEvidenceV3,
+  type ValidationEvidenceV4,
 } from "@everything-rings/validation";
 import { useMemo, useState } from "react";
 
@@ -26,7 +26,7 @@ function Reasons({ reasons }: { readonly reasons: readonly string[] }) {
 }
 
 export function ReleaseApp() {
-  const [evidence, setEvidence] = useState<ValidationEvidenceV3[]>([]);
+  const [evidence, setEvidence] = useState<ValidationEvidenceV4[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const gateBReviews = useMemo(() => evidence.flatMap((bundle) => bundle.gateBReviews), [evidence]);
   const gateCReviews = useMemo(() => evidence.flatMap((bundle) => bundle.gateCReviews), [evidence]);
@@ -37,7 +37,7 @@ export function ReleaseApp() {
 
   async function importFiles(files: FileList | null): Promise<void> {
     if (files === null) return;
-    const loaded: Array<{ readonly filename: string; readonly evidence: ValidationEvidenceV3 }> = [];
+    const loaded: Array<{ readonly filename: string; readonly evidence: ValidationEvidenceV4 }> = [];
     const nextErrors: string[] = [];
     for (const file of Array.from(files)) {
       const result = parseValidationEvidenceJson(await file.text());
@@ -68,6 +68,8 @@ export function ReleaseApp() {
     const finalVerdict = buildReleaseVerdict(evidence, gateBReviews, gateCReviews, new Date().toISOString());
     downloadJson(`everything-rings-release-verdict-${Date.now()}.json`, {
       ...finalVerdict,
+      evidenceContractVersion: "validation-evidence-4",
+      gateAContractVersion: "gate-a-2",
       evidenceSessions: evidence.map((bundle) => ({
         sessionId: bundle.sessionId,
         object: bundle.object,
@@ -80,7 +82,7 @@ export function ReleaseApp() {
     <header>
       <p className="eyebrow">EVERYTHING RINGS / RELEASE CONSOLE</p>
       <h1>Empirical release gates</h1>
-      <p className="lede">Import local validation bundles. The console evaluates the frozen Gate A/B/C contracts without uploading evidence or microphone audio.</p>
+      <p className="lede">Import local validation-evidence-4 bundles. The console evaluates frozen Gate A2/B/C contracts without uploading evidence or microphone audio.</p>
     </header>
 
     <section className="release-import">
@@ -95,10 +97,10 @@ export function ReleaseApp() {
     <section className="release-status">
       <article className="release-card release-overall">
         <div className="release-card-head"><div><p className="eyebrow">RELEASE</p><h2>{verdict.releaseReady ? "Empirically ready" : "Evidence incomplete"}</h2></div><Verdict passed={verdict.releaseReady} /></div>
-        <p className="small">Release becomes ready only when Gate A, Gate B, and Gate C all pass their frozen contracts.</p>
+        <p className="small">Release becomes ready only when Gate A2, Gate B, and Gate C all pass their frozen contracts.</p>
       </article>
       <article className="release-card">
-        <div className="release-card-head"><div><p className="eyebrow">GATE A / PHYSICAL</p><h2>Repeatable acoustic structure</h2></div><Verdict passed={verdict.gateA.passed} /></div>
+        <div className="release-card-head"><div><p className="eyebrow">GATE A2 / PHYSICAL</p><h2>Repeatable acoustic structure</h2></div><Verdict passed={verdict.gateA.passed} /></div>
         <p className="metric-line">{verdict.gateA.distinctPassingObjectCount} / 5 distinct passing objects</p>
         <Reasons reasons={verdict.gateA.reasons} />
       </article>
@@ -117,13 +119,13 @@ export function ReleaseApp() {
     <section className="release-table-wrap">
       <div className="release-card-head"><div><p className="eyebrow">EVIDENCE</p><h2>Object sessions</h2></div></div>
       <div className="release-table" role="table">
-        <div className="release-row release-row-head" role="row"><span>object</span><span>material</span><span>strikes</span><span>drift</span><span>B</span><span>C</span><span>A</span></div>
+        <div className="release-row release-row-head" role="row"><span>object</span><span>material</span><span>attempts</span><span>drift</span><span>B</span><span>C</span><span>A2</span></div>
         {evidence.map((bundle) => {
           const sessionVerdict = verdict.gateA.sessions.find((session) => session.sessionId === bundle.sessionId);
           return <div className="release-row" role="row" key={bundle.sessionId}>
             <span>{bundle.object.label}</span>
             <span>{bundle.object.material}</span>
-            <span>{bundle.records.length}</span>
+            <span>{bundle.attempts.length}</span>
             <span>{sessionVerdict?.metrics.sessionMedianDriftCents === null || sessionVerdict?.metrics.sessionMedianDriftCents === undefined ? "—" : `${sessionVerdict.metrics.sessionMedianDriftCents.toFixed(1)}¢`}</span>
             <span>{bundle.gateBReviews.length}</span>
             <span>{bundle.gateCReviews.length}</span>
@@ -137,8 +139,10 @@ export function ReleaseApp() {
       {verdict.gateA.sessions.map((session) => <article className="release-detail" key={session.sessionId}>
         <div className="release-card-head"><h3>{session.objectLabel}</h3><Verdict passed={session.passed} /></div>
         <dl>
-          <div><dt>accepted quality</dt><dd>{session.metrics.qualityPassingStrikes} / 5</dd></div>
-          <div><dt>stable strikes</dt><dd>{session.metrics.strikesWithStableModes} / 5</dd></div>
+          <div><dt>qualified attempts</dt><dd>{session.metrics.qualifiedAttempts} / 5</dd></div>
+          <div><dt>quality passing</dt><dd>{session.metrics.qualityPassingAttempts} / 5</dd></div>
+          <div><dt>analysis success</dt><dd>{session.metrics.successfulAnalyses} / 5</dd></div>
+          <div><dt>analysis failures</dt><dd>{session.metrics.analyticalFailures}</dd></div>
           <div><dt>matched comparisons</dt><dd>{session.metrics.comparisonsWithEnoughMatches} / 4</dd></div>
           <div><dt>median drift</dt><dd>{session.metrics.sessionMedianDriftCents === null ? "—" : `${session.metrics.sessionMedianDriftCents.toFixed(1)}¢`}</dd></div>
           <div><dt>worst comparison</dt><dd>{session.metrics.worstComparisonMedianDriftCents === null ? "—" : `${session.metrics.worstComparisonMedianDriftCents.toFixed(1)}¢`}</dd></div>
