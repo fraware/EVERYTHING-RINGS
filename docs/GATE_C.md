@@ -19,7 +19,7 @@ These are diagnostics. Their sum is not claimed as measured acoustic end-to-end 
 
 ## Device protocol
 
-Only objects that pass Gate B are eligible. Play the chromatic instrument across the useful range and record the judgment on the device producing the audio. Each review records a stable device ID/class and scores:
+Only objects that pass Gate B are eligible. The Gate C review must target the same eligible passing-session measurement provenance used by Gate B. Play the chromatic instrument across the useful range and record the judgment on the device producing the audio. Each review records a stable device ID/class and scores:
 
 - identity across the useful note range, 1–5;
 - timbre continuity across adjacent notes, 1–5;
@@ -27,6 +27,8 @@ Only objects that pass Gate B are eligible. Play the chromatic instrument across
 - whether note-on latency is acceptable during direct interaction.
 
 Include low and high transpositions where Nyquist filtering removes modes. A reviewer should judge the range that is actually musically usable, not the maximum range the UI permits.
+
+Repeated submissions from the same normalized reviewer ID, device ID, and measurement target count once. A device ID must map consistently to one device class across the release evidence; conflicting desktop/mobile/tablet claims for the same normalized device ID invalidate Gate C.
 
 ## Frozen release contract — `gate-c-1`
 
@@ -37,9 +39,9 @@ An eligible object passes when:
 - median identity across the range is at least 4/5;
 - median timbre continuity is at least 4/5;
 - median useful range spans at least 12 semitones;
-- every submitted device review for that object accepts note-on latency.
+- every counted device review for that object accepts note-on latency.
 
-Gate C passes when at least four Gate B objects have device reviews and all four pass, the evidence covers at least two distinct device IDs, and at least one review comes from a mobile device.
+Gate C passes when at least four Gate B objects have eligible device reviews and all four pass, the evidence covers at least two distinct normalized device IDs, and at least one consistently identified device is mobile.
 
 Software scheduling telemetry, modal-ratio preservation, and browser latency reports remain supporting diagnostics. They do not independently satisfy Gate C.
 
