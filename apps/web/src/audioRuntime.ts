@@ -1,5 +1,5 @@
 export interface ActivePlayback {
-  current?: AudioBufferSourceNode;
+  current: AudioBufferSourceNode | undefined;
 }
 
 export async function resumeAudioContext(context: AudioContext): Promise<boolean> {
@@ -10,7 +10,8 @@ export async function resumeAudioContext(context: AudioContext): Promise<boolean
   } catch {
     return false;
   }
-  return context.state === "running";
+  const resumedState: string = context.state;
+  return resumedState === "running";
 }
 
 export function stopActivePlayback(playback: ActivePlayback): void {
