@@ -53,7 +53,7 @@ export interface GateBReview {
   readonly reviewId: string;
   readonly reviewerId: string;
   readonly objectLabel: string;
-  readonly blinded: true;
+  readonly blinded: boolean;
   readonly presentationOrder: GateBPresentationOrder;
   readonly identity: Score1To5;
   readonly brightness: Score1To5;
