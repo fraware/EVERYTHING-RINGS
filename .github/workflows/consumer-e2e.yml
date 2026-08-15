@@ -12,12 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      TARGET_REVISION: 7ae302e8a5af32ebea699100234fedaa8369c2fa
-      VITE_SOFTWARE_REVISION: 7ae302e8a5af32ebea699100234fedaa8369c2fa
+      TARGET_REVISION: 9b7aab7ac87faa3b08666612414cdcb5faa89d01
+      VITE_SOFTWARE_REVISION: 9b7aab7ac87faa3b08666612414cdcb5faa89d01
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 7ae302e8a5af32ebea699100234fedaa8369c2fa
+          ref: 9b7aab7ac87faa3b08666612414cdcb5faa89d01
       - uses: actions/setup-node@v6
         with:
           node-version: 22
