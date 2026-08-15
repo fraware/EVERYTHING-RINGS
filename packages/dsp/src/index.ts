@@ -31,10 +31,14 @@ export {
   type ModeSelectionConfig,
   selectAcousticModes,
 } from "./modes/select";
-export type {
-  AcousticFingerprintV1,
-  AcousticMode,
-  AcousticModeDiagnostics,
+export {
+  ACOUSTIC_FINGERPRINT_ALGORITHM_VERSIONS,
+  CURRENT_ACOUSTIC_FINGERPRINT_ALGORITHM_VERSION,
+  isAcousticFingerprintAlgorithmVersion,
+  type AcousticFingerprintAlgorithmVersion,
+  type AcousticFingerprintV1,
+  type AcousticMode,
+  type AcousticModeDiagnostics,
 } from "./modes/types";
 export {
   DEFAULT_PEAK_DETECTION_CONFIG,

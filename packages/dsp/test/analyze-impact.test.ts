@@ -31,7 +31,7 @@ describe("analyzeImpact", () => {
       if (!result.ok) return;
 
       expect(result.fingerprint.version).toBe(1);
-      expect(result.fingerprint.algorithmVersion).toBe("er-dsp-1");
+      expect(result.fingerprint.algorithmVersion).toBe("er-dsp-2");
       expect(result.fingerprint.modes.length).toBeGreaterThanOrEqual(3);
 
       for (const target of expected) {

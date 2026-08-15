@@ -10,7 +10,11 @@ import {
   selectAcousticModes,
   type ModeSelectionConfig,
 } from "../modes/select";
-import type { AcousticFingerprintV1, AcousticMode } from "../modes/types";
+import {
+  CURRENT_ACOUSTIC_FINGERPRINT_ALGORITHM_VERSION,
+  type AcousticFingerprintV1,
+  type AcousticMode,
+} from "../modes/types";
 import {
   DEFAULT_PEAK_DETECTION_CONFIG,
   detectSpectralPeaks,
@@ -139,7 +143,7 @@ export function analyzeImpact(
     ok: true,
     fingerprint: {
       version: 1,
-      algorithmVersion: "er-dsp-1",
+      algorithmVersion: CURRENT_ACOUSTIC_FINGERPRINT_ALGORITHM_VERSION,
       sampleRate,
       durationSeconds: samples.length / sampleRate,
       modes,
