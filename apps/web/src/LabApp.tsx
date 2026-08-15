@@ -1,6 +1,6 @@
 import type { AcousticMode } from "@everything-rings/dsp";
 import { fingerprintRecurrence } from "@everything-rings/fingerprint";
-import { chooseAnchorMode, renderPlayableNote } from "@everything-rings/instrument";
+import { chooseAnchorMode } from "@everything-rings/instrument";
 import { renderAcousticFingerprint } from "@everything-rings/synth";
 import { useEffect, useMemo, useRef } from "react";
 import { AcousticDnaView } from "./AcousticDnaView";
@@ -101,12 +101,6 @@ export function LabApp() {
     const sampleRate = session.playbackSampleRate() ?? fingerprint.sampleRate;
     session.play(renderAcousticFingerprint(fingerprint, sampleRate), sampleRate);
   }
-  function playNote(midiNote: number): void {
-    if (fingerprint === undefined) return;
-    const sampleRate = session.playbackSampleRate() ?? fingerprint.sampleRate;
-    const note = renderPlayableNote(fingerprint, midiNote, sampleRate);
-    session.play(note.samples, sampleRate);
-  }
   function exportEvidence(): void {
     if (session.records.length === 0) return;
     const reference = session.records[0]?.fingerprint;
@@ -130,6 +124,10 @@ export function LabApp() {
     };
     downloadJson(`everything-rings-validation-${Date.now()}.json`, report);
   }
+
+  const realtimeStatus = session.instrumentFailure !== undefined
+    ? "unavailable"
+    : session.instrumentReady ? "ready" : "preparing";
 
   return (
     <main className="shell">
@@ -180,6 +178,7 @@ export function LabApp() {
           <div><dt>accepted strikes</dt><dd>{session.records.length} / 5</dd></div>
           <div><dt>median modal drift</dt><dd>{drift === undefined ? "—" : `${drift.toFixed(1)} cents`}</dd></div>
           <div><dt>play anchor</dt><dd>{anchor === undefined ? "—" : `${anchor.frequencyHz.toFixed(1)} Hz`}</dd></div>
+          <div><dt>realtime engine</dt><dd>{fingerprint === undefined ? "—" : realtimeStatus}</dd></div>
         </dl></article>
       </section>
 
@@ -188,7 +187,7 @@ export function LabApp() {
         <AcousticDnaView fingerprint={fingerprint} />
         <ModeTable modes={fingerprint.modes} />
         <div className="listening-lab"><div><p className="eyebrow">GATE B</p><h3>Original / modal reconstruction</h3><p className="small">The model contains no recorded audio.</p></div><div className="actions"><button onClick={playOriginal}>ORIGINAL</button><button onClick={playModel}>MODEL</button></div></div>
-        <div className="instrument-lab"><p className="eyebrow">GATE C</p><h3>Play the object</h3><div className="keyboard">{KEYBOARD_NOTES.map((note) => <button key={note.midi} onClick={() => playNote(note.midi)}>{note.label}</button>)}</div></div>
+        <div className="instrument-lab"><p className="eyebrow">GATE C</p><h3>Realtime playable object</h3><p className="small">{session.instrumentReady ? "Modal voices are rendered continuously in the audio thread." : session.instrumentFailure !== undefined ? "Realtime playback is unavailable in this browser session." : "Preparing the audio thread…"}</p><div className="keyboard">{KEYBOARD_NOTES.map((note) => <button key={note.midi} disabled={!session.instrumentReady} onPointerDown={() => session.noteOn(note.midi)}>{note.label}</button>)}</div></div>
       </section> : null}
     </main>
   );
