@@ -25,22 +25,8 @@ jobs:
           from pathlib import Path
           path = Path('apps/web/src/useStrikeSession.ts')
           text = path.read_text()
-          old = '''        const retained = settleCurrentAttempt(
-          pendingRequest,
-          { status: "failure", reason: "ANALYSIS_INTERNAL_ERROR" },
-        );
-        requestId.current += 1;
-        setFingerprint(undefined);
-        setFailureReason(event.message || "Analysis worker failed");
-        setState(retained ? "failure" : "error");'''
-          new = '''        settleCurrentAttempt(
-          pendingRequest,
-          { status: "failure", reason: "ANALYSIS_INTERNAL_ERROR" },
-        );
-        requestId.current += 1;
-        setFingerprint(undefined);
-        setFailureReason(event.message || "Analysis worker failed");
-        setState("error");'''
+          old = '        const retained = settleCurrentAttempt(\n          pendingRequest,\n          { status: "failure", reason: "ANALYSIS_INTERNAL_ERROR" },\n        );\n        requestId.current += 1;\n        setFingerprint(undefined);\n        setFailureReason(event.message || "Analysis worker failed");\n        setState(retained ? "failure" : "error");'
+          new = '        settleCurrentAttempt(\n          pendingRequest,\n          { status: "failure", reason: "ANALYSIS_INTERNAL_ERROR" },\n        );\n        requestId.current += 1;\n        setFingerprint(undefined);\n        setFailureReason(event.message || "Analysis worker failed");\n        setState("error");'
           assert text.count(old) == 1, text.count(old)
           path.write_text(text.replace(old, new))
           PY
