@@ -182,25 +182,26 @@ manual("RealImpact Gate A external benchmark", () => {
     expect(rowIndices.length).toBeGreaterThanOrEqual(3);
 
     const sampleRate = 48_000;
-    const fingerprints = rowIndices.flatMap((rowIndex) => {
+    const attempts = rowIndices.map((rowIndex) => {
       const response = readFloatMatrixRow(responsePath, rowIndex);
       const coarse = coarseImpactSample(response, sampleRate);
       const ringdown = extractImpactRingdown(response, sampleRate, coarse);
       const result = analyzeImpact(ringdown.samples, sampleRate);
-      return result.ok ? [{ rowIndex, fingerprint: result.fingerprint }] : [];
+      return { rowIndex, coarseImpactSample: coarse, ringdownStartSample: ringdown.startSample, result };
     });
-    expect(fingerprints.length).toBeGreaterThanOrEqual(3);
+    const fingerprints = attempts.flatMap(({ rowIndex, result }) =>
+      result.ok ? [{ rowIndex, fingerprint: result.fingerprint }] : [],
+    );
 
     const reference = fingerprints[0];
-    if (reference === undefined) throw new Error("No reference fingerprint");
-    const comparisons = fingerprints.slice(1).map(({ rowIndex, fingerprint }) => ({
+    const comparisons = reference === undefined ? [] : fingerprints.slice(1).map(({ rowIndex, fingerprint }) => ({
       rowIndex,
       recurrence: fingerprintRecurrence(reference.fingerprint, fingerprint),
     }));
     const strikeDrifts = comparisons.map(({ recurrence }) => recurrence.medianCents);
 
     const report = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       dataset: "RealImpact",
       signal: "deconvolved_0db",
       objectDirectory: path.basename(datasetDirectory),
@@ -208,6 +209,11 @@ manual("RealImpact Gate A external benchmark", () => {
       vertexId,
       microphoneId,
       attemptedRows: rowIndices,
+      attempts: attempts.map(({ rowIndex, coarseImpactSample, ringdownStartSample, result }) =>
+        result.ok
+          ? { rowIndex, coarseImpactSample, ringdownStartSample, ok: true, modeCount: result.fingerprint.modes.length }
+          : { rowIndex, coarseImpactSample, ringdownStartSample, ok: false, reason: result.reason },
+      ),
       acceptedRows: fingerprints.map(({ rowIndex }) => rowIndex),
       acceptanceRate: fingerprints.length / rowIndices.length,
       medianStrikeDriftCents: median(strikeDrifts),
@@ -219,17 +225,19 @@ manual("RealImpact Gate A external benchmark", () => {
         matchedCount: recurrence.matchedCount,
         unmatchedReferenceCount: recurrence.unmatchedReferenceCount,
       })),
-      referenceModes: reference.fingerprint.modes.slice(0, 8).map((mode) => ({
+      referenceModes: reference?.fingerprint.modes.slice(0, 8).map((mode) => ({
         frequencyHz: mode.frequencyHz,
         decaySeconds: mode.decaySeconds,
         confidence: mode.confidence,
-      })),
+      })) ?? [],
     };
 
     if (process.env.REALIMPACT_REPORT !== undefined) {
       fs.writeFileSync(process.env.REALIMPACT_REPORT, `${JSON.stringify(report, null, 2)}\n`);
     }
     console.log(JSON.stringify(report, null, 2));
+
+    expect(fingerprints.length).toBeGreaterThanOrEqual(3);
     expect(Number.isFinite(report.medianStrikeDriftCents)).toBe(true);
   });
 });
