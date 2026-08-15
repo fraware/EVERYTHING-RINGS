@@ -1,0 +1,27 @@
+name: fuzz-boundaries
+
+on:
+  push:
+    branches:
+      - stress/fuzz-boundaries-2026-08-15
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Validation arbitrary-input fuzz
+        run: pnpm --filter @everything-rings/validation test -- fuzz-boundaries.test.ts
+      - name: DSP finite-PCM fuzz
+        run: pnpm --filter @everything-rings/dsp test -- fuzz-boundaries.test.ts
+      - name: Typecheck fuzz additions
+        run: pnpm typecheck
