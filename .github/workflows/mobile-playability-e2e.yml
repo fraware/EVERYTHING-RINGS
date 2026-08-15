@@ -1,0 +1,176 @@
+name: mobile-playability-e2e
+
+on:
+  push:
+    branches: [validation/consumer-e2e]
+
+permissions:
+  contents: read
+
+jobs:
+  mobile-playability:
+    runs-on: ubuntu-latest
+    env:
+      TARGET_REVISION: 0e9d47136d53b38c591c1be8676a86ffb8ec5f43
+      VITE_SOFTWARE_REVISION: 0e9d47136d53b38c591c1be8676a86ffb8ec5f43
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TARGET_REVISION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "${TARGET_REVISION}"
+      - name: Generate deterministic strike
+        run: |
+          python - <<'PY'
+          import math, os, random, wave
+          sr = 48_000; duration = 6.0; onset = 1.0
+          random.seed(0x45524d50)
+          path = os.path.join(os.environ['RUNNER_TEMP'], 'mobile.wav')
+          with wave.open(path, 'wb') as wav:
+              wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(sr)
+              frames = bytearray()
+              for i in range(round(sr * duration)):
+                  t = i / sr
+                  value = random.uniform(-0.00012, 0.00012)
+                  if t >= onset:
+                      dt = t - onset
+                      value += 0.45 * math.exp(-dt / 1.20) * math.cos(2 * math.pi * 440 * dt)
+                      value += 0.24 * math.exp(-dt / 0.70) * math.cos(2 * math.pi * 997 * dt)
+                      value += 0.12 * math.exp(-dt / 0.38) * math.cos(2 * math.pi * 2413 * dt)
+                  value = max(-0.90, min(0.90, value))
+                  frames += int(round(value * 32767)).to_bytes(2, 'little', signed=True)
+              wav.writeframes(frames)
+          PY
+      - run: pnpm build
+      - name: Install browser driver
+        run: |
+          mkdir -p "${RUNNER_TEMP}/mobile"
+          cd "${RUNNER_TEMP}/mobile"
+          npm init -y >/dev/null
+          npm install --no-save --package-lock=false puppeteer-core@25.4.0
+      - name: Exercise mobile geometry and touch
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "${CHROME}"
+          pnpm --filter @everything-rings/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort >"${RUNNER_TEMP}/mobile-vite.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "${SERVER_PID}" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do curl --fail --silent http://127.0.0.1:4173/ >/dev/null && break; sleep 0.25; done
+          cat >"${RUNNER_TEMP}/mobile/test.mjs" <<'JS'
+          import puppeteer from 'puppeteer-core';
+          import fs from 'node:fs';
+
+          const executablePath = process.env.CHROME;
+          const args = [
+            '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+            '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
+            `--use-file-for-fake-audio-capture=${process.env.RUNNER_TEMP}/mobile.wav`,
+            '--autoplay-policy=no-user-gesture-required',
+          ];
+          const reports = [];
+
+          async function geometry(page, selector, width) {
+            await page.setViewport({ width, height: 800, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+            await new Promise(resolve => setTimeout(resolve, 100));
+            return page.$$eval(selector, nodes => {
+              const rects = nodes.map(node => node.getBoundingClientRect());
+              return {
+                count: rects.length,
+                minWidth: Math.min(...rects.map(rect => rect.width)),
+                minHeight: Math.min(...rects.map(rect => rect.height)),
+                touchActions: [...new Set(nodes.map(node => getComputedStyle(node).touchAction))],
+                horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+              };
+            });
+          }
+
+          async function launch() {
+            return puppeteer.launch({ executablePath, headless: true, args });
+          }
+
+          const consumerBrowser = await launch();
+          try {
+            const page = await consumerBrowser.newPage();
+            const errors = [];
+            page.on('pageerror', error => errors.push(error.message));
+            await page.setViewport({ width: 320, height: 800, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+            await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle0', timeout: 30_000 });
+            await page.evaluate(() => [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'START LISTENING')?.click());
+            await page.waitForFunction(() => document.body.innerText.includes('We estimated 3 audible resonances.'), { timeout: 15_000, polling: 100 });
+            await page.evaluate(() => [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'PLAY IT')?.click());
+            await page.waitForSelector('.consumer-keyboard button');
+            for (const width of [320, 375]) {
+              const result = await geometry(page, '.consumer-keyboard button', width);
+              if (result.count !== 13 || result.minWidth < 44 || result.minHeight < 44 || result.horizontalOverflow || !result.touchActions.includes('manipulation')) {
+                throw new Error(`consumer ${width}px geometry failed: ${JSON.stringify(result)}`);
+              }
+              reports.push({ surface: 'consumer', width, ...result });
+            }
+            await page.setViewport({ width: 320, height: 800, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+            const rect = await page.$eval('.consumer-keyboard button[aria-label="C4"]', node => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
+            await page.touchscreen.tap(rect.x + rect.width / 2, rect.y + rect.height / 2);
+            if (errors.length > 0) throw new Error(errors.join('\n'));
+          } finally {
+            await consumerBrowser.close();
+          }
+
+          const labBrowser = await launch();
+          try {
+            const page = await labBrowser.newPage();
+            const errors = [];
+            page.on('pageerror', error => errors.push(error.message));
+            await page.setViewport({ width: 320, height: 800, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+            await page.goto('http://127.0.0.1:4173/?lab=1', { waitUntil: 'networkidle0', timeout: 30_000 });
+            await page.evaluate(() => {
+              const set = (name, value) => {
+                const label = [...document.querySelectorAll('label')].find(node => node.querySelector('span')?.textContent?.trim() === name);
+                const input = label?.querySelector('input');
+                const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+                if (!(input instanceof HTMLInputElement) || setter === undefined) throw new Error(`${name} input unavailable`);
+                setter.call(input, value);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+              };
+              set('specimen ID', 'mobile-lab');
+              set('object', 'test bell');
+            });
+            await page.waitForFunction(() => {
+              const button = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'ARM MICROPHONE');
+              return button instanceof HTMLButtonElement && !button.disabled;
+            });
+            await page.evaluate(() => [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'ARM MICROPHONE')?.click());
+            await page.waitForFunction(() => document.body.innerText.includes('stable resonances found. This attempt is retained.'), { timeout: 15_000, polling: 100 });
+            await page.waitForSelector('.keyboard[aria-label="Chromatic playable object"] button');
+            for (const width of [320, 375]) {
+              const result = await geometry(page, '.keyboard[aria-label="Chromatic playable object"] button', width);
+              if (result.count !== 13 || result.minWidth < 44 || result.minHeight < 44 || result.horizontalOverflow || !result.touchActions.includes('manipulation')) {
+                throw new Error(`lab ${width}px geometry failed: ${JSON.stringify(result)}`);
+              }
+              reports.push({ surface: 'lab', width, ...result });
+            }
+            await page.setViewport({ width: 320, height: 800, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+            const rect = await page.$eval('.keyboard button[aria-label="C4"]', node => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
+            await page.touchscreen.tap(rect.x + rect.width / 2, rect.y + rect.height / 2);
+            await page.waitForFunction(() => {
+              const row = [...document.querySelectorAll('dl div')].find(node => node.querySelector('dt')?.textContent?.trim() === 'note scheduling');
+              return row?.querySelector('dd')?.textContent?.trim() !== '—';
+            }, { timeout: 5_000 });
+            if (errors.length > 0) throw new Error(errors.join('\n'));
+          } finally {
+            await labBrowser.close();
+          }
+
+          fs.writeFileSync(`${process.env.RUNNER_TEMP}/mobile-playability-report.json`, JSON.stringify({ targetRevision: process.env.TARGET_REVISION, reports }, null, 2));
+          console.log(JSON.stringify({ targetRevision: process.env.TARGET_REVISION, reports }, null, 2));
+          JS
+          CHROME="${CHROME}" RUNNER_TEMP="${RUNNER_TEMP}" TARGET_REVISION="${TARGET_REVISION}" node "${RUNNER_TEMP}/mobile/test.mjs"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-playability-e2e
+          path: ${{ runner.temp }}/mobile-playability-report.json
