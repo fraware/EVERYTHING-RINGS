@@ -1,4 +1,11 @@
-import type { DeviceClass, MaterialClass, ValidationEvidenceV3 } from "./types";
+import { deriveEvidenceRecurrence, deriveMedianModalDriftCents } from "./derive";
+import type {
+  DeviceClass,
+  EvidenceRecurrence,
+  MaterialClass,
+  ValidationEvidenceRecord,
+  ValidationEvidenceV3,
+} from "./types";
 
 export type EvidenceParseResult =
   | { readonly ok: true; readonly evidence: ValidationEvidenceV3 }
@@ -8,6 +15,7 @@ const MATERIALS: readonly MaterialClass[] = [
   "metal", "glass", "ceramic", "wood", "stone", "plastic", "composite", "other",
 ];
 const DEVICE_CLASSES: readonly DeviceClass[] = ["desktop", "mobile", "tablet", "other"];
+const NUMBER_TOLERANCE = 1e-9;
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined;
@@ -41,6 +49,10 @@ function optionalFiniteNumber(value: unknown): boolean {
   return value === undefined || finiteNumber(value);
 }
 
+function optionalNonNegativeNumber(value: unknown): boolean {
+  return value === undefined || (finiteNumber(value) && value >= 0);
+}
+
 function optionalBoolean(value: unknown): boolean {
   return value === undefined || typeof value === "boolean";
 }
@@ -49,12 +61,17 @@ function optionalString(value: unknown): boolean {
   return value === undefined || typeof value === "string";
 }
 
+function closeNumber(left: number, right: number): boolean {
+  const scale = Math.max(1, Math.abs(left), Math.abs(right));
+  return Math.abs(left - right) <= NUMBER_TOLERANCE * scale;
+}
+
 function validCaptureSettings(value: unknown): boolean {
   if (value === null) return true;
   const settings = record(value);
   return settings !== undefined
-    && optionalFiniteNumber(settings.sampleRate)
-    && optionalFiniteNumber(settings.channelCount)
+    && (settings.sampleRate === undefined || (finiteNumber(settings.sampleRate) && settings.sampleRate > 0))
+    && (settings.channelCount === undefined || positiveInteger(settings.channelCount))
     && optionalBoolean(settings.echoCancellation)
     && optionalBoolean(settings.noiseSuppression)
     && optionalBoolean(settings.autoGainControl)
@@ -69,18 +86,38 @@ function validAudioTiming(value: unknown): boolean {
     && timing.baseLatencyMs >= 0
     && finiteNumber(timing.renderQuantumMs)
     && timing.renderQuantumMs > 0
-    && optionalFiniteNumber(timing.outputLatencyMs)
-    && optionalFiniteNumber(timing.lastSchedulingMs);
+    && optionalNonNegativeNumber(timing.outputLatencyMs)
+    && optionalNonNegativeNumber(timing.lastSchedulingMs);
 }
 
 function validQuality(value: unknown): boolean {
   const quality = record(value);
   return quality !== undefined
     && finiteNumber(quality.score)
+    && quality.score >= 0
+    && quality.score <= 1
     && finiteNumber(quality.snrDb)
     && finiteNumber(quality.clippedFraction)
+    && quality.clippedFraction >= 0
+    && quality.clippedFraction <= 1
     && finiteNumber(quality.peakAmplitude)
-    && finiteNumber(quality.secondaryTransientRatio);
+    && quality.peakAmplitude >= 0
+    && finiteNumber(quality.secondaryTransientRatio)
+    && quality.secondaryTransientRatio >= 0;
+}
+
+function validDiagnostics(value: unknown): boolean {
+  const diagnostics = record(value);
+  return diagnostics !== undefined
+    && finiteNumber(diagnostics.prominenceDb)
+    && finiteNumber(diagnostics.persistenceSeconds)
+    && diagnostics.persistenceSeconds > 0
+    && finiteNumber(diagnostics.frequencyStdCents)
+    && diagnostics.frequencyStdCents >= 0
+    && finiteNumber(diagnostics.decayFitScore)
+    && diagnostics.decayFitScore >= 0
+    && diagnostics.decayFitScore <= 1
+    && positiveInteger(diagnostics.observationCount);
 }
 
 function validFingerprint(value: unknown): boolean {
@@ -89,31 +126,60 @@ function validFingerprint(value: unknown): boolean {
   if (fingerprint.version !== 1 || fingerprint.algorithmVersion !== "er-dsp-1") return false;
   if (!finiteNumber(fingerprint.sampleRate) || fingerprint.sampleRate <= 0) return false;
   if (!finiteNumber(fingerprint.durationSeconds) || fingerprint.durationSeconds <= 0) return false;
-  if (!Array.isArray(fingerprint.modes)) return false;
+  if (!Array.isArray(fingerprint.modes) || fingerprint.modes.length > 16) return false;
+  const nyquistHz = fingerprint.sampleRate / 2;
   return fingerprint.modes.every((value) => {
     const mode = record(value);
     return mode !== undefined
       && finiteNumber(mode.frequencyHz)
       && mode.frequencyHz > 0
+      && mode.frequencyHz < nyquistHz
       && finiteNumber(mode.relativeAmplitude)
+      && mode.relativeAmplitude >= 0
+      && mode.relativeAmplitude <= 1
       && finiteNumber(mode.decaySeconds)
       && mode.decaySeconds > 0
       && finiteNumber(mode.q)
-      && finiteNumber(mode.confidence);
+      && mode.q > 0
+      && finiteNumber(mode.confidence)
+      && mode.confidence >= 0
+      && mode.confidence <= 1
+      && validDiagnostics(mode.diagnostics);
   });
+}
+
+function validModeMatch(value: unknown): boolean {
+  const match = record(value);
+  if (match === undefined) return false;
+  const hasCandidateIndex = match.candidateIndex !== undefined;
+  const hasCandidateFrequency = match.candidateFrequencyHz !== undefined;
+  return nonNegativeInteger(match.referenceIndex)
+    && finiteNumber(match.referenceFrequencyHz)
+    && match.referenceFrequencyHz > 0
+    && finiteNumber(match.distanceCents)
+    && match.distanceCents >= 0
+    && hasCandidateIndex === hasCandidateFrequency
+    && (!hasCandidateIndex || nonNegativeInteger(match.candidateIndex))
+    && (!hasCandidateFrequency || (finiteNumber(match.candidateFrequencyHz) && match.candidateFrequencyHz > 0));
 }
 
 function validRecurrence(value: unknown): boolean {
   const recurrence = record(value);
-  return recurrence !== undefined
-    && positiveInteger(recurrence.recordId)
-    && finiteNumber(recurrence.medianCents)
-    && recurrence.medianCents >= 0
-    && finiteNumber(recurrence.meanCents)
-    && recurrence.meanCents >= 0
-    && nonNegativeInteger(recurrence.matchedCount)
-    && nonNegativeInteger(recurrence.unmatchedReferenceCount)
-    && Array.isArray(recurrence.matches);
+  if (recurrence === undefined
+    || !positiveInteger(recurrence.recordId)
+    || !finiteNumber(recurrence.medianCents)
+    || recurrence.medianCents < 0
+    || !finiteNumber(recurrence.meanCents)
+    || recurrence.meanCents < 0
+    || !nonNegativeInteger(recurrence.matchedCount)
+    || !nonNegativeInteger(recurrence.unmatchedReferenceCount)
+    || !Array.isArray(recurrence.matches)
+    || !recurrence.matches.every(validModeMatch)) return false;
+
+  const matchedCount = recurrence.matches.filter((value) => record(value)?.candidateIndex !== undefined).length;
+  const unmatchedCount = recurrence.matches.length - matchedCount;
+  return recurrence.matchedCount === matchedCount
+    && recurrence.unmatchedReferenceCount === unmatchedCount;
 }
 
 function validGateBReview(value: unknown): boolean {
@@ -145,8 +211,7 @@ function validGateCReview(value: unknown): boolean {
     && DEVICE_CLASSES.includes(review.deviceClass as DeviceClass)
     && score(review.identityAcrossRange)
     && score(review.timbreContinuity)
-    && finiteNumber(review.usefulSemitoneSpan)
-    && review.usefulSemitoneSpan >= 0
+    && nonNegativeInteger(review.usefulSemitoneSpan)
     && typeof review.latencyAcceptable === "boolean";
 }
 
@@ -165,6 +230,28 @@ function reviewTargetsBundle(
     && recordIds.has(review.recordId);
 }
 
+function recurrenceMatchesDerived(cached: EvidenceRecurrence, derived: EvidenceRecurrence): boolean {
+  if (cached.recordId !== derived.recordId
+    || cached.matchedCount !== derived.matchedCount
+    || cached.unmatchedReferenceCount !== derived.unmatchedReferenceCount
+    || !closeNumber(cached.medianCents, derived.medianCents)
+    || !closeNumber(cached.meanCents, derived.meanCents)
+    || cached.matches.length !== derived.matches.length) return false;
+
+  return cached.matches.every((cachedMatch, index) => {
+    const derivedMatch = derived.matches[index];
+    if (derivedMatch === undefined) return false;
+    return cachedMatch.referenceIndex === derivedMatch.referenceIndex
+      && cachedMatch.candidateIndex === derivedMatch.candidateIndex
+      && closeNumber(cachedMatch.referenceFrequencyHz, derivedMatch.referenceFrequencyHz)
+      && cachedMatch.candidateFrequencyHz === undefined === (derivedMatch.candidateFrequencyHz === undefined)
+      && (cachedMatch.candidateFrequencyHz === undefined
+        || derivedMatch.candidateFrequencyHz === undefined
+        || closeNumber(cachedMatch.candidateFrequencyHz, derivedMatch.candidateFrequencyHz))
+      && closeNumber(cachedMatch.distanceCents, derivedMatch.distanceCents);
+  });
+}
+
 export function parseValidationEvidence(value: unknown): EvidenceParseResult {
   const evidence = record(value);
   if (evidence === undefined) return { ok: false, error: "evidence must be a JSON object" };
@@ -174,7 +261,9 @@ export function parseValidationEvidence(value: unknown): EvidenceParseResult {
   }
   if (evidence.gateAContractVersion !== "gate-a-1") return { ok: false, error: "unsupported Gate A contract" };
   if (!nonEmptyString(evidence.sessionId)) return { ok: false, error: "sessionId is missing" };
-  if (!nonEmptyString(evidence.createdAt)) return { ok: false, error: "createdAt is missing" };
+  if (!nonEmptyString(evidence.createdAt) || !Number.isFinite(Date.parse(evidence.createdAt))) {
+    return { ok: false, error: "createdAt is invalid" };
+  }
   const sessionId = evidence.sessionId;
 
   const object = record(evidence.object);
@@ -205,25 +294,36 @@ export function parseValidationEvidence(value: unknown): EvidenceParseResult {
   })) {
     return { ok: false, error: "measurement records are invalid" };
   }
+  const records = evidence.records as unknown as readonly ValidationEvidenceRecord[];
   const recordIds = new Set<number>();
-  for (const value of evidence.records) {
-    const entry = record(value);
-    if (entry === undefined || typeof entry.id !== "number") return { ok: false, error: "measurement records are invalid" };
+  for (let index = 0; index < records.length; index += 1) {
+    const entry = records[index];
+    if (entry === undefined) return { ok: false, error: "measurement records are invalid" };
     if (recordIds.has(entry.id)) return { ok: false, error: "measurement record IDs must be unique" };
+    if (entry.id !== index + 1) return { ok: false, error: "measurement record IDs must be sequential from 1" };
     recordIds.add(entry.id);
   }
-  if (evidence.recordCount !== evidence.records.length) {
+  if (evidence.recordCount !== records.length) {
     return { ok: false, error: "recordCount does not match measurement records" };
   }
 
   if (!Array.isArray(evidence.recurrence) || !evidence.recurrence.every(validRecurrence)) {
     return { ok: false, error: "recurrence data is invalid" };
   }
-  if (!evidence.recurrence.every((value) => {
-    const recurrence = record(value);
-    return recurrence !== undefined && typeof recurrence.recordId === "number" && recordIds.has(recurrence.recordId);
-  })) {
-    return { ok: false, error: "recurrence target does not belong to this evidence bundle" };
+  const cachedRecurrence = evidence.recurrence as unknown as readonly EvidenceRecurrence[];
+  const derivedRecurrence = deriveEvidenceRecurrence(records);
+  if (cachedRecurrence.length !== derivedRecurrence.length
+    || !cachedRecurrence.every((cached, index) => {
+      const derived = derivedRecurrence[index];
+      return derived !== undefined && recurrenceMatchesDerived(cached, derived);
+    })) {
+    return { ok: false, error: "recurrence cache does not match the measurement fingerprints" };
+  }
+  const derivedMedianDrift = deriveMedianModalDriftCents(records);
+  if (derivedMedianDrift === null) {
+    if (evidence.medianModalDriftCents !== null) return { ok: false, error: "median modal drift cache is inconsistent" };
+  } else if (evidence.medianModalDriftCents === null || !closeNumber(evidence.medianModalDriftCents, derivedMedianDrift)) {
+    return { ok: false, error: "median modal drift cache does not match the measurement fingerprints" };
   }
 
   if (!Array.isArray(evidence.gateBReviews) || !evidence.gateBReviews.every(validGateBReview)) {
@@ -237,6 +337,14 @@ export function parseValidationEvidence(value: unknown): EvidenceParseResult {
   }
   if (!evidence.gateCReviews.every((review) => reviewTargetsBundle(review, sessionId, objectLabel, recordIds))) {
     return { ok: false, error: "Gate C review target does not belong to this evidence bundle" };
+  }
+  const reviewIds = new Set<string>();
+  for (const value of [...evidence.gateBReviews, ...evidence.gateCReviews]) {
+    const review = record(value);
+    if (review === undefined || typeof review.reviewId !== "string") return { ok: false, error: "review ID is invalid" };
+    const key = review.reviewId.trim();
+    if (reviewIds.has(key)) return { ok: false, error: "review IDs must be unique within an evidence bundle" };
+    reviewIds.add(key);
   }
   if (evidence.rawMicrophoneSamplesIncluded !== false) {
     return { ok: false, error: "raw microphone samples invariant failed" };
