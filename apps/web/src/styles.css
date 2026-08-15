@@ -119,6 +119,7 @@ dd { margin: 0; font-variant-numeric: tabular-nums; }
 .consumer-keyboard { display: grid; grid-template-columns: repeat(13, 1fr); gap: 5px; }
 .consumer-keyboard button { min-height: 92px; background: transparent; color: #d9d9d2; border-color: #3c3c37; font-size: 13px; }
 .consumer-keyboard button:hover, .consumer-keyboard button:focus-visible { background: #f0f0e9; color: #0b0b0b; }
+.keyboard button, .consumer-keyboard button { touch-action: manipulation; }
 
 @media (max-width: 760px) {
   .shell { width: min(100% - 24px, 1120px); padding-top: 36px; }
@@ -133,12 +134,12 @@ dd { margin: 0; font-variant-numeric: tabular-nums; }
   .dna-view { grid-template-columns: 1fr; padding: 18px; }
   .mode-row { grid-template-columns: 1fr 1fr; row-gap: 8px; }
   .mode-head { display: none; }
-  .keyboard { grid-template-columns: repeat(7, 1fr); }
+  .keyboard { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .consumer-shell { width: min(100% - 28px, 1180px); padding-top: 22px; }
   .consumer-hero h1, .consumer-stage h1 { font-size: clamp(48px, 15vw, 78px); }
   .consumer-reveal .dna-view { grid-template-columns: 1fr; }
   .consumer-actions { flex-direction: column; }
   .consumer-actions button { width: 100%; }
-  .consumer-keyboard { grid-template-columns: repeat(7, 1fr); }
+  .consumer-keyboard { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .consumer-keyboard button { min-height: 68px; }
 }
