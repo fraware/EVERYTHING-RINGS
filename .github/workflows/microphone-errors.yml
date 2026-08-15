@@ -1,0 +1,103 @@
+name: microphone-errors
+
+on:
+  push:
+    branches: [validation/microphone-errors]
+
+permissions:
+  contents: read
+
+jobs:
+  permission-denied:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      TARGET_REVISION: c5f0f902fa75016afc9e8d14a10aa485836147f2
+      VITE_SOFTWARE_REVISION: c5f0f902fa75016afc9e8d14a10aa485836147f2
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: c5f0f902fa75016afc9e8d14a10aa485836147f2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "${TARGET_REVISION}"
+      - run: pnpm build
+      - name: Install browser driver
+        run: |
+          mkdir -p "${RUNNER_TEMP}/microphone-errors"
+          cd "${RUNNER_TEMP}/microphone-errors"
+          npm init -y >/dev/null
+          npm install --no-save --package-lock=false puppeteer-core@24.31.0
+          node -e "const p=require('puppeteer-core/package.json'); if(p.version!=='24.31.0') process.exit(1)"
+      - name: Verify denied microphone recovery
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "${CHROME}"
+          pnpm --filter @everything-rings/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort >"${RUNNER_TEMP}/microphone-errors-vite.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "${SERVER_PID}" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do
+            curl --fail --silent http://127.0.0.1:4173/ >/dev/null && break
+            sleep 0.25
+          done
+          cat >"${RUNNER_TEMP}/microphone-errors/test.mjs" <<'JS'
+          import puppeteer from 'puppeteer-core';
+          import fs from 'node:fs';
+
+          const origin = 'http://127.0.0.1:4173';
+          const expected = 'Microphone access is blocked. Allow microphone access for this site, then try again.';
+          const browser = await puppeteer.launch({
+            executablePath: process.env.CHROME,
+            headless: true,
+            args: [
+              '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+              '--use-fake-device-for-media-stream',
+            ],
+          });
+          const context = browser.defaultBrowserContext();
+          await context.overridePermissions(origin, []);
+          const page = await browser.newPage();
+          const pageErrors = [];
+          page.on('pageerror', error => pageErrors.push(error.message));
+
+          try {
+            await page.goto(`${origin}/`, { waitUntil: 'networkidle0', timeout: 30_000 });
+            await page.evaluate(() => {
+              const button = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'START LISTENING');
+              if (!(button instanceof HTMLButtonElement)) throw new Error('START LISTENING missing');
+              button.click();
+            });
+            await page.waitForFunction(text => document.body.innerText.includes(text), { timeout: 5_000, polling: 100 }, expected);
+            const text = await page.evaluate(() => document.body.innerText);
+            if (!text.includes(expected)) throw new Error('permission recovery copy missing');
+            if (text.includes('NotAllowedError')) throw new Error('raw browser permission error leaked into UI');
+            if (!text.includes('TRY AGAIN') || !text.includes('START OVER')) throw new Error('recovery actions missing');
+            if (pageErrors.length > 0) throw new Error(pageErrors.join('\n'));
+
+            const report = {
+              targetRevision: process.env.TARGET_REVISION,
+              permissionDeniedCopy: true,
+              rawBrowserErrorLeaked: false,
+              recoveryActions: true,
+              pageErrors: 0,
+            };
+            console.log(JSON.stringify(report, null, 2));
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/microphone-errors-report.json`, JSON.stringify(report, null, 2));
+          } finally {
+            await browser.close();
+          }
+          JS
+          CHROME="${CHROME}" RUNNER_TEMP="${RUNNER_TEMP}" TARGET_REVISION="${TARGET_REVISION}" node "${RUNNER_TEMP}/microphone-errors/test.mjs"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: microphone-errors
+          path: |
+            ${{ runner.temp }}/microphone-errors-report.json
+            ${{ runner.temp }}/microphone-errors-vite.log
+          if-no-files-found: ignore
