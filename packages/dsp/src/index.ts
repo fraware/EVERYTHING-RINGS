@@ -2,8 +2,11 @@ export {
   type AnalysisConfig,
   type AnalysisFailureReason,
   type AnalysisResult,
+  type ConfiguredAnalysisResult,
+  type DiagnosticAcousticFingerprintV1,
   DEFAULT_ANALYSIS_CONFIG_V1,
   analyzeImpact,
+  analyzeImpactWithConfig,
 } from "./analysis/analyze-impact";
 export {
   DEFAULT_DECAY_FIT_CONFIG,

@@ -3,6 +3,7 @@ import { generateModalSignal } from "../../fixtures/src/index";
 import {
   DEFAULT_ANALYSIS_CONFIG_V1,
   analyzeImpact,
+  analyzeImpactWithConfig,
 } from "../src/analysis/analyze-impact";
 
 function nearestMode(
@@ -16,6 +17,23 @@ function nearestMode(
 }
 
 describe("analysis measurement floor", () => {
+  it("keeps custom research configurations unversioned", () => {
+    const sampleRate = 48_000;
+    const signal = generateModalSignal({
+      sampleRate,
+      durationSeconds: 2.5,
+      modes: [
+        { frequencyHz: 440, amplitude: 1, decaySeconds: 1.2 },
+        { frequencyHz: 997, amplitude: 0.62, decaySeconds: 0.7 },
+        { frequencyHz: 2413, amplitude: 0.35, decaySeconds: 0.38 },
+      ],
+    });
+    const diagnostic = analyzeImpactWithConfig(signal, sampleRate, DEFAULT_ANALYSIS_CONFIG_V1);
+    expect(diagnostic.ok).toBe(true);
+    if (!diagnostic.ok) return;
+    expect("algorithmVersion" in diagnostic.fingerprint).toBe(false);
+  });
+
   it("removes a stable resonance below the v2 measurement floor after it has been detected", () => {
     const sampleRate = 48_000;
     const weakFrequencyHz = 6_000;
@@ -30,7 +48,7 @@ describe("analysis measurement floor", () => {
       ],
     });
 
-    const diagnostic = analyzeImpact(signal, sampleRate, {
+    const diagnostic = analyzeImpactWithConfig(signal, sampleRate, {
       ...DEFAULT_ANALYSIS_CONFIG_V1,
       selection: {
         ...DEFAULT_ANALYSIS_CONFIG_V1.selection,
@@ -39,6 +57,7 @@ describe("analysis measurement floor", () => {
     });
     expect(diagnostic.ok).toBe(true);
     if (!diagnostic.ok) return;
+    expect("algorithmVersion" in diagnostic.fingerprint).toBe(false);
     const detectedWeakMode = nearestMode(diagnostic.fingerprint.modes, weakFrequencyHz);
     expect(detectedWeakMode).toBeDefined();
     expect(Math.abs((detectedWeakMode?.frequencyHz ?? 0) - weakFrequencyHz)).toBeLessThan(3);
@@ -47,6 +66,7 @@ describe("analysis measurement floor", () => {
     const measured = analyzeImpact(signal, sampleRate);
     expect(measured.ok).toBe(true);
     if (!measured.ok) return;
+    expect(measured.fingerprint.algorithmVersion).toBe("er-dsp-2");
     expect(
       measured.fingerprint.modes.some((mode) => Math.abs(mode.frequencyHz - weakFrequencyHz) < 3),
     ).toBe(false);
