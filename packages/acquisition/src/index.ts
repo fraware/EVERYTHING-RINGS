@@ -1,6 +1,7 @@
 export {
   CAPTURE_PROCESSOR_NAME,
   PREFERRED_AUDIO_CONSTRAINTS,
+  MicrophoneOpenError,
   classifyMicrophoneOpenFailure,
   createCaptureGraph,
   openMicrophone,
