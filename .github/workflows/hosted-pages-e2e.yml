@@ -83,7 +83,9 @@ jobs:
                 const label = [...document.querySelectorAll('label')].find(node => node.querySelector('span')?.textContent?.trim() === name);
                 const input = label?.querySelector('input');
                 if (!(input instanceof HTMLInputElement)) throw new Error(`${name} input missing`);
-                input.value = value;
+                const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+                if (setter === undefined) throw new Error('native input setter missing');
+                setter.call(input, value);
                 input.dispatchEvent(new Event('input', { bubbles: true }));
                 input.dispatchEvent(new Event('change', { bubbles: true }));
               };
