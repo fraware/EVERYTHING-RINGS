@@ -1,0 +1,38 @@
+name: realimpact-probe
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/realimpact-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Probe RealImpact object archive
+        env:
+          OBJECT_NAME: 64_CeramicMug
+        run: |
+          set -euo pipefail
+          url="https://downloads.cs.stanford.edu/viscam/RealImpact/${OBJECT_NAME}.zip"
+          echo "url=${url}"
+          curl --fail --silent --show-error --location --head --max-time 60 "${url}" | tee headers.txt
+          python - <<'PY'
+          import re
+          headers = open("headers.txt", encoding="utf-8").read().splitlines()
+          lengths = []
+          for line in headers:
+              match = re.match(r"(?i)^content-length:\s*(\d+)", line.strip())
+              if match:
+                  lengths.append(int(match.group(1)))
+          if lengths:
+              size = lengths[-1]
+              print(f"final_content_length_bytes={size}")
+              print(f"final_content_length_mib={size / 1024 / 1024:.2f}")
+          else:
+              print("final_content_length=unknown")
+          PY
