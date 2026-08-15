@@ -67,9 +67,9 @@ export function useStrikeSession() {
   const [fingerprint, setFingerprint] = useState<AcousticFingerprintV1>();
   const [failureReason, setFailureReason] = useState<string>();
   const [records, setRecords] = useState<StrikeRecord[]>([]);
-  const resources = useRef<SessionResources>();
+  const resources = useRef<SessionResources | undefined>(undefined);
   const requestId = useRef(0);
-  const pendingQuality = useRef<CaptureQuality>();
+  const pendingQuality = useRef<CaptureQuality | undefined>(undefined);
 
   function disposeResources(): void {
     const current = resources.current;
@@ -90,6 +90,7 @@ export function useStrikeSession() {
       setQuality(undefined);
       setRecords([]);
       pendingQuality.current = undefined;
+      setState("warming");
 
       const microphone = await openMicrophone();
       const context = new AudioContext();
@@ -98,7 +99,6 @@ export function useStrikeSession() {
       const worker = new Worker(new URL("./analysis.worker.ts", import.meta.url), { type: "module" });
       resources.current = { context, microphone, graph, worker };
       setSettings(microphone.settings);
-      setState("warming");
 
       graph.node.port.onmessage = (event: MessageEvent<CaptureWorkletEvent>) => {
         if (event.data.type === "STATE") {
@@ -161,7 +161,12 @@ export function useStrikeSession() {
     setCapture(undefined);
     setQuality(undefined);
     pendingQuality.current = undefined;
-    resources.current?.graph.node.port.postMessage({ type: "RESET" });
+    const node = resources.current?.graph.node;
+    if (node === undefined) {
+      setState("idle");
+      return;
+    }
+    node.port.postMessage({ type: "RESET" });
     setState("warming");
   }
 
