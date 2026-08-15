@@ -14,3 +14,6 @@ MVP-0 requires no server and uploads no microphone PCM.
 
 ## ADR-005 — Modal instrument
 The playable object synthesizes estimated resonant modes instead of pitch-shifting a recorded sample.
+
+## ADR-006 — Testable acquisition kernel
+Automatic onset detection and rolling capture live in a pure state machine. The AudioWorklet only adapts browser audio blocks to that kernel, so capture semantics remain deterministic and independently testable.
