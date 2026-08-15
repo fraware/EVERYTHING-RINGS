@@ -23,6 +23,7 @@ button.secondary { background: transparent; color: #c8c8c1; border-color: #44443
 .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: #292925; margin-top: 32px; border: 1px solid #292925; }
 .metrics-grid article { background: #0b0b0b; padding: 24px; }
 h2 { margin: 0 0 18px; font-size: 18px; font-weight: 500; }
+h3 { margin: 0 0 8px; font-size: 18px; font-weight: 500; }
 dl { margin: 0; }
 dl div { display: flex; justify-content: space-between; gap: 20px; padding: 8px 0; border-top: 1px solid #22221f; }
 dt { color: #777771; }
@@ -34,11 +35,17 @@ dd { margin: 0; font-variant-numeric: tabular-nums; }
 .mode-table { margin-top: 16px; border-top: 1px solid #33332f; }
 .mode-row { display: grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; padding: 11px 0; border-bottom: 1px solid #22221f; font-variant-numeric: tabular-nums; }
 .mode-head { color: #777771; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.listening-lab, .instrument-lab { margin-top: 36px; padding-top: 24px; border-top: 1px solid #33332f; }
+.listening-lab { display: flex; justify-content: space-between; align-items: end; gap: 24px; }
+.keyboard { display: grid; grid-template-columns: repeat(13, minmax(52px, 1fr)); gap: 6px; margin-top: 18px; }
+.keyboard button { min-height: 72px; padding: 12px 6px; background: transparent; color: #e8e8e3; border-color: #45453f; }
+.keyboard button:hover, .keyboard button:focus-visible { background: #deded7; color: #0b0b0b; }
 @media (max-width: 760px) {
   .shell { width: min(100% - 24px, 1120px); padding-top: 36px; }
-  .control-panel { align-items: stretch; flex-direction: column; }
+  .control-panel, .listening-lab { align-items: stretch; flex-direction: column; }
   .actions { justify-content: flex-start; }
   .metrics-grid { grid-template-columns: 1fr; }
   .mode-row { grid-template-columns: 1fr 1fr; row-gap: 8px; }
   .mode-head { display: none; }
+  .keyboard { grid-template-columns: repeat(7, 1fr); }
 }
