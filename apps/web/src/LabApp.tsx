@@ -2,7 +2,13 @@ import type { AcousticMode } from "@everything-rings/dsp";
 import { fingerprintRecurrence } from "@everything-rings/fingerprint";
 import { chooseAnchorMode } from "@everything-rings/instrument";
 import { renderAcousticFingerprint } from "@everything-rings/synth";
-import type { GateBReview, GateCReview, MaterialClass } from "@everything-rings/validation";
+import type {
+  FixedSetupProtocol,
+  GateBReview,
+  GateCReview,
+  MaterialClass,
+  ValidationObjectMetadata,
+} from "@everything-rings/validation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AcousticDnaView } from "./AcousticDnaView";
 import { failureCopy } from "./failureCopy";
@@ -114,6 +120,8 @@ export function LabApp() {
   const [striker, setStriker] = useState("finger tap");
   const [strikeLocation, setStrikeLocation] = useState("marked point");
   const [supportCondition, setSupportCondition] = useState("held consistently");
+  const [activeObject, setActiveObject] = useState<ValidationObjectMetadata>();
+  const [activeProtocol, setActiveProtocol] = useState<FixedSetupProtocol>();
   const [gateBReviews, setGateBReviews] = useState<GateBReview[]>([]);
   const [gateCReviews, setGateCReviews] = useState<GateCReview[]>([]);
   const drift = useMemo(() => {
@@ -129,12 +137,30 @@ export function LabApp() {
     && supportCondition.trim().length > 0
     && Number.isFinite(microphoneDistanceCm)
     && microphoneDistanceCm > 0;
+  const protocolLocked = activeObject !== undefined && activeProtocol !== undefined;
 
   function startSession(): void {
+    if (!protocolReady) return;
     setSessionId(createSessionId());
+    setActiveObject({ label: objectLabel.trim(), material });
+    setActiveProtocol({
+      fixedSetup: true,
+      microphoneDistanceCm,
+      striker: striker.trim(),
+      strikeLocation: strikeLocation.trim(),
+      supportCondition: supportCondition.trim(),
+    });
     setGateBReviews([]);
     setGateCReviews([]);
     void session.start();
+  }
+  function prepareNewObject(): void {
+    session.stop();
+    setActiveObject(undefined);
+    setActiveProtocol(undefined);
+    setGateBReviews([]);
+    setGateCReviews([]);
+    setSessionId(createSessionId());
   }
   function playOriginal(): void {
     if (session.capture !== undefined) session.play(session.capture.samples, session.capture.sampleRate);
@@ -161,7 +187,7 @@ export function LabApp() {
     ]);
   }
   function exportEvidence(): void {
-    if (session.records.length === 0 || !protocolReady) return;
+    if (session.records.length === 0 || activeObject === undefined || activeProtocol === undefined) return;
     const reference = session.records[0]?.fingerprint;
     const recurrence = reference === undefined ? [] : session.records.slice(1).map((record) => ({
       recordId: record.id,
@@ -173,17 +199,8 @@ export function LabApp() {
       gateAContractVersion: "gate-a-1",
       sessionId,
       createdAt: new Date().toISOString(),
-      object: {
-        label: objectLabel.trim(),
-        material,
-      },
-      protocol: {
-        fixedSetup: true,
-        microphoneDistanceCm,
-        striker: striker.trim(),
-        strikeLocation: strikeLocation.trim(),
-        supportCondition: supportCondition.trim(),
-      },
+      object: activeObject,
+      protocol: activeProtocol,
       captureSettings: session.settings ?? null,
       realtimeAudioTiming: session.audioTiming ?? null,
       recordCount: session.records.length,
@@ -198,7 +215,7 @@ export function LabApp() {
       gateCReviews,
       rawMicrophoneSamplesIncluded: false,
     };
-    downloadJson(`everything-rings-${objectLabel.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}.json`, report);
+    downloadJson(`everything-rings-${activeObject.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}.json`, report);
   }
 
   const realtimeStatus = session.instrumentFailure !== undefined
@@ -219,15 +236,15 @@ export function LabApp() {
       <section className="protocol-panel" aria-label="Fixed setup protocol">
         <div className="protocol-heading">
           <div><p className="eyebrow">GATE A / FIXED SETUP</p><h2>Identify this measurement session</h2></div>
-          <p className="small">Keep these conditions approximately fixed for all five accepted strikes.</p>
+          <p className="small">{protocolLocked ? `Locked for ${activeObject.label}. Export this session before starting another object.` : "Set these fields before arming. They are locked for the full five-strike session."}</p>
         </div>
         <div className="protocol-grid">
-          <label><span>object</span><input value={objectLabel} onChange={(event) => setObjectLabel(event.target.value)} placeholder="ceramic mug" /></label>
-          <label><span>material</span><select value={material} onChange={(event) => setMaterial(event.target.value as MaterialClass)}>{MATERIALS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-          <label><span>microphone distance</span><div className="input-unit"><input type="number" min="1" step="1" value={microphoneDistanceCm} onChange={(event) => setMicrophoneDistanceCm(Number(event.target.value))} /><span>cm</span></div></label>
-          <label><span>striker</span><input value={striker} onChange={(event) => setStriker(event.target.value)} /></label>
-          <label><span>strike location</span><input value={strikeLocation} onChange={(event) => setStrikeLocation(event.target.value)} /></label>
-          <label><span>support condition</span><input value={supportCondition} onChange={(event) => setSupportCondition(event.target.value)} /></label>
+          <label><span>object</span><input disabled={protocolLocked} value={objectLabel} onChange={(event) => setObjectLabel(event.target.value)} placeholder="ceramic mug" /></label>
+          <label><span>material</span><select disabled={protocolLocked} value={material} onChange={(event) => setMaterial(event.target.value as MaterialClass)}>{MATERIALS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <label><span>microphone distance</span><div className="input-unit"><input disabled={protocolLocked} type="number" min="1" step="1" value={microphoneDistanceCm} onChange={(event) => setMicrophoneDistanceCm(Number(event.target.value))} /><span>cm</span></div></label>
+          <label><span>striker</span><input disabled={protocolLocked} value={striker} onChange={(event) => setStriker(event.target.value)} /></label>
+          <label><span>strike location</span><input disabled={protocolLocked} value={strikeLocation} onChange={(event) => setStrikeLocation(event.target.value)} /></label>
+          <label><span>support condition</span><input disabled={protocolLocked} value={supportCondition} onChange={(event) => setSupportCondition(event.target.value)} /></label>
         </div>
       </section>
 
@@ -235,7 +252,8 @@ export function LabApp() {
         <div>
           <span className={`status status-${session.state}`}>{session.state}</span>
           <p className="instruction">
-            {session.state === "idle" && "Enable the microphone to start."}
+            {session.state === "idle" && !protocolLocked && "Complete the fixed setup, then enable the microphone."}
+            {session.state === "idle" && protocolLocked && "Session stopped. Export evidence or start a new object setup."}
             {session.state === "warming" && "Measuring the room noise floor…"}
             {session.state === "armed" && "Ready. Tap the object once."}
             {session.state === "capturing" && "Capturing the decay…"}
@@ -245,13 +263,14 @@ export function LabApp() {
           </p>
         </div>
         <div className="actions">
-          {session.state === "idle" ? <button onClick={startSession}>ARM MICROPHONE</button> : null}
+          {session.state === "idle" && !protocolLocked ? <button disabled={!protocolReady} onClick={startSession}>ARM MICROPHONE</button> : null}
           {session.state !== "idle" ? <button onClick={session.reset}>NEW STRIKE</button> : null}
-          {session.records.length > 0 ? <button disabled={!protocolReady} onClick={exportEvidence}>EXPORT EVIDENCE</button> : null}
+          {session.records.length > 0 && protocolLocked ? <button onClick={exportEvidence}>EXPORT EVIDENCE</button> : null}
           {session.state !== "idle" ? <button className="secondary" onClick={session.stop}>STOP</button> : null}
+          {session.state === "idle" && protocolLocked ? <button className="secondary" onClick={prepareNewObject}>NEW OBJECT SETUP</button> : null}
         </div>
       </section>
-      {!protocolReady && session.records.length > 0 ? <p className="validation-note">Complete the fixed-setup fields to export release evidence.</p> : null}
+      {!protocolReady && !protocolLocked ? <p className="validation-note">Complete every fixed-setup field before arming the microphone.</p> : null}
 
       {session.capture !== undefined ? <Waveform samples={session.capture.samples} triggerSample={session.capture.triggerSample} /> : null}
 
@@ -285,7 +304,7 @@ export function LabApp() {
         <ModeTable modes={fingerprint.modes} />
         <div className="instrument-lab"><p className="eyebrow">GATE C</p><h3>Realtime playable object</h3><p className="small">{session.instrumentReady ? "Modal voices are rendered continuously in the audio thread. Scheduling delay excludes the browser-reported output path." : session.instrumentFailure !== undefined ? "Realtime playback is unavailable in this browser session." : "Preparing the audio thread…"}</p><div className="keyboard">{KEYBOARD_NOTES.map((note) => <button key={note.midi} disabled={!session.instrumentReady} onPointerDown={() => session.noteOn(note.midi)}>{note.label}</button>)}</div></div>
         <GateReviewPanel
-          objectLabel={objectLabel}
+          objectLabel={activeObject?.label ?? ""}
           canListen={session.capture !== undefined && fingerprint !== undefined}
           instrumentReady={session.instrumentReady}
           playOriginal={playOriginal}
