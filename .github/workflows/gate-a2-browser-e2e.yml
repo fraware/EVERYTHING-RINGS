@@ -78,6 +78,7 @@ jobs:
 
           const revision = process.env.TARGET_REVISION;
           if (!/^[0-9a-f]{40}$/.test(revision ?? '')) throw new Error('target revision is invalid');
+          const objectLabel = 'gate a2 synthetic ceramic mug';
           const expectedModes = [
             { frequencyHz: 440, decaySeconds: 1.20 },
             { frequencyHz: 997, decaySeconds: 0.70 },
@@ -122,6 +123,17 @@ jobs:
             throw new Error('evidence download did not appear');
           }
 
+          async function sessionRowVerdict(label) {
+            return page.evaluate(target => {
+              const rows = [...document.querySelectorAll('.release-row:not(.release-row-head)')];
+              for (const row of rows) {
+                const cells = [...row.querySelectorAll('span')].map(cell => cell.textContent?.trim() ?? '');
+                if (cells[1] === target) return cells[cells.length - 1] ?? null;
+              }
+              return null;
+            }, label);
+          }
+
           function assertFingerprint(fingerprint, attemptId) {
             if (fingerprint?.algorithmVersion !== 'er-dsp-2') throw new Error(`attempt ${attemptId} has wrong algorithm provenance`);
             if (!Number.isFinite(fingerprint?.sampleRate) || fingerprint.sampleRate <= 0) throw new Error(`attempt ${attemptId} has invalid sample rate`);
@@ -149,7 +161,7 @@ jobs:
             await page.click('input[placeholder="lab-mug-01"]');
             await page.type('input[placeholder="lab-mug-01"]', 'gate-a2-e2e-ceramic-01');
             await page.click('input[placeholder="ceramic mug"]');
-            await page.type('input[placeholder="ceramic mug"]', 'gate a2 synthetic ceramic mug');
+            await page.type('input[placeholder="ceramic mug"]', objectLabel);
             await page.select('select', 'ceramic');
             await clickButton('ARM MICROPHONE');
 
@@ -169,7 +181,7 @@ jobs:
 
             const finalText = await page.evaluate(() => document.body.innerText);
             if (!finalText.includes('Five qualified attempts complete. Gate A2 passes')) throw new Error('Gate A2 session did not pass after five repeated strikes');
-            if (!finalText.includes('Gate A2\nPASS')) throw new Error('Gate A2 metric did not report PASS');
+            if (!finalText.includes('Gate A2\nPASS')) throw new Error('Gate A2 session metric did not report PASS');
 
             await clickButton('EXPORT EVIDENCE');
             const evidencePath = await waitForJsonDownload();
@@ -200,8 +212,8 @@ jobs:
             if (releaseText.includes('Rejected files')) throw new Error('Release Console rejected valid exported evidence');
             if (!releaseText.includes(`Authorized collection revision: ${revision}`)) throw new Error('Release Console lost authorized collection revision');
             if (!releaseText.includes(`Evidence revision: ${revision}`)) throw new Error('Release Console lost evidence revision');
-            if (!releaseText.includes('gate a2 synthetic ceramic mug')) throw new Error('imported session missing from Release Console');
-            if (!releaseText.includes('A2\nPASS')) throw new Error('valid current-revision session is not Gate A2 eligible');
+            if (!releaseText.includes(objectLabel)) throw new Error('imported session missing from Release Console');
+            if (await sessionRowVerdict(objectLabel) !== 'PASS') throw new Error('valid current-revision session is not Gate A2 eligible');
 
             const wrongRevision = '0000000000000000000000000000000000000001';
             const wrongRevisionPath = path.join(downloadDir, 'wrong-revision.json');
@@ -212,11 +224,11 @@ jobs:
             await input.uploadFile(wrongRevisionPath);
             await page.waitForFunction(() => document.body.innerText.includes('1 sessions'), { timeout: 5_000, polling: 100 });
             releaseText = await page.evaluate(() => document.body.innerText);
-            if (releaseText.includes('Rejected files')) throw new Error('historical-revision control should remain parseable');
+            if (releaseText.includes('Rejected files')) throw new Error('wrong-revision control should remain parseable');
             if (!releaseText.includes(`current release requires software revision ${revision}`)) {
               throw new Error('Release Console did not enforce authorized collection revision');
             }
-            if (releaseText.includes('A2\nPASS')) throw new Error('wrong-revision evidence remained Gate A2 eligible');
+            if (await sessionRowVerdict(objectLabel) !== 'OPEN') throw new Error('wrong-revision evidence remained Gate A2 eligible');
             if (pageErrors.length > 0) throw new Error(pageErrors.join('\n'));
 
             const fingerprints = evidence.attempts.map(attempt => attempt.analysis.fingerprint);
