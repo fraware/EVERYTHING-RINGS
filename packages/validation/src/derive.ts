@@ -1,15 +1,27 @@
 import { fingerprintRecurrence } from "@everything-rings/fingerprint";
-import type { EvidenceRecurrence, ValidationEvidenceRecord } from "./types";
+import type { EvidenceRecurrence, ValidationEvidenceAttempt } from "./types";
+
+export function successfulFingerprint(
+  attempt: ValidationEvidenceAttempt | undefined,
+) {
+  return attempt?.analysis.status === "success" ? attempt.analysis.fingerprint : undefined;
+}
 
 export function deriveEvidenceRecurrence(
-  records: readonly ValidationEvidenceRecord[],
+  attempts: readonly ValidationEvidenceAttempt[],
 ): readonly EvidenceRecurrence[] {
-  const reference = records[0]?.fingerprint;
+  const reference = successfulFingerprint(attempts[0]);
   if (reference === undefined) return [];
-  return records.slice(1).map((record) => ({
-    recordId: record.id,
-    ...fingerprintRecurrence(reference, record.fingerprint),
-  }));
+  const recurrence: EvidenceRecurrence[] = [];
+  for (const attempt of attempts.slice(1)) {
+    const fingerprint = successfulFingerprint(attempt);
+    if (fingerprint === undefined) continue;
+    recurrence.push({
+      attemptId: attempt.id,
+      ...fingerprintRecurrence(reference, fingerprint),
+    });
+  }
+  return recurrence;
 }
 
 export function medianFinite(values: readonly number[]): number | null {
@@ -23,7 +35,7 @@ export function medianFinite(values: readonly number[]): number | null {
 }
 
 export function deriveMedianModalDriftCents(
-  records: readonly ValidationEvidenceRecord[],
+  attempts: readonly ValidationEvidenceAttempt[],
 ): number | null {
-  return medianFinite(deriveEvidenceRecurrence(records).map((comparison) => comparison.medianCents));
+  return medianFinite(deriveEvidenceRecurrence(attempts).map((comparison) => comparison.medianCents));
 }
