@@ -26,3 +26,5 @@ jobs:
         run: pnpm test
       - name: Build
         run: pnpm build
+      - name: Browser smoke
+        run: bash scripts/browser-smoke.sh
