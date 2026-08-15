@@ -22,6 +22,15 @@ export function ConsumerApp() {
     session.reset();
   }
 
+  function retry(): void {
+    setShowKeyboard(false);
+    if (session.state === "error") {
+      void session.start();
+      return;
+    }
+    session.reset();
+  }
+
   function hearModel(): void {
     const fingerprint = session.fingerprint;
     if (fingerprint === undefined) return;
@@ -55,7 +64,7 @@ export function ConsumerApp() {
   }
 
   if (session.state === "failure" || session.state === "error") {
-    return <main className="consumer-shell consumer-stage"><p className="consumer-mark">EVERYTHING RINGS</p><p className="consumer-kicker">TRY THAT AGAIN</p><h1>{failureCopy(session.failureReason)}</h1><div className="consumer-actions"><button className="consumer-primary" onClick={session.reset}>TRY AGAIN</button><button className="consumer-ghost" onClick={session.stop}>START OVER</button></div></main>;
+    return <main className="consumer-shell consumer-stage"><p className="consumer-mark">EVERYTHING RINGS</p><p className="consumer-kicker">TRY THAT AGAIN</p><h1>{failureCopy(session.failureReason)}</h1><div className="consumer-actions"><button className="consumer-primary" onClick={retry}>TRY AGAIN</button><button className="consumer-ghost" onClick={session.stop}>START OVER</button></div></main>;
   }
 
   const fingerprint = session.fingerprint;
