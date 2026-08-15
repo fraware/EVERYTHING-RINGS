@@ -1,0 +1,79 @@
+name: realimpact-layout
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/realimpact-layout.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect archive layout
+        env:
+          URL: https://downloads.cs.stanford.edu/viscam/RealImpact/64_CeramicMug.zip
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/realimpact-layout
+          headers=/tmp/realimpact-layout/headers.txt
+          curl --fail --silent --show-error --location --head \
+            --retry 6 --retry-all-errors --retry-delay 3 --max-time 90 \
+            "${URL}" > "${headers}"
+          size="$(awk 'BEGIN{IGNORECASE=1} /^content-length:/ {gsub("\r", "", $2); value=$2} END{print value}' "${headers}")"
+          test -n "${size}"
+          tail_size=$((4 * 1024 * 1024))
+          if [ "${size}" -lt "${tail_size}" ]; then tail_size="${size}"; fi
+          start=$((size - tail_size))
+          curl --fail --silent --show-error --location \
+            --retry 6 --retry-all-errors --retry-delay 3 --max-time 120 \
+            --range "${start}-$((size - 1))" \
+            --output /tmp/realimpact-layout/tail.bin "${URL}"
+          SIZE="${size}" START="${start}" python - <<'PY'
+          import os
+          import struct
+          import subprocess
+
+          url = os.environ["URL"]
+          size = int(os.environ["SIZE"])
+          start = int(os.environ["START"])
+          tail = open("/tmp/realimpact-layout/tail.bin", "rb").read()
+
+          eocd = tail.rfind(b"PK\x05\x06")
+          if eocd < 0:
+              raise SystemExit("EOCD not found")
+          _, _, _, _, _, cd_size, cd_offset, _ = struct.unpack_from("<4s4H2LH", tail, eocd)
+          relative = cd_offset - start
+          if relative >= 0 and relative + cd_size <= len(tail):
+              directory = tail[relative:relative + cd_size]
+          else:
+              subprocess.run(
+                  [
+                      "curl", "--fail", "--silent", "--show-error", "--location",
+                      "--retry", "6", "--retry-all-errors", "--retry-delay", "3",
+                      "--max-time", "120", "--range", f"{cd_offset}-{cd_offset + cd_size - 1}",
+                      "--output", "/tmp/realimpact-layout/directory.bin", url,
+                  ],
+                  check=True,
+              )
+              directory = open("/tmp/realimpact-layout/directory.bin", "rb").read()
+
+          offset = 0
+          names = []
+          while offset + 46 <= len(directory) and directory[offset:offset + 4] == b"PK\x01\x02":
+              fields = struct.unpack_from("<4s6H3L5H2L", directory, offset)
+              name_length = fields[10]
+              extra_length = fields[11]
+              comment_length = fields[12]
+              start_name = offset + 46
+              names.append(directory[start_name:start_name + name_length].decode("utf-8", "replace"))
+              offset += 46 + name_length + extra_length + comment_length
+
+          print(f"archive_bytes={size}")
+          print(f"entries={len(names)}")
+          for name in names[:300]:
+              print(name)
+          PY

@@ -1,0 +1,27 @@
+{
+  "name": "@everything-rings/web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@everything-rings/acquisition": "workspace:*",
+    "@everything-rings/dsp": "workspace:*",
+    "@everything-rings/fingerprint": "workspace:*",
+    "@everything-rings/instrument": "workspace:*",
+    "@everything-rings/synth": "workspace:*",
+    "@everything-rings/visual": "workspace:*",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "vite": "8.2.0"
+  }
+}
