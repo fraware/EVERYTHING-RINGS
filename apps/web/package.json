@@ -13,6 +13,8 @@
     "@everything-rings/acquisition": "workspace:*",
     "@everything-rings/dsp": "workspace:*",
     "@everything-rings/fingerprint": "workspace:*",
+    "@everything-rings/instrument": "workspace:*",
+    "@everything-rings/synth": "workspace:*",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
