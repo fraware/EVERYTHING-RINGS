@@ -3,13 +3,13 @@ name: apply-lab-playable-controls
 on:
   push:
     branches: [post-freeze-lab-playable-controls]
+    paths: [.github/workflows/lab-playable-edit.yml]
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: github.event.head_commit.message == 'Apply lab playable control integration'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -28,11 +28,11 @@ jobs:
           text = text.replace(old_import, new_import)
 
           old_notes = '''const KEYBOARD_NOTES = [
-            { midi: 60, label: "C4" }, { midi: 61, label: "C♯4" }, { midi: 62, label: "D4" },
-            { midi: 63, label: "D♯4" }, { midi: 64, label: "E4" }, { midi: 65, label: "F4" },
-            { midi: 66, label: "F♯4" }, { midi: 67, label: "G4" }, { midi: 68, label: "G♯4" },
-            { midi: 69, label: "A4" }, { midi: 70, label: "A♯4" }, { midi: 71, label: "B4" },
-            { midi: 72, label: "C5" },
+          { midi: 60, label: "C4" }, { midi: 61, label: "C♯4" }, { midi: 62, label: "D4" },
+          { midi: 63, label: "D♯4" }, { midi: 64, label: "E4" }, { midi: 65, label: "F4" },
+          { midi: 66, label: "F♯4" }, { midi: 67, label: "G4" }, { midi: 68, label: "G♯4" },
+          { midi: 69, label: "A4" }, { midi: 70, label: "A♯4" }, { midi: 71, label: "B4" },
+          { midi: 72, label: "C5" },
           ] as const;
 
           '''
