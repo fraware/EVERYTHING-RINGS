@@ -152,4 +152,15 @@ describe("evidence session merging", () => {
     expect(merged.ok).toBe(false);
     if (!merged.ok) expect(merged.error).toContain("conflicting contents");
   });
+
+  it("rejects a second logical submission from the same reviewer and target", () => {
+    const first = { ...bundle(), gateBReviews: [review("first", "Reviewer-1")] };
+    const second = {
+      ...bundle(),
+      gateBReviews: [{ ...review("second", "reviewer-1"), identity: 3 as const }],
+    };
+    const merged = mergeValidationEvidence(first, second);
+    expect(merged.ok).toBe(false);
+    if (!merged.ok) expect(merged.error).toContain("multiple conflicting submissions");
+  });
 });
