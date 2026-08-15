@@ -109,6 +109,7 @@ export function evaluateGateASession(
     ? null
     : Math.max(...finiteRecurrenceMedians);
 
+  if (evidence.object.specimenId.trim().length === 0) reasons.push("specimen ID is missing");
   if (evidence.object.label.trim().length === 0) reasons.push("object label is missing");
   if (!evidence.protocol.fixedSetup) reasons.push("fixed-setup protocol is not declared");
   if (!(evidence.protocol.microphoneDistanceCm > 0)) reasons.push("microphone distance is invalid");
@@ -155,6 +156,7 @@ export function evaluateGateASession(
 
   return {
     sessionId: evidence.sessionId,
+    specimenId: evidence.object.specimenId,
     objectLabel: evidence.object.label,
     material: evidence.object.material,
     reviewAttemptId,
@@ -179,8 +181,8 @@ export function evaluateGateARelease(
 ): GateAReleaseVerdict {
   const sessions = evidence.map((bundle) => evaluateGateASession(bundle, thresholds));
   const passing = sessions.filter((session) => session.passed);
-  const observedMaterialByLabel = new Map<string, MaterialClass>();
-  const conflictingMaterialLabels = new Set<string>();
+  const observedMaterialBySpecimen = new Map<string, MaterialClass>();
+  const conflictingMaterialSpecimens = new Set<string>();
   const seenSessionIds = new Set<string>();
   const duplicateSessionIds = new Set<string>();
 
@@ -189,34 +191,34 @@ export function evaluateGateARelease(
     if (seenSessionIds.has(sessionId)) duplicateSessionIds.add(sessionId);
     else seenSessionIds.add(sessionId);
 
-    const label = normalizedLabel(session.objectLabel);
-    const previous = observedMaterialByLabel.get(label);
-    if (previous !== undefined && previous !== session.material) conflictingMaterialLabels.add(label);
-    else observedMaterialByLabel.set(label, session.material);
+    const specimenId = normalizedIdentifier(session.specimenId);
+    const previous = observedMaterialBySpecimen.get(specimenId);
+    if (previous !== undefined && previous !== session.material) conflictingMaterialSpecimens.add(specimenId);
+    else observedMaterialBySpecimen.set(specimenId, session.material);
   }
 
-  const distinctLabels = new Set(passing.map((session) => normalizedLabel(session.objectLabel)));
+  const distinctSpecimens = new Set(passing.map((session) => normalizedIdentifier(session.specimenId)));
   const materialCoverage = [...new Set(passing.map((session) => session.material))];
   const reasons: string[] = [];
 
   if (duplicateSessionIds.size > 0) {
     reasons.push(`duplicate session IDs: ${[...duplicateSessionIds].join(", ")}`);
   }
-  if (conflictingMaterialLabels.size > 0) {
-    reasons.push(`conflicting material labels for: ${[...conflictingMaterialLabels].join(", ")}`);
+  if (conflictingMaterialSpecimens.size > 0) {
+    reasons.push(`conflicting material classes for specimen IDs: ${[...conflictingMaterialSpecimens].join(", ")}`);
   }
-  if (distinctLabels.size < thresholds.minimumDistinctObjects) {
-    reasons.push(`requires ${thresholds.minimumDistinctObjects} distinct passing objects`);
+  if (distinctSpecimens.size < thresholds.minimumDistinctObjects) {
+    reasons.push(`requires ${thresholds.minimumDistinctObjects} distinct passing physical specimens`);
   }
   for (const material of thresholds.requiredMaterials) {
-    if (!materialCoverage.includes(material)) reasons.push(`missing passing ${material} object`);
+    if (!materialCoverage.includes(material)) reasons.push(`missing passing ${material} specimen`);
   }
 
   return {
     contractVersion: thresholds.contractVersion,
     passed: reasons.length === 0,
     passingObjectCount: passing.length,
-    distinctPassingObjectCount: distinctLabels.size,
+    distinctPassingSpecimenCount: distinctSpecimens.size,
     materialCoverage,
     sessions,
     reasons,
@@ -241,18 +243,20 @@ function dedupeGateCReviews(reviews: readonly GateCReview[]): readonly GateCRevi
   return [...unique.values()];
 }
 
-function gateAMaterialMap(gateA: GateAReleaseVerdict): ReadonlyMap<string, MaterialClass> {
+function gateASpecimenMaterialMap(gateA: GateAReleaseVerdict): ReadonlyMap<string, MaterialClass> {
   const map = new Map<string, MaterialClass>();
   for (const session of gateA.sessions) {
-    if (session.passed) map.set(normalizedLabel(session.objectLabel), session.material);
+    if (session.passed) map.set(normalizedIdentifier(session.specimenId), session.material);
   }
   return map;
 }
 
-function eligibleTargetsForLabel(gateA: GateAReleaseVerdict, labelKey: string): readonly ReviewTarget[] {
-  return gateA.sessions
-    .filter((session) => session.passed && normalizedLabel(session.objectLabel) === labelKey && session.reviewAttemptId !== null)
-    .map((session) => ({ sessionId: session.sessionId, attemptId: session.reviewAttemptId as number }));
+function eligibleSessionsForSpecimen(gateA: GateAReleaseVerdict, specimenKey: string) {
+  return gateA.sessions.filter((session) => (
+    session.passed
+    && normalizedIdentifier(session.specimenId) === specimenKey
+    && session.reviewAttemptId !== null
+  ));
 }
 
 export function evaluateGateBRelease(
@@ -260,15 +264,21 @@ export function evaluateGateBRelease(
   reviews: readonly GateBReview[],
   thresholds: GateBThresholds = DEFAULT_GATE_B_THRESHOLDS,
 ): GateBReleaseVerdict {
-  const materialByObject = gateAMaterialMap(gateA);
-  const candidateLabels = [...materialByObject.keys()];
-  const objects: GateBObjectVerdict[] = candidateLabels.map((labelKey) => {
-    const eligibleTargets = eligibleTargetsForLabel(gateA, labelKey);
-    const eligibleKeys = new Set(eligibleTargets.map(targetKey));
+  const materialBySpecimen = gateASpecimenMaterialMap(gateA);
+  const candidateSpecimens = [...materialBySpecimen.keys()];
+  const objects: GateBObjectVerdict[] = candidateSpecimens.map((specimenKey) => {
+    const eligibleSessions = eligibleSessionsForSpecimen(gateA, specimenKey);
+    const eligibleTargets = eligibleSessions.map((session) => ({
+      sessionId: session.sessionId,
+      attemptId: session.reviewAttemptId as number,
+    }));
+    const expectedLabelByTarget = new Map(eligibleSessions.map((session) => [
+      targetKey({ sessionId: session.sessionId, attemptId: session.reviewAttemptId as number }),
+      normalizedLabel(session.objectLabel),
+    ] as const));
     const eligibleReviews = reviews.filter((review) => (
-      normalizedLabel(review.objectLabel) === labelKey
-      && review.blinded
-      && eligibleKeys.has(targetKey(review))
+      review.blinded
+      && expectedLabelByTarget.get(targetKey(review)) === normalizedLabel(review.objectLabel)
     ));
     const reviewedTargetKeys = new Set(eligibleReviews.map(targetKey));
     const selectedTargetKey = reviewedTargetKeys.size === 1 ? [...reviewedTargetKeys][0] : undefined;
@@ -285,7 +295,7 @@ export function evaluateGateBRelease(
     const artifactMedian = medianFinite(objectReviews.map((review) => review.artifactSeverity));
 
     if (reviewedTargetKeys.size > 1) {
-      reasons.push("blinded reviews for one object must use a single passing-session measurement target");
+      reasons.push("blinded reviews for one specimen must use a single passing-session measurement target");
     }
     if (objectReviews.length < thresholds.minimumReviewersPerObject) {
       reasons.push(`requires ${thresholds.minimumReviewersPerObject} blinded reviewers on one passing-session target`);
@@ -303,12 +313,11 @@ export function evaluateGateBRelease(
       reasons.push(`artifact severity median must be at most ${thresholds.maximumArtifactMedian}`);
     }
 
-    const exemplar = gateA.sessions.find(
-      (session) => session.passed && normalizedLabel(session.objectLabel) === labelKey,
-    );
-    const material = materialByObject.get(labelKey);
+    const exemplar = eligibleSessions[0];
+    const material = materialBySpecimen.get(specimenKey);
     const verdict: GateBObjectVerdict = {
-      objectLabel: exemplar?.objectLabel ?? labelKey,
+      specimenId: exemplar?.specimenId ?? specimenKey,
+      objectLabel: exemplar?.objectLabel ?? specimenKey,
       eligibleTargets,
       selectedTarget,
       passed: reasons.length === 0,
@@ -329,8 +338,8 @@ export function evaluateGateBRelease(
   );
   const reasons: string[] = [];
   if (!gateA.passed) reasons.push("Gate A has not passed");
-  if (reviewedObjectCount < thresholds.minimumObjects) reasons.push(`requires reviews for ${thresholds.minimumObjects} objects`);
-  if (passing.length < thresholds.minimumPassingObjects) reasons.push(`requires ${thresholds.minimumPassingObjects} passing objects`);
+  if (reviewedObjectCount < thresholds.minimumObjects) reasons.push(`requires reviews for ${thresholds.minimumObjects} specimens`);
+  if (passing.length < thresholds.minimumPassingObjects) reasons.push(`requires ${thresholds.minimumPassingObjects} passing specimens`);
   for (const material of thresholds.requiredMaterials) {
     if (!passingMaterials.has(material)) reasons.push(`missing passing ${material} reconstruction`);
   }
@@ -351,13 +360,12 @@ export function evaluateGateCRelease(
 ): GateCReleaseVerdict {
   const eligibleObjects = gateB.objects.filter((object) => object.passed && object.selectedTarget !== null);
   const objects: GateCObjectVerdict[] = eligibleObjects.map((eligibleObject) => {
-    const labelKey = normalizedLabel(eligibleObject.objectLabel);
     const selectedTarget = eligibleObject.selectedTarget;
-    if (selectedTarget === null) throw new Error("Passing Gate B object is missing a selected target");
+    if (selectedTarget === null) throw new Error("Passing Gate B specimen is missing a selected target");
     const selectedKey = targetKey(selectedTarget);
     const objectReviews = dedupeGateCReviews(reviews.filter((review) => (
-      normalizedLabel(review.objectLabel) === labelKey
-      && targetKey(review) === selectedKey
+      targetKey(review) === selectedKey
+      && normalizedLabel(review.objectLabel) === normalizedLabel(eligibleObject.objectLabel)
     )));
     const reasons: string[] = [];
     const identityMedian = medianFinite(objectReviews.map((review) => review.identityAcrossRange));
@@ -378,6 +386,7 @@ export function evaluateGateCRelease(
     if (!latencyAcceptedByAll) reasons.push("all submitted device reviews must accept note-on latency");
 
     return {
+      specimenId: eligibleObject.specimenId,
       objectLabel: eligibleObject.objectLabel,
       passed: reasons.length === 0,
       reviewCount: objectReviews.length,
@@ -389,14 +398,14 @@ export function evaluateGateCRelease(
     };
   });
 
-  const selectedTargetsByLabel = new Map(
-    eligibleObjects.map((object) => [normalizedLabel(object.objectLabel), object.selectedTarget] as const),
-  );
+  const eligibleObjectByTarget = new Map(eligibleObjects.map((object) => [
+    targetKey(object.selectedTarget as ReviewTarget),
+    object,
+  ] as const));
   const eligibleReviews = dedupeGateCReviews(reviews.filter((review) => {
-    const selectedTarget = selectedTargetsByLabel.get(normalizedLabel(review.objectLabel));
-    return selectedTarget !== undefined
-      && selectedTarget !== null
-      && targetKey(review) === targetKey(selectedTarget);
+    const object = eligibleObjectByTarget.get(targetKey(review));
+    return object !== undefined
+      && normalizedLabel(review.objectLabel) === normalizedLabel(object.objectLabel);
   }));
   const eligibleDeviceClassById = new Map<string, GateCReview["deviceClass"]>();
   const conflictingDeviceIds = new Set<string>();
@@ -409,8 +418,11 @@ export function evaluateGateCRelease(
   }
 
   const passing = objects.filter((object) => object.passed);
-  const passingLabels = new Set(passing.map((object) => normalizedLabel(object.objectLabel)));
-  const passingReviews = eligibleReviews.filter((review) => passingLabels.has(normalizedLabel(review.objectLabel)));
+  const passingSpecimens = new Set(passing.map((object) => normalizedIdentifier(object.specimenId)));
+  const passingTargets = new Set(eligibleObjects
+    .filter((object) => passingSpecimens.has(normalizedIdentifier(object.specimenId)))
+    .map((object) => targetKey(object.selectedTarget as ReviewTarget)));
+  const passingReviews = eligibleReviews.filter((review) => passingTargets.has(targetKey(review)));
   const passingDeviceClassById = new Map<string, GateCReview["deviceClass"]>();
   for (const review of passingReviews) {
     const deviceId = normalizedIdentifier(review.deviceId);
@@ -421,12 +433,11 @@ export function evaluateGateCRelease(
   const distinctDeviceCount = passingDeviceClassById.size;
   const hasMobileDevice = [...passingDeviceClassById.values()].includes("mobile");
   const reviewedObjectCount = objects.filter((object) => object.reviewCount > 0).length;
-
   const reasons: string[] = [];
 
   if (!gateB.passed) reasons.push("Gate B has not passed");
-  if (reviewedObjectCount < thresholds.minimumObjects) reasons.push(`requires device reviews for ${thresholds.minimumObjects} objects`);
-  if (passing.length < thresholds.minimumPassingObjects) reasons.push(`requires ${thresholds.minimumPassingObjects} passing objects`);
+  if (reviewedObjectCount < thresholds.minimumObjects) reasons.push(`requires device reviews for ${thresholds.minimumObjects} specimens`);
+  if (passing.length < thresholds.minimumPassingObjects) reasons.push(`requires ${thresholds.minimumPassingObjects} passing specimens`);
   if (conflictingDeviceIds.size > 0) {
     reasons.push(`conflicting device classes for: ${[...conflictingDeviceIds].join(", ")}`);
   }
