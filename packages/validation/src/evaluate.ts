@@ -14,19 +14,18 @@ import type {
   MaterialClass,
   ReleaseVerdict,
   ReviewTarget,
-  ValidationEvidenceV3,
-  ValidationEvidenceRecord,
+  ValidationEvidenceAttempt,
+  ValidationEvidenceV4,
 } from "./types";
 
 export const DEFAULT_GATE_A_THRESHOLDS: GateAThresholds = {
-  contractVersion: "gate-a-1",
-  acceptedStrikesPerObject: 5,
+  contractVersion: "gate-a-2",
+  qualifiedAttemptsPerObject: 5,
+  requiredSuccessfulAnalyses: 5,
   minimumPeakAmplitude: 0.02,
   minimumSnrDb: 12,
   maximumClippedFraction: 0.001,
   maximumSecondaryTransientRatio: 0.65,
-  minimumStableModes: 3,
-  minimumStrikesWithStableModes: 4,
   minimumMatchedModesPerComparison: 3,
   maximumSessionMedianDriftCents: 25,
   maximumComparisonMedianDriftCents: 50,
@@ -66,33 +65,39 @@ function normalizedIdentifier(identifier: string): string {
 }
 
 function targetKey(target: ReviewTarget): string {
-  return `${target.sessionId}\u0000${target.recordId}`;
+  return `${target.sessionId}\u0000${target.attemptId}`;
 }
 
-function recordsAreSequential(evidence: ValidationEvidenceV3): boolean {
-  return evidence.records.every((record, index) => record.id === index + 1);
+function attemptsAreSequential(evidence: ValidationEvidenceV4): boolean {
+  return evidence.attempts.every((attempt, index) => attempt.id === index + 1);
 }
 
-function captureQualityPasses(record: ValidationEvidenceRecord, thresholds: GateAThresholds): boolean {
-  const quality = record.quality;
+function captureQualityPasses(attempt: ValidationEvidenceAttempt, thresholds: GateAThresholds): boolean {
+  const quality = attempt.quality;
   return quality.peakAmplitude >= thresholds.minimumPeakAmplitude
     && quality.snrDb >= thresholds.minimumSnrDb
     && quality.clippedFraction <= thresholds.maximumClippedFraction
     && quality.secondaryTransientRatio <= thresholds.maximumSecondaryTransientRatio;
 }
 
+function successfulAnalysis(attempt: ValidationEvidenceAttempt): boolean {
+  return attempt.analysis.status === "success"
+    && attempt.analysis.fingerprint.version === 1
+    && attempt.analysis.fingerprint.algorithmVersion === "er-dsp-1"
+    && attempt.analysis.fingerprint.modes.length >= 3;
+}
+
 export function evaluateGateASession(
-  evidence: ValidationEvidenceV3,
+  evidence: ValidationEvidenceV4,
   thresholds: GateAThresholds = DEFAULT_GATE_A_THRESHOLDS,
 ): GateASessionVerdict {
   const reasons: string[] = [];
-  const acceptedStrikes = evidence.records.length;
-  const sequentialRecords = recordsAreSequential(evidence);
-  const qualityPassingStrikes = evidence.records.filter((record) => captureQualityPasses(record, thresholds)).length;
-  const strikesWithStableModes = evidence.records.filter(
-    (record) => record.fingerprint.modes.length >= thresholds.minimumStableModes,
-  ).length;
-  const recurrence = deriveEvidenceRecurrence(evidence.records);
+  const qualifiedAttempts = evidence.attempts.length;
+  const sequentialAttempts = attemptsAreSequential(evidence);
+  const qualityPassingAttempts = evidence.attempts.filter((attempt) => captureQualityPasses(attempt, thresholds)).length;
+  const successfulAnalyses = evidence.attempts.filter(successfulAnalysis).length;
+  const analyticalFailures = qualifiedAttempts - successfulAnalyses;
+  const recurrence = deriveEvidenceRecurrence(evidence.attempts);
   const recurrenceComparisons = recurrence.length;
   const comparisonsWithEnoughMatches = recurrence.filter(
     (comparison) => comparison.matchedCount >= thresholds.minimumMatchedModesPerComparison,
@@ -103,9 +108,6 @@ export function evaluateGateASession(
   const worstComparisonMedianDriftCents = finiteRecurrenceMedians.length === 0
     ? null
     : Math.max(...finiteRecurrenceMedians);
-  const reviewRecordId = acceptedStrikes === thresholds.acceptedStrikesPerObject && sequentialRecords
-    ? evidence.records[acceptedStrikes - 1]?.id ?? null
-    : null;
 
   if (evidence.object.label.trim().length === 0) reasons.push("object label is missing");
   if (!evidence.protocol.fixedSetup) reasons.push("fixed-setup protocol is not declared");
@@ -114,20 +116,24 @@ export function evaluateGateASession(
   if (evidence.protocol.strikeLocation.trim().length === 0) reasons.push("strike location is missing");
   if (evidence.protocol.supportCondition.trim().length === 0) reasons.push("support condition is missing");
   if (evidence.rawMicrophoneSamplesIncluded !== false) reasons.push("raw microphone samples invariant failed");
-  if (evidence.recordCount !== acceptedStrikes) reasons.push("record count does not match evidence records");
-  if (!sequentialRecords) reasons.push("measurement record IDs must be sequential from 1");
-  if (acceptedStrikes !== thresholds.acceptedStrikesPerObject) {
-    reasons.push(`requires exactly ${thresholds.acceptedStrikesPerObject} accepted strikes`);
+  if (evidence.attemptCount !== qualifiedAttempts) reasons.push("attempt count does not match evidence attempts");
+  if (!sequentialAttempts) reasons.push("qualified attempt IDs must be sequential from 1");
+  if (qualifiedAttempts !== thresholds.qualifiedAttemptsPerObject) {
+    reasons.push(`requires exactly ${thresholds.qualifiedAttemptsPerObject} acquisition-quality-passing attempts`);
   }
-  if (qualityPassingStrikes !== acceptedStrikes || qualityPassingStrikes !== thresholds.acceptedStrikesPerObject) {
-    reasons.push(`all ${thresholds.acceptedStrikesPerObject} strikes must satisfy the frozen acquisition-quality bounds`);
+  if (
+    qualityPassingAttempts !== qualifiedAttempts
+    || qualityPassingAttempts !== thresholds.qualifiedAttemptsPerObject
+  ) {
+    reasons.push(`all ${thresholds.qualifiedAttemptsPerObject} retained attempts must satisfy the frozen acquisition-quality bounds`);
   }
-  if (strikesWithStableModes < thresholds.minimumStrikesWithStableModes) {
-    reasons.push(`requires ${thresholds.minimumStrikesWithStableModes} strikes with at least ${thresholds.minimumStableModes} stable modes`);
+  if (successfulAnalyses !== thresholds.requiredSuccessfulAnalyses) {
+    reasons.push(`all ${thresholds.requiredSuccessfulAnalyses} qualified attempts must produce valid er-dsp-1 fingerprints; analytical failures cannot be replaced`);
   }
-  const requiredComparisons = Math.max(0, thresholds.acceptedStrikesPerObject - 1);
+
+  const requiredComparisons = Math.max(0, thresholds.requiredSuccessfulAnalyses - 1);
   if (recurrenceComparisons !== requiredComparisons) {
-    reasons.push(`requires exactly ${requiredComparisons} recurrence comparisons`);
+    reasons.push(`requires exactly ${requiredComparisons} recurrence comparisons from attempt 1 to attempts 2-${thresholds.requiredSuccessfulAnalyses}`);
   }
   if (comparisonsWithEnoughMatches < requiredComparisons) {
     reasons.push(`each release comparison needs at least ${thresholds.minimumMatchedModesPerComparison} matched modes`);
@@ -142,16 +148,22 @@ export function evaluateGateASession(
     reasons.push(`worst comparison median drift must be at most ${thresholds.maximumComparisonMedianDriftCents} cents`);
   }
 
+  const passed = reasons.length === 0;
+  const reviewAttemptId = passed
+    ? evidence.attempts[thresholds.qualifiedAttemptsPerObject - 1]?.id ?? null
+    : null;
+
   return {
     sessionId: evidence.sessionId,
     objectLabel: evidence.object.label,
     material: evidence.object.material,
-    reviewRecordId,
-    passed: reasons.length === 0,
+    reviewAttemptId,
+    passed,
     metrics: {
-      acceptedStrikes,
-      qualityPassingStrikes,
-      strikesWithStableModes,
+      qualifiedAttempts,
+      qualityPassingAttempts,
+      successfulAnalyses,
+      analyticalFailures,
       recurrenceComparisons,
       comparisonsWithEnoughMatches,
       sessionMedianDriftCents,
@@ -162,7 +174,7 @@ export function evaluateGateASession(
 }
 
 export function evaluateGateARelease(
-  evidence: readonly ValidationEvidenceV3[],
+  evidence: readonly ValidationEvidenceV4[],
   thresholds: GateAThresholds = DEFAULT_GATE_A_THRESHOLDS,
 ): GateAReleaseVerdict {
   const sessions = evidence.map((bundle) => evaluateGateASession(bundle, thresholds));
@@ -239,8 +251,8 @@ function gateAMaterialMap(gateA: GateAReleaseVerdict): ReadonlyMap<string, Mater
 
 function eligibleTargetsForLabel(gateA: GateAReleaseVerdict, labelKey: string): readonly ReviewTarget[] {
   return gateA.sessions
-    .filter((session) => session.passed && normalizedLabel(session.objectLabel) === labelKey && session.reviewRecordId !== null)
-    .map((session) => ({ sessionId: session.sessionId, recordId: session.reviewRecordId as number }));
+    .filter((session) => session.passed && normalizedLabel(session.objectLabel) === labelKey && session.reviewAttemptId !== null)
+    .map((session) => ({ sessionId: session.sessionId, attemptId: session.reviewAttemptId as number }));
 }
 
 export function evaluateGateBRelease(
@@ -422,7 +434,7 @@ export function evaluateGateCRelease(
 }
 
 export function buildReleaseVerdict(
-  evidence: readonly ValidationEvidenceV3[],
+  evidence: readonly ValidationEvidenceV4[],
   gateBReviews: readonly GateBReview[],
   gateCReviews: readonly GateCReview[],
   createdAt: string,
