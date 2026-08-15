@@ -60,6 +60,8 @@ The console performs no upload. Imported evidence remains in browser memory for 
 
 A release verdict does not reinterpret missing evidence as a pass. Gate A2 release distinctness is counted by normalized physical specimen ID. Gate B uses only blinded reviews tied to the final eligible attempt of Gate A2-passing sessions and groups those sessions by specimen. Gate C uses only reviews tied to the exact measurement target selected by Gate B. The overall release state is `ready` only when all three gates pass.
 
+Release metrics preserve those ontology levels explicitly: Gate A reports `passingSessionCount` and `distinctPassingSpecimenCount`; Gate B and Gate C report `passingSpecimenCount`. A repeated passing session for one specimen therefore cannot be mistaken for another passing physical specimen in the machine-readable verdict.
+
 ## Versioning rule
 
 Thresholds and evidence contracts are frozen before the corresponding release data is collected. The v4/A2 migration and specimen-identity migration occurred before the release physical dataset was accepted because the earlier forms could encode selection or identity ambiguity. Once Gate A2 release data collection starts, threshold, attempt, or specimen-identity protocol changes require another explicit contract version.
