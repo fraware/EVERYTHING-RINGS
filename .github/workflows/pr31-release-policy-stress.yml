@@ -1,0 +1,51 @@
+name: pr31-release-policy-stress
+
+on:
+  push:
+    branches:
+      - stress/pr31-release-policy-2026-08-15
+
+permissions:
+  contents: read
+
+jobs:
+  repeated-policy:
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - "@everything-rings/validation"
+          - "@everything-rings/web"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Repeat policy-sensitive package tests 25 times
+        shell: bash
+        run: |
+          set -euo pipefail
+          for iteration in $(seq 1 25); do
+            echo "${{ matrix.package }} ${iteration}/25"
+            pnpm --filter "${{ matrix.package }}" test
+          done
+
+  release-console-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      VITE_SOFTWARE_REVISION: c8482330d84878cfb76e768d55c20fcb8732a650
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: bash scripts/browser-smoke.sh
