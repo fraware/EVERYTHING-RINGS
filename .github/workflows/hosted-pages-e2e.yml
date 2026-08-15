@@ -1,0 +1,143 @@
+name: hosted-pages-e2e
+
+on:
+  push:
+    branches: [validation/consumer-e2e]
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-flow:
+    runs-on: ubuntu-latest
+    env:
+      TARGET_REVISION: 9f27f94708cea3bf9122758b315be186d3cd7723
+      SITE_URL: https://fraware.github.io/EVERYTHING-RINGS/
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Generate deterministic strike
+        run: |
+          python - <<'PY'
+          import math, os, random, wave
+          sr = 48_000; duration = 6.0; onset = 1.0
+          random.seed(0x45524850)
+          path = os.path.join(os.environ['RUNNER_TEMP'], 'hosted-preflight.wav')
+          with wave.open(path, 'wb') as wav:
+              wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(sr)
+              frames = bytearray()
+              for i in range(round(sr * duration)):
+                  t = i / sr
+                  value = random.uniform(-0.00012, 0.00012)
+                  if t >= onset:
+                      dt = t - onset
+                      value += 0.45 * math.exp(-dt / 1.20) * math.cos(2 * math.pi * 440 * dt)
+                      value += 0.24 * math.exp(-dt / 0.70) * math.cos(2 * math.pi * 997 * dt)
+                      value += 0.12 * math.exp(-dt / 0.38) * math.cos(2 * math.pi * 2413 * dt)
+                  value = max(-0.90, min(0.90, value))
+                  frames += int(round(value * 32767)).to_bytes(2, 'little', signed=True)
+              wav.writeframes(frames)
+          PY
+      - name: Install browser driver
+        run: |
+          mkdir -p "${RUNNER_TEMP}/hosted-pages"
+          cd "${RUNNER_TEMP}/hosted-pages"
+          npm init -y >/dev/null
+          npm install --no-save --package-lock=false puppeteer-core@25.4.0
+      - name: Exercise hosted frozen lab
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "${CHROME}"
+          cat >"${RUNNER_TEMP}/hosted-pages/test.mjs" <<'JS'
+          import puppeteer from 'puppeteer-core';
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const site = process.env.SITE_URL;
+          const target = process.env.TARGET_REVISION;
+          const downloadDir = path.join(process.env.RUNNER_TEMP, 'hosted-downloads');
+          fs.mkdirSync(downloadDir, { recursive: true });
+          const browser = await puppeteer.launch({
+            executablePath: process.env.CHROME,
+            headless: true,
+            args: [
+              '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+              '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
+              `--use-file-for-fake-audio-capture=${process.env.RUNNER_TEMP}/hosted-preflight.wav`,
+              '--autoplay-policy=no-user-gesture-required',
+            ],
+          });
+          const pageErrors = [];
+          try {
+            const page = await browser.newPage();
+            page.on('pageerror', error => pageErrors.push(error.message));
+            await page.goto(site, { waitUntil: 'networkidle0', timeout: 30_000 });
+            if (!(await page.evaluate(() => document.body.innerText.includes('Hit anything.')))) throw new Error('consumer root missing');
+
+            await page.goto(`${site}?lab=1`, { waitUntil: 'networkidle0', timeout: 30_000 });
+            await page.waitForFunction(revision => document.body.innerText.includes(`software revision ${revision}`), { timeout: 5_000 }, target);
+            await page.evaluate(() => {
+              const set = (name, value) => {
+                const label = [...document.querySelectorAll('label')].find(node => node.querySelector('span')?.textContent?.trim() === name);
+                const input = label?.querySelector('input');
+                if (!(input instanceof HTMLInputElement)) throw new Error(`${name} input missing`);
+                input.value = value;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+              };
+              set('specimen ID', 'hosted-preflight-01');
+              set('object', 'hosted preflight bell');
+            });
+            await page.waitForFunction(() => {
+              const button = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'ARM MICROPHONE');
+              return button instanceof HTMLButtonElement && !button.disabled;
+            }, { timeout: 5_000 });
+            await page.evaluate(() => [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'ARM MICROPHONE')?.click());
+            await page.waitForFunction(() => document.body.innerText.includes('er-dsp-2') && document.body.innerText.includes('This attempt is retained.'), { timeout: 15_000, polling: 100 });
+
+            const client = await page.createCDPSession();
+            await client.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadDir });
+            await page.evaluate(() => [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'EXPORT EVIDENCE')?.click());
+            let evidencePath;
+            for (let i = 0; i < 50; i += 1) {
+              evidencePath = fs.readdirSync(downloadDir).map(name => path.join(downloadDir, name)).find(name => name.endsWith('.json'));
+              if (evidencePath) break;
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            if (!evidencePath) throw new Error('hosted evidence download missing');
+            const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+            if (evidence.schemaVersion !== 5 || evidence.evidenceContractVersion !== 'validation-evidence-5') throw new Error('hosted evidence schema mismatch');
+            if (evidence.softwareRevision !== target) throw new Error(`hosted revision mismatch ${evidence.softwareRevision}`);
+            if (evidence.rawMicrophoneSamplesIncluded !== false) throw new Error('hosted evidence contains raw PCM');
+            if (evidence.attemptCount !== 1 || evidence.attempts?.[0]?.analysis?.status !== 'success') throw new Error('hosted preflight attempt missing');
+            if (evidence.attempts[0].analysis.fingerprint.algorithmVersion !== 'er-dsp-2') throw new Error('hosted algorithm mismatch');
+
+            await page.goto(`${site}?release=1`, { waitUntil: 'networkidle0', timeout: 30_000 });
+            if (!(await page.evaluate(() => document.body.innerText.includes('Empirical release gates')))) throw new Error('release console missing');
+            if (pageErrors.length > 0) throw new Error(pageErrors.join('\n'));
+
+            const report = {
+              targetRevision: target,
+              https: site.startsWith('https://'),
+              consumerRoute: true,
+              labRevisionVisible: true,
+              microphonePreflight: true,
+              evidenceSchema: evidence.schemaVersion,
+              algorithmVersion: evidence.attempts[0].analysis.fingerprint.algorithmVersion,
+              rawPcmIncluded: evidence.rawMicrophoneSamplesIncluded,
+              releaseRoute: true,
+              pageErrors: pageErrors.length,
+            };
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/hosted-pages-report.json`, JSON.stringify(report, null, 2));
+            console.log(JSON.stringify(report, null, 2));
+          } finally {
+            await browser.close();
+          }
+          JS
+          CHROME="${CHROME}" RUNNER_TEMP="${RUNNER_TEMP}" TARGET_REVISION="${TARGET_REVISION}" SITE_URL="${SITE_URL}" node "${RUNNER_TEMP}/hosted-pages/test.mjs"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hosted-pages-e2e
+          path: ${{ runner.temp }}/hosted-pages-report.json
