@@ -43,7 +43,7 @@ Attempt 1 is never substituted. If attempt 1 fails analysis, the session cannot 
 
 The exported recurrence rows and aggregate drift are caches for audit and display. The parser requires them to agree with recomputation from the retained qualified-attempt fingerprints, and the release evaluator uses the recomputed values as its source of truth.
 
-Gate A2 passes at release level when at least **five distinct normalized `specimenId` values** have passing sessions and the passing specimen set contains metal, glass, and ceramic. Multiple passing sessions for one physical specimen still count as one specimen. Changing only an object label cannot increase release distinctness. Duplicate session IDs invalidate the release verdict. Reusing one normalized `specimenId` with conflicting material classes also invalidates the release-level verdict, including when the conflicting session itself fails physically.
+Gate A2 passes at release level when all imported sessions come from one software revision, at least **five distinct normalized `specimenId` values** have passing sessions, and the passing specimen set contains metal, glass, and ceramic. Multiple passing sessions for one physical specimen still count as one specimen. Changing only an object label cannot increase release distinctness. Duplicate session IDs invalidate the release verdict. Reusing one normalized `specimenId` with conflicting material classes also invalidates the release-level verdict, including when the conflicting session itself fails physically.
 
 The drift bounds are release criteria for repeatable structure. They are not a general perceptual similarity metric.
 
@@ -55,7 +55,7 @@ A true session-level internal error is different. The validation lab does not pe
 
 ## Evidence versioning
 
-Gate A2 uses `validation-evidence-4` with `schemaVersion: 4` and `gateAContractVersion: "gate-a-2"`. The previous record-only Gate A1 format is superseded for release evaluation because it could not represent qualified analytical failures without selection bias.
+Gate A2 uses `validation-evidence-5` with `schemaVersion: 5` and `gateAContractVersion: "gate-a-2"`. Schema v5 requires the exact software commit and release-level evidence must use one revision. Schema v4 is superseded before physical release collection because it lacked implementation provenance; the older record-only Gate A1 format is also superseded because it could not represent qualified analytical failures without selection bias.
 
 ## External evidence
 

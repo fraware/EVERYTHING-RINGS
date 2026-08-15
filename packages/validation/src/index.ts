@@ -50,6 +50,6 @@ export type {
   Score1To5,
   ValidationAttemptAnalysis,
   ValidationEvidenceAttempt,
-  ValidationEvidenceV4,
+  ValidationEvidenceV5,
   ValidationObjectMetadata,
 } from "./types";

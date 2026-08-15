@@ -47,6 +47,14 @@ describe("v4 evidence session merging", () => {
     expect(merged.evidence.createdAt).toBe(second.createdAt);
   });
 
+  it("rejects reuse of a session ID under a different software revision", () => {
+    const first = evidence("bell", "metal");
+    const second = { ...first, softwareRevision: "fedcba9876543210fedcba9876543210fedcba98" };
+    const merged = mergeValidationEvidence(first, second);
+    expect(merged.ok).toBe(false);
+    if (!merged.ok) expect(merged.error).toContain("different measurement evidence");
+  });
+
   it("rejects reuse of a session ID with different qualified-attempt evidence", () => {
     const first = evidence("bell", "metal");
     const attempts = first.attempts.map((attempt, index) => index === 4 && attempt.analysis.status === "success"

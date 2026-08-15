@@ -113,6 +113,16 @@ describe("Gate A2", () => {
     expect(verdict.distinctPassingSpecimenCount).toBe(4);
   });
 
+  it("rejects release evidence mixed across software revisions", () => {
+    const mixed = fiveObjects().map((bundle, index) => index === 4
+      ? { ...bundle, softwareRevision: "fedcba9876543210fedcba9876543210fedcba98" }
+      : bundle);
+    const verdict = evaluateGateARelease(mixed);
+    expect(verdict.passed).toBe(false);
+    expect(verdict.softwareRevision).toBeNull();
+    expect(verdict.reasons.some((reason) => reason.includes("one software revision"))).toBe(true);
+  });
+
   it("rejects duplicate session IDs and conflicting material identity", () => {
     const duplicateSession = [...fiveObjects(), evidence("another bell", "metal", { sessionId: "session-bell" })];
     expect(evaluateGateARelease(duplicateSession).passed).toBe(false);
@@ -224,15 +234,21 @@ describe("release verdict", () => {
     expect(verdict.gateA.passed).toBe(true);
     expect(verdict.gateB.passed).toBe(true);
     expect(verdict.gateC.passed).toBe(true);
+    expect(verdict.softwareRevision).toBe(bundles[0]?.softwareRevision);
     expect(verdict.releaseReady).toBe(true);
   });
 });
 
 describe("evidence parsing", () => {
-  it("accepts schema v4, requires specimen identity, and rejects the superseded record-only schema", () => {
+  it("accepts schema v5, requires specimen and software provenance, and rejects superseded schemas", () => {
     const bundle = evidence("bell", "metal");
     expect(parseValidationEvidence(bundle).ok).toBe(true);
     expect(parseValidationEvidence({ ...bundle, object: { label: bundle.object.label, material: bundle.object.material } }).ok).toBe(false);
+    const { softwareRevision: _softwareRevision, ...withoutRevision } = bundle;
+    expect(parseValidationEvidence(withoutRevision).ok).toBe(false);
+    expect(parseValidationEvidence({ ...bundle, softwareRevision: "deadbeef" }).ok).toBe(false);
+    expect(parseValidationEvidence({ schemaVersion: 4, evidenceContractVersion: "validation-evidence-4" }).ok).toBe(false);
+    expect(parseValidationEvidence({ schemaVersion: 5, evidenceContractVersion: "validation-evidence-4" }).ok).toBe(false);
     expect(parseValidationEvidence({ schemaVersion: 3, evidenceContractVersion: "validation-evidence-3" }).ok).toBe(false);
   });
 

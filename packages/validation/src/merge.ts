@@ -1,19 +1,20 @@
-import type { GateBReview, GateCReview, ValidationEvidenceV4 } from "./types";
+import type { GateBReview, GateCReview, ValidationEvidenceV5 } from "./types";
 
 export type EvidenceMergeResult =
-  | { readonly ok: true; readonly evidence: ValidationEvidenceV4 }
+  | { readonly ok: true; readonly evidence: ValidationEvidenceV5 }
   | { readonly ok: false; readonly error: string };
 
 function normalizedIdentifier(value: string): string {
   return value.trim().toLocaleLowerCase("en-US");
 }
 
-function stableCore(evidence: ValidationEvidenceV4): string {
+function stableCore(evidence: ValidationEvidenceV5): string {
   return JSON.stringify({
     schemaVersion: evidence.schemaVersion,
     evidenceContractVersion: evidence.evidenceContractVersion,
     gateAContractVersion: evidence.gateAContractVersion,
     sessionId: evidence.sessionId,
+    softwareRevision: evidence.softwareRevision,
     object: evidence.object,
     protocol: evidence.protocol,
     captureSettings: evidence.captureSettings,
@@ -61,8 +62,8 @@ function mergeReviews<T extends GateBReview | GateCReview>(
 }
 
 export function mergeValidationEvidence(
-  existing: ValidationEvidenceV4,
-  incoming: ValidationEvidenceV4,
+  existing: ValidationEvidenceV5,
+  incoming: ValidationEvidenceV5,
 ): EvidenceMergeResult {
   if (existing.sessionId !== incoming.sessionId) {
     return { ok: false, error: "cannot merge different session IDs" };

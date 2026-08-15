@@ -106,12 +106,13 @@ export interface GateCReview extends ReviewTarget {
   readonly latencyAcceptable: boolean;
 }
 
-export interface ValidationEvidenceV4 {
-  readonly schemaVersion: 4;
-  readonly evidenceContractVersion: "validation-evidence-4";
+export interface ValidationEvidenceV5 {
+  readonly schemaVersion: 5;
+  readonly evidenceContractVersion: "validation-evidence-5";
   readonly gateAContractVersion: "gate-a-2";
   readonly sessionId: string;
   readonly createdAt: string;
+  readonly softwareRevision: string;
   readonly object: ValidationObjectMetadata;
   readonly protocol: FixedSetupProtocol;
   readonly captureSettings: CaptureSettingsEvidence | null;
@@ -153,6 +154,7 @@ export interface GateASessionMetrics {
 
 export interface GateASessionVerdict {
   readonly sessionId: string;
+  readonly softwareRevision: string;
   readonly specimenId: string;
   readonly objectLabel: string;
   readonly material: MaterialClass;
@@ -165,6 +167,7 @@ export interface GateASessionVerdict {
 export interface GateAReleaseVerdict {
   readonly contractVersion: "gate-a-2";
   readonly passed: boolean;
+  readonly softwareRevision: string | null;
   readonly passingSessionCount: number;
   readonly distinctPassingSpecimenCount: number;
   readonly materialCoverage: readonly MaterialClass[];
@@ -243,6 +246,7 @@ export interface GateCReleaseVerdict {
 export interface ReleaseVerdict {
   readonly schemaVersion: 1;
   readonly createdAt: string;
+  readonly softwareRevision: string | null;
   readonly gateA: GateAReleaseVerdict;
   readonly gateB: GateBReleaseVerdict;
   readonly gateC: GateCReleaseVerdict;
