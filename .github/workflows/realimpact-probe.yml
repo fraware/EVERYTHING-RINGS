@@ -20,6 +20,10 @@ on:
       - ".github/workflows/realimpact-probe.yml"
       - "packages/fingerprint/test/realimpact.test.ts"
 
+concurrency:
+  group: realimpact-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
