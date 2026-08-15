@@ -17,8 +17,20 @@ function finiteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function nonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+function positiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
 function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function normalizedLabel(value: string): string {
+  return value.trim().toLocaleLowerCase("en-US");
 }
 
 function score(value: unknown): boolean {
@@ -54,7 +66,9 @@ function validAudioTiming(value: unknown): boolean {
   const timing = record(value);
   return timing !== undefined
     && finiteNumber(timing.baseLatencyMs)
+    && timing.baseLatencyMs >= 0
     && finiteNumber(timing.renderQuantumMs)
+    && timing.renderQuantumMs > 0
     && optionalFiniteNumber(timing.outputLatencyMs)
     && optionalFiniteNumber(timing.lastSchedulingMs);
 }
@@ -73,7 +87,8 @@ function validFingerprint(value: unknown): boolean {
   const fingerprint = record(value);
   if (fingerprint === undefined) return false;
   if (fingerprint.version !== 1 || fingerprint.algorithmVersion !== "er-dsp-1") return false;
-  if (!finiteNumber(fingerprint.sampleRate) || !finiteNumber(fingerprint.durationSeconds)) return false;
+  if (!finiteNumber(fingerprint.sampleRate) || fingerprint.sampleRate <= 0) return false;
+  if (!finiteNumber(fingerprint.durationSeconds) || fingerprint.durationSeconds <= 0) return false;
   if (!Array.isArray(fingerprint.modes)) return false;
   return fingerprint.modes.every((value) => {
     const mode = record(value);
@@ -91,11 +106,13 @@ function validFingerprint(value: unknown): boolean {
 function validRecurrence(value: unknown): boolean {
   const recurrence = record(value);
   return recurrence !== undefined
-    && finiteNumber(recurrence.recordId)
+    && positiveInteger(recurrence.recordId)
     && finiteNumber(recurrence.medianCents)
+    && recurrence.medianCents >= 0
     && finiteNumber(recurrence.meanCents)
-    && finiteNumber(recurrence.matchedCount)
-    && finiteNumber(recurrence.unmatchedReferenceCount)
+    && recurrence.meanCents >= 0
+    && nonNegativeInteger(recurrence.matchedCount)
+    && nonNegativeInteger(recurrence.unmatchedReferenceCount)
     && Array.isArray(recurrence.matches);
 }
 
@@ -105,6 +122,8 @@ function validGateBReview(value: unknown): boolean {
     && nonEmptyString(review.reviewId)
     && nonEmptyString(review.reviewerId)
     && nonEmptyString(review.objectLabel)
+    && nonEmptyString(review.sessionId)
+    && positiveInteger(review.recordId)
     && typeof review.blinded === "boolean"
     && (review.presentationOrder === "original-model" || review.presentationOrder === "model-original")
     && score(review.identity)
@@ -119,6 +138,8 @@ function validGateCReview(value: unknown): boolean {
     && nonEmptyString(review.reviewId)
     && nonEmptyString(review.reviewerId)
     && nonEmptyString(review.objectLabel)
+    && nonEmptyString(review.sessionId)
+    && positiveInteger(review.recordId)
     && nonEmptyString(review.deviceId)
     && typeof review.deviceClass === "string"
     && DEVICE_CLASSES.includes(review.deviceClass as DeviceClass)
@@ -127,6 +148,21 @@ function validGateCReview(value: unknown): boolean {
     && finiteNumber(review.usefulSemitoneSpan)
     && review.usefulSemitoneSpan >= 0
     && typeof review.latencyAcceptable === "boolean";
+}
+
+function reviewTargetsBundle(
+  value: unknown,
+  sessionId: string,
+  objectLabel: string,
+  recordIds: ReadonlySet<number>,
+): boolean {
+  const review = record(value);
+  return review !== undefined
+    && review.sessionId === sessionId
+    && typeof review.objectLabel === "string"
+    && normalizedLabel(review.objectLabel) === normalizedLabel(objectLabel)
+    && typeof review.recordId === "number"
+    && recordIds.has(review.recordId);
 }
 
 export function parseValidationEvidence(value: unknown): EvidenceParseResult {
@@ -157,24 +193,48 @@ export function parseValidationEvidence(value: unknown): EvidenceParseResult {
   if (!validCaptureSettings(evidence.captureSettings)) return { ok: false, error: "capture settings are invalid" };
   if (!validAudioTiming(evidence.realtimeAudioTiming)) return { ok: false, error: "realtime audio timing is invalid" };
 
-  if (!finiteNumber(evidence.recordCount) || evidence.recordCount < 0) return { ok: false, error: "recordCount is invalid" };
-  if (!(evidence.medianModalDriftCents === null || finiteNumber(evidence.medianModalDriftCents))) {
+  if (!nonNegativeInteger(evidence.recordCount)) return { ok: false, error: "recordCount is invalid" };
+  if (!(evidence.medianModalDriftCents === null || (finiteNumber(evidence.medianModalDriftCents) && evidence.medianModalDriftCents >= 0))) {
     return { ok: false, error: "median modal drift is invalid" };
-  }
-  if (!Array.isArray(evidence.recurrence) || !evidence.recurrence.every(validRecurrence)) {
-    return { ok: false, error: "recurrence data is invalid" };
   }
   if (!Array.isArray(evidence.records) || !evidence.records.every((value) => {
     const entry = record(value);
-    return entry !== undefined && finiteNumber(entry.id) && validQuality(entry.quality) && validFingerprint(entry.fingerprint);
+    return entry !== undefined && positiveInteger(entry.id) && validQuality(entry.quality) && validFingerprint(entry.fingerprint);
   })) {
     return { ok: false, error: "measurement records are invalid" };
   }
+  const recordIds = new Set<number>();
+  for (const value of evidence.records) {
+    const entry = record(value);
+    if (entry === undefined || typeof entry.id !== "number") return { ok: false, error: "measurement records are invalid" };
+    if (recordIds.has(entry.id)) return { ok: false, error: "measurement record IDs must be unique" };
+    recordIds.add(entry.id);
+  }
+  if (evidence.recordCount !== evidence.records.length) {
+    return { ok: false, error: "recordCount does not match measurement records" };
+  }
+
+  if (!Array.isArray(evidence.recurrence) || !evidence.recurrence.every(validRecurrence)) {
+    return { ok: false, error: "recurrence data is invalid" };
+  }
+  if (!evidence.recurrence.every((value) => {
+    const recurrence = record(value);
+    return recurrence !== undefined && typeof recurrence.recordId === "number" && recordIds.has(recurrence.recordId);
+  })) {
+    return { ok: false, error: "recurrence target does not belong to this evidence bundle" };
+  }
+
   if (!Array.isArray(evidence.gateBReviews) || !evidence.gateBReviews.every(validGateBReview)) {
     return { ok: false, error: "Gate B reviews are invalid" };
   }
+  if (!evidence.gateBReviews.every((review) => reviewTargetsBundle(review, evidence.sessionId, object.label, recordIds))) {
+    return { ok: false, error: "Gate B review target does not belong to this evidence bundle" };
+  }
   if (!Array.isArray(evidence.gateCReviews) || !evidence.gateCReviews.every(validGateCReview)) {
     return { ok: false, error: "Gate C reviews are invalid" };
+  }
+  if (!evidence.gateCReviews.every((review) => reviewTargetsBundle(review, evidence.sessionId, object.label, recordIds))) {
+    return { ok: false, error: "Gate C review target does not belong to this evidence bundle" };
   }
   if (evidence.rawMicrophoneSamplesIncluded !== false) {
     return { ok: false, error: "raw microphone samples invariant failed" };
