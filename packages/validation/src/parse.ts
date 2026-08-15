@@ -323,7 +323,8 @@ export function parseValidationEvidence(value: unknown): EvidenceParseResult {
   const sessionId = evidence.sessionId;
 
   const object = record(evidence.object);
-  if (object === undefined || !nonEmptyString(object.label)) return { ok: false, error: "object label is missing" };
+  if (object === undefined || !nonEmptyString(object.specimenId)) return { ok: false, error: "specimen ID is missing" };
+  if (!nonEmptyString(object.label)) return { ok: false, error: "object label is missing" };
   const objectLabel = object.label;
   if (typeof object.material !== "string" || !MATERIALS.includes(object.material as MaterialClass)) {
     return { ok: false, error: "object material is invalid" };

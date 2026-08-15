@@ -119,6 +119,7 @@ describe("release identity integrity", () => {
 
   it("rejects conflicting material identity even if the conflicting session fails physically", () => {
     const failingConflict = evidence("Bell", "ceramic", {
+      specimenId: "bell",
       sessionId: "bell-conflict",
       comparisonCents: [5, 8, 10, 80],
     });
@@ -128,6 +129,6 @@ describe("release identity integrity", () => {
     ]);
     expect(verdict.sessions.find((session) => session.sessionId === "bell-conflict")?.passed).toBe(false);
     expect(verdict.passed).toBe(false);
-    expect(verdict.reasons.some((reason) => reason.includes("conflicting material labels"))).toBe(true);
+    expect(verdict.reasons.some((reason) => reason.includes("conflicting material classes for specimen IDs"))).toBe(true);
   });
 });

@@ -101,7 +101,7 @@ export function ReleaseApp() {
       </article>
       <article className="release-card">
         <div className="release-card-head"><div><p className="eyebrow">GATE A2 / PHYSICAL</p><h2>Repeatable acoustic structure</h2></div><Verdict passed={verdict.gateA.passed} /></div>
-        <p className="metric-line">{verdict.gateA.distinctPassingObjectCount} / 5 distinct passing objects</p>
+        <p className="metric-line">{verdict.gateA.distinctPassingSpecimenCount} / 5 distinct passing specimens</p>
         <Reasons reasons={verdict.gateA.reasons} />
       </article>
       <article className="release-card">
@@ -119,10 +119,11 @@ export function ReleaseApp() {
     <section className="release-table-wrap">
       <div className="release-card-head"><div><p className="eyebrow">EVIDENCE</p><h2>Object sessions</h2></div></div>
       <div className="release-table" role="table">
-        <div className="release-row release-row-head" role="row"><span>object</span><span>material</span><span>attempts</span><span>drift</span><span>B</span><span>C</span><span>A2</span></div>
+        <div className="release-row release-row-head" role="row"><span>specimen</span><span>object</span><span>material</span><span>attempts</span><span>drift</span><span>B</span><span>C</span><span>A2</span></div>
         {evidence.map((bundle) => {
           const sessionVerdict = verdict.gateA.sessions.find((session) => session.sessionId === bundle.sessionId);
           return <div className="release-row" role="row" key={bundle.sessionId}>
+            <span>{bundle.object.specimenId}</span>
             <span>{bundle.object.label}</span>
             <span>{bundle.object.material}</span>
             <span>{bundle.attempts.length}</span>
@@ -139,6 +140,7 @@ export function ReleaseApp() {
       {verdict.gateA.sessions.map((session) => <article className="release-detail" key={session.sessionId}>
         <div className="release-card-head"><h3>{session.objectLabel}</h3><Verdict passed={session.passed} /></div>
         <dl>
+          <div><dt>specimen ID</dt><dd>{session.specimenId}</dd></div>
           <div><dt>qualified attempts</dt><dd>{session.metrics.qualifiedAttempts} / 5</dd></div>
           <div><dt>quality passing</dt><dd>{session.metrics.qualityPassingAttempts} / 5</dd></div>
           <div><dt>analysis success</dt><dd>{session.metrics.successfulAnalyses} / 5</dd></div>

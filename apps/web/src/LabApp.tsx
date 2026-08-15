@@ -107,6 +107,7 @@ export function LabApp() {
   const session = useStrikeSession({ maximumQualifiedAttempts: 5 });
   const fingerprint = session.fingerprint;
   const [sessionId, setSessionId] = useState(createSessionId);
+  const [specimenId, setSpecimenId] = useState("");
   const [objectLabel, setObjectLabel] = useState("");
   const [material, setMaterial] = useState<MaterialClass>("metal");
   const [microphoneDistanceCm, setMicrophoneDistanceCm] = useState(20);
@@ -119,7 +120,8 @@ export function LabApp() {
   const [gateCReviews, setGateCReviews] = useState<GateCReview[]>([]);
 
   const anchor = useMemo(() => fingerprint === undefined ? undefined : chooseAnchorMode(fingerprint), [fingerprint]);
-  const protocolReady = objectLabel.trim().length > 0
+  const protocolReady = specimenId.trim().length > 0
+    && objectLabel.trim().length > 0
     && striker.trim().length > 0
     && strikeLocation.trim().length > 0
     && supportCondition.trim().length > 0
@@ -189,13 +191,13 @@ export function LabApp() {
   ]);
   const gateAPassed = gateAVerdict?.passed ?? false;
   const reviewAttemptId = gateAVerdict?.reviewAttemptId ?? undefined;
-  const terminalState = session.state === "success" || session.state === "failure" || session.state === "error";
-  const canStartNextAttempt = terminalState && !attemptLimitReached;
+  const recoverableTerminalState = session.state === "success" || session.state === "failure";
+  const canStartNextAttempt = recoverableTerminalState && !attemptLimitReached;
 
   function startSession(): void {
     if (!protocolReady) return;
     setSessionId(createSessionId());
-    setActiveObject({ label: objectLabel.trim(), material });
+    setActiveObject({ specimenId: specimenId.trim(), label: objectLabel.trim(), material });
     setActiveProtocol({
       fixedSetup: true,
       microphoneDistanceCm,
@@ -275,9 +277,10 @@ export function LabApp() {
       <section className="protocol-panel" aria-label="Fixed setup protocol">
         <div className="protocol-heading">
           <div><p className="eyebrow">GATE A2 / FIXED SETUP</p><h2>Identify this measurement session</h2></div>
-          <p className="small">{protocolLocked ? `Locked for ${activeObject.label}. The first five acquisition-quality-passing attempts are final; analytical failures cannot be replaced.` : "Set these fields before arming. They remain locked for all five qualified attempts."}</p>
+          <p className="small">{protocolLocked ? `Locked specimen ${activeObject.specimenId} (${activeObject.label}). The first five acquisition-quality-passing attempts are final; analytical failures cannot be replaced.` : "Assign one stable physical specimen ID and set the fixed setup before arming. All fields remain locked for the five qualified attempts."}</p>
         </div>
         <div className="protocol-grid">
+          <label><span>specimen ID</span><input disabled={protocolLocked} value={specimenId} onChange={(event) => setSpecimenId(event.target.value)} placeholder="lab-mug-01" /></label>
           <label><span>object</span><input disabled={protocolLocked} value={objectLabel} onChange={(event) => setObjectLabel(event.target.value)} placeholder="ceramic mug" /></label>
           <label><span>material</span><select disabled={protocolLocked} value={material} onChange={(event) => setMaterial(event.target.value as MaterialClass)}>{MATERIALS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
           <label><span>microphone distance</span><div className="input-unit"><input disabled={protocolLocked} type="number" min="1" step="1" value={microphoneDistanceCm} onChange={(event) => setMicrophoneDistanceCm(Number(event.target.value))} /><span>cm</span></div></label>
@@ -313,6 +316,7 @@ export function LabApp() {
       </section>
       {!protocolReady && !protocolLocked ? <p className="validation-note">Complete every fixed-setup field before arming the microphone.</p> : null}
       {attemptLimitReached && !gateAPassed ? <p className="validation-note">The five-attempt experiment is closed. Failed analyses remain part of the evidence and cannot be replaced.</p> : null}
+      {session.state === "error" ? <p className="validation-note">This session encountered an internal error. Export retained evidence, stop, and start a new session with the same specimen ID; do not continue this physical session.</p> : null}
 
       {session.capture !== undefined ? <Waveform samples={session.capture.samples} triggerSample={session.capture.triggerSample} /> : null}
 

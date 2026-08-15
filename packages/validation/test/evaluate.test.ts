@@ -105,20 +105,22 @@ describe("Gate A2", () => {
     expect(evaluateGateASession({ ...bundle, attempts }).passed).toBe(true);
   });
 
-  it("requires five distinct passing objects with metal, glass, and ceramic coverage", () => {
+  it("requires five distinct passing physical specimens with metal, glass, and ceramic coverage", () => {
     expect(evaluateGateARelease(fiveObjects()).passed).toBe(true);
-    const duplicate = [...fiveObjects().slice(0, 4), evidence("bell", "metal", { sessionId: "session-bell-2" })];
-    expect(evaluateGateARelease(duplicate).passed).toBe(false);
+    const alias = [...fiveObjects().slice(0, 4), evidence("desk bell", "metal", { specimenId: "specimen-bell", sessionId: "session-bell-2" })];
+    const verdict = evaluateGateARelease(alias);
+    expect(verdict.passed).toBe(false);
+    expect(verdict.distinctPassingSpecimenCount).toBe(4);
   });
 
   it("rejects duplicate session IDs and conflicting material identity", () => {
     const duplicateSession = [...fiveObjects(), evidence("another bell", "metal", { sessionId: "session-bell" })];
     expect(evaluateGateARelease(duplicateSession).passed).toBe(false);
 
-    const conflictingMaterial = [...fiveObjects(), evidence("Bell", "ceramic", { sessionId: "session-bell-conflict" })];
+    const conflictingMaterial = [...fiveObjects(), evidence("Bell", "ceramic", { specimenId: "specimen-bell", sessionId: "session-bell-conflict" })];
     const verdict = evaluateGateARelease(conflictingMaterial);
     expect(verdict.passed).toBe(false);
-    expect(verdict.reasons.some((reason) => reason.includes("conflicting material labels"))).toBe(true);
+    expect(verdict.reasons.some((reason) => reason.includes("conflicting material classes for specimen IDs"))).toBe(true);
   });
 });
 
@@ -227,8 +229,10 @@ describe("release verdict", () => {
 });
 
 describe("evidence parsing", () => {
-  it("accepts schema v4 and rejects the superseded record-only schema", () => {
-    expect(parseValidationEvidence(evidence("bell", "metal")).ok).toBe(true);
+  it("accepts schema v4, requires specimen identity, and rejects the superseded record-only schema", () => {
+    const bundle = evidence("bell", "metal");
+    expect(parseValidationEvidence(bundle).ok).toBe(true);
+    expect(parseValidationEvidence({ ...bundle, object: { label: bundle.object.label, material: bundle.object.material } }).ok).toBe(false);
     expect(parseValidationEvidence({ schemaVersion: 3, evidenceContractVersion: "validation-evidence-3" }).ok).toBe(false);
   });
 
