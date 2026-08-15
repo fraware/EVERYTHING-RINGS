@@ -1,0 +1,43 @@
+name: apply-mobile-playable-layout
+
+on:
+  push:
+    branches: [post-freeze-mobile-playability]
+    paths: [.github/workflows/mobile-playability-edit.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: post-freeze-mobile-playability
+      - name: Apply exact responsive edits
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('apps/web/src/styles.css')
+          text = path.read_text()
+          old_lab = '  .keyboard { grid-template-columns: repeat(7, 1fr); }'
+          new_lab = '  .keyboard { grid-template-columns: repeat(5, minmax(0, 1fr)); }'
+          old_consumer = '  .consumer-keyboard { grid-template-columns: repeat(7, 1fr); }'
+          new_consumer = '  .consumer-keyboard { grid-template-columns: repeat(5, minmax(0, 1fr)); }'
+          anchor = '.consumer-keyboard button:hover, .consumer-keyboard button:focus-visible { background: #f0f0e9; color: #0b0b0b; }\n\n@media (max-width: 760px) {'
+          replacement = '.consumer-keyboard button:hover, .consumer-keyboard button:focus-visible { background: #f0f0e9; color: #0b0b0b; }\n.keyboard button, .consumer-keyboard button { touch-action: manipulation; }\n\n@media (max-width: 760px) {'
+          assert text.count(old_lab) == 1
+          assert text.count(old_consumer) == 1
+          assert text.count(anchor) == 1
+          text = text.replace(old_lab, new_lab).replace(old_consumer, new_consumer).replace(anchor, replacement)
+          path.write_text(text)
+          PY
+          git diff --check
+      - name: Commit responsive layout
+        run: |
+          git config user.name "Matéo H. Petel"
+          git config user.email "113530345+fraware@users.noreply.github.com"
+          git add apps/web/src/styles.css
+          git commit -m "Improve mobile playable targets"
+          git push origin HEAD:post-freeze-mobile-playability
