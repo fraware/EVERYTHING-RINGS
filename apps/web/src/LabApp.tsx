@@ -109,9 +109,10 @@ export function LabApp() {
       ...fingerprintRecurrence(reference, record.fingerprint),
     }));
     const report = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       createdAt: new Date().toISOString(),
       captureSettings: session.settings,
+      realtimeAudioTiming: session.audioTiming,
       recordCount: session.records.length,
       medianModalDriftCents: drift ?? null,
       recurrence,
@@ -128,6 +129,9 @@ export function LabApp() {
   const realtimeStatus = session.instrumentFailure !== undefined
     ? "unavailable"
     : session.instrumentReady ? "ready" : "preparing";
+  const baseLatency = session.audioTiming?.baseLatencyMs;
+  const outputLatency = session.audioTiming?.outputLatencyMs;
+  const schedulingLatency = session.audioTiming?.lastSchedulingMs;
 
   return (
     <main className="shell">
@@ -173,12 +177,15 @@ export function LabApp() {
           <div><dt>echo cancellation</dt><dd>{String(session.settings?.echoCancellation ?? "—")}</dd></div>
           <div><dt>noise suppression</dt><dd>{String(session.settings?.noiseSuppression ?? "—")}</dd></div>
           <div><dt>auto gain</dt><dd>{String(session.settings?.autoGainControl ?? "—")}</dd></div>
+          <div><dt>base latency</dt><dd>{baseLatency === undefined ? "—" : `${baseLatency.toFixed(1)} ms`}</dd></div>
+          <div><dt>output latency</dt><dd>{outputLatency === undefined ? "—" : `${outputLatency.toFixed(1)} ms`}</dd></div>
         </dl></article>
         <article><h2>Repeatability</h2><dl>
           <div><dt>accepted strikes</dt><dd>{session.records.length} / 5</dd></div>
           <div><dt>median modal drift</dt><dd>{drift === undefined ? "—" : `${drift.toFixed(1)} cents`}</dd></div>
           <div><dt>play anchor</dt><dd>{anchor === undefined ? "—" : `${anchor.frequencyHz.toFixed(1)} Hz`}</dd></div>
           <div><dt>realtime engine</dt><dd>{fingerprint === undefined ? "—" : realtimeStatus}</dd></div>
+          <div><dt>note scheduling</dt><dd>{schedulingLatency === undefined ? "—" : `${schedulingLatency.toFixed(1)} ms`}</dd></div>
         </dl></article>
       </section>
 
@@ -187,7 +194,7 @@ export function LabApp() {
         <AcousticDnaView fingerprint={fingerprint} />
         <ModeTable modes={fingerprint.modes} />
         <div className="listening-lab"><div><p className="eyebrow">GATE B</p><h3>Original / modal reconstruction</h3><p className="small">The model contains no recorded audio.</p></div><div className="actions"><button onClick={playOriginal}>ORIGINAL</button><button onClick={playModel}>MODEL</button></div></div>
-        <div className="instrument-lab"><p className="eyebrow">GATE C</p><h3>Realtime playable object</h3><p className="small">{session.instrumentReady ? "Modal voices are rendered continuously in the audio thread." : session.instrumentFailure !== undefined ? "Realtime playback is unavailable in this browser session." : "Preparing the audio thread…"}</p><div className="keyboard">{KEYBOARD_NOTES.map((note) => <button key={note.midi} disabled={!session.instrumentReady} onPointerDown={() => session.noteOn(note.midi)}>{note.label}</button>)}</div></div>
+        <div className="instrument-lab"><p className="eyebrow">GATE C</p><h3>Realtime playable object</h3><p className="small">{session.instrumentReady ? "Modal voices are rendered continuously in the audio thread. Scheduling delay excludes the browser-reported output path." : session.instrumentFailure !== undefined ? "Realtime playback is unavailable in this browser session." : "Preparing the audio thread…"}</p><div className="keyboard">{KEYBOARD_NOTES.map((note) => <button key={note.midi} disabled={!session.instrumentReady} onPointerDown={() => session.noteOn(note.midi)}>{note.label}</button>)}</div></div>
       </section> : null}
     </main>
   );
