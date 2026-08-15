@@ -2,7 +2,8 @@ import type { AcousticMode } from "@everything-rings/dsp";
 import { fingerprintRecurrence } from "@everything-rings/fingerprint";
 import { chooseAnchorMode } from "@everything-rings/instrument";
 import { renderAcousticFingerprint } from "@everything-rings/synth";
-import { useEffect, useMemo, useRef } from "react";
+import type { MaterialClass } from "@everything-rings/validation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AcousticDnaView } from "./AcousticDnaView";
 import { failureCopy } from "./failureCopy";
 import { useStrikeSession } from "./useStrikeSession";
@@ -15,6 +16,17 @@ const KEYBOARD_NOTES = [
   { midi: 72, label: "C5" },
 ] as const;
 
+const MATERIALS: readonly { readonly value: MaterialClass; readonly label: string }[] = [
+  { value: "metal", label: "metal" },
+  { value: "glass", label: "glass" },
+  { value: "ceramic", label: "ceramic" },
+  { value: "wood", label: "wood" },
+  { value: "stone", label: "stone" },
+  { value: "plastic", label: "plastic" },
+  { value: "composite", label: "composite" },
+  { value: "other", label: "other" },
+];
+
 function median(values: readonly number[]): number | undefined {
   if (values.length === 0) return undefined;
   const ordered = [...values].sort((left, right) => left - right);
@@ -23,6 +35,11 @@ function median(values: readonly number[]): number | undefined {
   if (value === undefined) return undefined;
   if (ordered.length % 2 === 1) return value;
   return ((ordered[middle - 1] ?? value) + value) / 2;
+}
+
+function createSessionId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function downloadJson(filename: string, value: unknown): void {
@@ -85,6 +102,13 @@ function ModeTable({ modes }: { readonly modes: readonly AcousticMode[] }) {
 export function LabApp() {
   const session = useStrikeSession();
   const fingerprint = session.fingerprint;
+  const [sessionId, setSessionId] = useState(createSessionId);
+  const [objectLabel, setObjectLabel] = useState("");
+  const [material, setMaterial] = useState<MaterialClass>("metal");
+  const [microphoneDistanceCm, setMicrophoneDistanceCm] = useState(20);
+  const [striker, setStriker] = useState("finger tap");
+  const [strikeLocation, setStrikeLocation] = useState("marked point");
+  const [supportCondition, setSupportCondition] = useState("held consistently");
   const drift = useMemo(() => {
     if (session.records.length < 2) return undefined;
     const reference = session.records[0]?.fingerprint;
@@ -92,7 +116,17 @@ export function LabApp() {
     return median(session.records.slice(1).map((record) => fingerprintRecurrence(reference, record.fingerprint).medianCents));
   }, [session.records]);
   const anchor = useMemo(() => fingerprint === undefined ? undefined : chooseAnchorMode(fingerprint), [fingerprint]);
+  const protocolReady = objectLabel.trim().length > 0
+    && striker.trim().length > 0
+    && strikeLocation.trim().length > 0
+    && supportCondition.trim().length > 0
+    && Number.isFinite(microphoneDistanceCm)
+    && microphoneDistanceCm > 0;
 
+  function startSession(): void {
+    setSessionId(createSessionId());
+    void session.start();
+  }
   function playOriginal(): void {
     if (session.capture !== undefined) session.play(session.capture.samples, session.capture.sampleRate);
   }
@@ -102,17 +136,31 @@ export function LabApp() {
     session.play(renderAcousticFingerprint(fingerprint, sampleRate), sampleRate);
   }
   function exportEvidence(): void {
-    if (session.records.length === 0) return;
+    if (session.records.length === 0 || !protocolReady) return;
     const reference = session.records[0]?.fingerprint;
     const recurrence = reference === undefined ? [] : session.records.slice(1).map((record) => ({
       recordId: record.id,
       ...fingerprintRecurrence(reference, record.fingerprint),
     }));
     const report = {
-      schemaVersion: 2,
+      schemaVersion: 3,
+      evidenceContractVersion: "validation-evidence-3",
+      gateAContractVersion: "gate-a-1",
+      sessionId,
       createdAt: new Date().toISOString(),
-      captureSettings: session.settings,
-      realtimeAudioTiming: session.audioTiming,
+      object: {
+        label: objectLabel.trim(),
+        material,
+      },
+      protocol: {
+        fixedSetup: true,
+        microphoneDistanceCm,
+        striker: striker.trim(),
+        strikeLocation: strikeLocation.trim(),
+        supportCondition: supportCondition.trim(),
+      },
+      captureSettings: session.settings ?? null,
+      realtimeAudioTiming: session.audioTiming ?? null,
       recordCount: session.records.length,
       medianModalDriftCents: drift ?? null,
       recurrence,
@@ -123,7 +171,7 @@ export function LabApp() {
       })),
       rawMicrophoneSamplesIncluded: false,
     };
-    downloadJson(`everything-rings-validation-${Date.now()}.json`, report);
+    downloadJson(`everything-rings-${objectLabel.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}.json`, report);
   }
 
   const realtimeStatus = session.instrumentFailure !== undefined
@@ -140,6 +188,22 @@ export function LabApp() {
         <h1>Acoustic analysis lab</h1>
         <p className="lede">Measure repeatability, compare reconstruction, and test playable identity from one captured object.</p>
       </header>
+
+      <section className="protocol-panel" aria-label="Fixed setup protocol">
+        <div className="protocol-heading">
+          <div><p className="eyebrow">GATE A / FIXED SETUP</p><h2>Identify this measurement session</h2></div>
+          <p className="small">Keep these conditions approximately fixed for all five accepted strikes.</p>
+        </div>
+        <div className="protocol-grid">
+          <label><span>object</span><input value={objectLabel} onChange={(event) => setObjectLabel(event.target.value)} placeholder="ceramic mug" /></label>
+          <label><span>material</span><select value={material} onChange={(event) => setMaterial(event.target.value as MaterialClass)}>{MATERIALS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <label><span>microphone distance</span><div className="input-unit"><input type="number" min="1" step="1" value={microphoneDistanceCm} onChange={(event) => setMicrophoneDistanceCm(Number(event.target.value))} /><span>cm</span></div></label>
+          <label><span>striker</span><input value={striker} onChange={(event) => setStriker(event.target.value)} /></label>
+          <label><span>strike location</span><input value={strikeLocation} onChange={(event) => setStrikeLocation(event.target.value)} /></label>
+          <label><span>support condition</span><input value={supportCondition} onChange={(event) => setSupportCondition(event.target.value)} /></label>
+        </div>
+      </section>
+
       <section className="control-panel">
         <div>
           <span className={`status status-${session.state}`}>{session.state}</span>
@@ -154,14 +218,15 @@ export function LabApp() {
           </p>
         </div>
         <div className="actions">
-          {session.state === "idle" ? <button onClick={() => void session.start()}>ARM MICROPHONE</button> : null}
+          {session.state === "idle" ? <button onClick={startSession}>ARM MICROPHONE</button> : null}
           {session.state !== "idle" ? <button onClick={session.reset}>NEW STRIKE</button> : null}
           {session.capture !== undefined ? <button onClick={playOriginal}>PLAY ORIGINAL</button> : null}
           {fingerprint !== undefined ? <button onClick={playModel}>PLAY MODEL</button> : null}
-          {session.records.length > 0 ? <button onClick={exportEvidence}>EXPORT EVIDENCE</button> : null}
+          {session.records.length > 0 ? <button disabled={!protocolReady} onClick={exportEvidence}>EXPORT EVIDENCE</button> : null}
           {session.state !== "idle" ? <button className="secondary" onClick={session.stop}>STOP</button> : null}
         </div>
       </section>
+      {!protocolReady && session.records.length > 0 ? <p className="validation-note">Complete the fixed-setup fields to export release evidence.</p> : null}
 
       {session.capture !== undefined ? <Waveform samples={session.capture.samples} triggerSample={session.capture.triggerSample} /> : null}
 
