@@ -1,0 +1,137 @@
+name: browser-rejection-e2e
+
+on:
+  push:
+    branches:
+      - stress/browser-rejection-e2e-2026-08-15
+
+permissions:
+  contents: read
+
+jobs:
+  reject-bad-captures:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scenario: clipped
+            expected: The strike overloaded the microphone. Move the device farther away and try again.
+          - scenario: multiple
+            expected: More than one strong impact was detected. Strike the object once.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      VITE_SOFTWARE_REVISION: 76732edaa78e2b21293dbce65d1625fc43531e06
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Generate deterministic bad-capture WAV
+        shell: bash
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          python - <<'PY'
+          import math, os, random, struct, wave
+          rate = 48000
+          seconds = 5.0
+          onset = 0.85
+          scenario = os.environ['SCENARIO']
+          rng = random.Random(20260815)
+          path = f'/tmp/everything-rings-{scenario}.wav'
+          with wave.open(path, 'wb') as out:
+              out.setnchannels(1)
+              out.setsampwidth(2)
+              out.setframerate(rate)
+              frames = bytearray()
+              for i in range(round(rate * seconds)):
+                  t = i / rate
+                  value = (rng.random() * 2 - 1) * 0.0002
+                  if scenario == 'clipped' and t >= onset:
+                      dt = t - onset
+                      if dt < 0.030:
+                          value = 1.0 if (i % 2 == 0) else -1.0
+                      else:
+                          value += 0.35 * math.exp(-dt / 0.7) * math.sin(2 * math.pi * 440 * dt)
+                  elif scenario == 'multiple':
+                      if t >= onset:
+                          dt = t - onset
+                          value += 0.24 * math.exp(-dt / 0.35) * math.sin(2 * math.pi * 440 * dt)
+                          value += 0.18 * math.exp(-dt / 0.25) * math.sin(2 * math.pi * 997 * dt)
+                      second = onset + 0.20
+                      if t >= second:
+                          dt2 = t - second
+                          value += 0.48 * math.exp(-dt2 / 0.35) * math.sin(2 * math.pi * 440 * dt2)
+                          value += 0.36 * math.exp(-dt2 / 0.25) * math.sin(2 * math.pi * 997 * dt2)
+                  value = max(-1.0, min(1.0, value))
+                  frames += struct.pack('<h', round(value * 32767))
+              out.writeframes(frames)
+          print(path)
+          PY
+      - name: Install isolated Chromium harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/everything-rings-rejection-e2e
+          cd /tmp/everything-rings-rejection-e2e
+          npm init -y >/dev/null
+          npm install --save-exact playwright@1.62.0
+          npm audit --audit-level=high
+          npx playwright install --with-deps chromium
+      - name: Verify quality rejection
+        shell: bash
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+          EXPECTED: ${{ matrix.expected }}
+        run: |
+          set -euo pipefail
+          pnpm --filter @everything-rings/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort >/tmp/everything-rings-rejection-vite.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4173 >/dev/null; then break; fi
+            sleep 0.25
+          done
+          cat >/tmp/everything-rings-rejection-e2e/e2e.mjs <<'NODE'
+          import { chromium } from 'playwright';
+
+          const scenario = process.env.SCENARIO;
+          const expected = process.env.EXPECTED;
+          const origin = 'http://127.0.0.1:4173';
+          const browser = await chromium.launch({
+            headless: true,
+            args: [
+              '--use-fake-ui-for-media-stream',
+              '--use-fake-device-for-media-stream',
+              `--use-file-for-fake-audio-capture=/tmp/everything-rings-${scenario}.wav`,
+              '--autoplay-policy=no-user-gesture-required',
+            ],
+          });
+          const context = await browser.newContext();
+          await context.grantPermissions(['microphone'], { origin });
+          const page = await context.newPage();
+          const errors = [];
+          page.on('pageerror', (error) => errors.push(String(error)));
+          await page.goto(`${origin}/?lab=1`, { waitUntil: 'networkidle' });
+          await page.getByLabel('specimen ID').fill(`reject-${scenario}`);
+          await page.getByLabel('object').fill(`${scenario} positive-control rejection`);
+          await page.getByLabel('material').selectOption('metal');
+          await page.getByLabel('microphone distance').fill('20');
+          await page.getByLabel('striker').fill('deterministic fake microphone waveform');
+          await page.getByLabel('strike location').fill('synthetic onset');
+          await page.getByLabel('support condition').fill('CI rejection control');
+          await page.getByRole('button', { name: 'ARM MICROPHONE' }).click();
+          await page.locator('.status-failure').waitFor({ state: 'visible', timeout: 20000 });
+          const body = await page.locator('body').innerText();
+          if (!body.includes(expected)) throw new Error(`${scenario}: expected rejection copy not found. Body: ${body}`);
+          if (body.includes('stable resonances found')) throw new Error(`${scenario}: bad capture reached success state`);
+          if (errors.length > 0) throw new Error(`${scenario}: uncaught page errors: ${errors.join(' | ')}`);
+          console.log(JSON.stringify({ scenario, expected, rejected: true }, null, 2));
+          await browser.close();
+          NODE
+          cd /tmp/everything-rings-rejection-e2e
+          node e2e.mjs
