@@ -14,7 +14,10 @@ export type MaterialClass =
 export type Score1To5 = 1 | 2 | 3 | 4 | 5;
 export type DeviceClass = "desktop" | "mobile" | "tablet" | "other";
 export type GateBPresentationOrder = "original-model" | "model-original";
-export type AnalysisFailureReasonEvidence = "SIGNAL_TOO_SHORT" | "NO_STABLE_RESONANCES";
+export type AnalysisFailureReasonEvidence =
+  | "SIGNAL_TOO_SHORT"
+  | "NO_STABLE_RESONANCES"
+  | "ANALYSIS_INTERNAL_ERROR";
 
 export interface CaptureSettingsEvidence {
   readonly sampleRate?: number;
