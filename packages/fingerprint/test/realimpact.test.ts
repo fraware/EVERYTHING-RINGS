@@ -202,7 +202,7 @@ manual("RealImpact cross-field recurrence benchmark", () => {
     const measurementDrifts = comparisons.map(({ recurrence }) => recurrence.medianCents);
 
     const report = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       dataset: "RealImpact",
       validationScope: "cross-field-modal-recurrence",
       releaseGateEquivalent: false,

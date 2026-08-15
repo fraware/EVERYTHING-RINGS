@@ -15,7 +15,7 @@ import type {
   ReleaseVerdict,
   ReviewTarget,
   ValidationEvidenceAttempt,
-  ValidationEvidenceV4,
+  ValidationEvidenceV5,
 } from "./types";
 
 export const DEFAULT_GATE_A_THRESHOLDS: GateAThresholds = {
@@ -56,6 +56,8 @@ export const DEFAULT_GATE_C_THRESHOLDS: GateCThresholds = {
   requireMobileDevice: true,
 };
 
+const SOFTWARE_REVISION_PATTERN = /^[0-9a-f]{40}$/;
+
 function normalizedLabel(label: string): string {
   return label.trim().toLocaleLowerCase("en-US");
 }
@@ -68,7 +70,7 @@ function targetKey(target: ReviewTarget): string {
   return `${target.sessionId}\u0000${target.attemptId}`;
 }
 
-function attemptsAreSequential(evidence: ValidationEvidenceV4): boolean {
+function attemptsAreSequential(evidence: ValidationEvidenceV5): boolean {
   return evidence.attempts.every((attempt, index) => attempt.id === index + 1);
 }
 
@@ -88,7 +90,7 @@ function successfulAnalysis(attempt: ValidationEvidenceAttempt): boolean {
 }
 
 export function evaluateGateASession(
-  evidence: ValidationEvidenceV4,
+  evidence: ValidationEvidenceV5,
   thresholds: GateAThresholds = DEFAULT_GATE_A_THRESHOLDS,
 ): GateASessionVerdict {
   const reasons: string[] = [];
@@ -109,6 +111,7 @@ export function evaluateGateASession(
     ? null
     : Math.max(...finiteRecurrenceMedians);
 
+  if (!SOFTWARE_REVISION_PATTERN.test(evidence.softwareRevision)) reasons.push("software revision is invalid");
   if (evidence.object.specimenId.trim().length === 0) reasons.push("specimen ID is missing");
   if (evidence.object.label.trim().length === 0) reasons.push("object label is missing");
   if (!evidence.protocol.fixedSetup) reasons.push("fixed-setup protocol is not declared");
@@ -156,6 +159,7 @@ export function evaluateGateASession(
 
   return {
     sessionId: evidence.sessionId,
+    softwareRevision: evidence.softwareRevision,
     specimenId: evidence.object.specimenId,
     objectLabel: evidence.object.label,
     material: evidence.object.material,
@@ -176,7 +180,7 @@ export function evaluateGateASession(
 }
 
 export function evaluateGateARelease(
-  evidence: readonly ValidationEvidenceV4[],
+  evidence: readonly ValidationEvidenceV5[],
   thresholds: GateAThresholds = DEFAULT_GATE_A_THRESHOLDS,
 ): GateAReleaseVerdict {
   const sessions = evidence.map((bundle) => evaluateGateASession(bundle, thresholds));
@@ -197,6 +201,8 @@ export function evaluateGateARelease(
     else observedMaterialBySpecimen.set(specimenId, session.material);
   }
 
+  const softwareRevisions = new Set(sessions.map((session) => session.softwareRevision));
+  const softwareRevision = softwareRevisions.size === 1 ? [...softwareRevisions][0] ?? null : null;
   const distinctSpecimens = new Set(passing.map((session) => normalizedIdentifier(session.specimenId)));
   const materialCoverage = [...new Set(passing.map((session) => session.material))];
   const reasons: string[] = [];
@@ -204,6 +210,7 @@ export function evaluateGateARelease(
   if (duplicateSessionIds.size > 0) {
     reasons.push(`duplicate session IDs: ${[...duplicateSessionIds].join(", ")}`);
   }
+  if (softwareRevisions.size > 1) reasons.push("release evidence must use one software revision");
   if (conflictingMaterialSpecimens.size > 0) {
     reasons.push(`conflicting material classes for specimen IDs: ${[...conflictingMaterialSpecimens].join(", ")}`);
   }
@@ -217,6 +224,7 @@ export function evaluateGateARelease(
   return {
     contractVersion: thresholds.contractVersion,
     passed: reasons.length === 0,
+    softwareRevision,
     passingSessionCount: passing.length,
     distinctPassingSpecimenCount: distinctSpecimens.size,
     materialCoverage,
@@ -456,7 +464,7 @@ export function evaluateGateCRelease(
 }
 
 export function buildReleaseVerdict(
-  evidence: readonly ValidationEvidenceV4[],
+  evidence: readonly ValidationEvidenceV5[],
   gateBReviews: readonly GateBReview[],
   gateCReviews: readonly GateCReview[],
   createdAt: string,
@@ -467,6 +475,7 @@ export function buildReleaseVerdict(
   return {
     schemaVersion: 1,
     createdAt,
+    softwareRevision: gateA.softwareRevision,
     gateA,
     gateB,
     gateC,

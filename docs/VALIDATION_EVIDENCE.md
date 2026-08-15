@@ -2,11 +2,12 @@
 
 The validation lab exports one local JSON evidence bundle per physical measurement session. The artifact is designed to make recurrence, blinded reconstruction review, and device playability review auditable without exporting microphone audio.
 
-## Schema version 4
+## Schema version 5
 
-A `validation-evidence-4` bundle contains:
+A `validation-evidence-5` bundle contains:
 
 - a stable session ID and creation time;
+- the exact 40-hex software commit revision that produced the evidence;
 - a required stable physical `specimenId`, plus human-readable object label and material class;
 - the declared fixed-setup protocol: microphone distance, striker, strike location, and support condition;
 - actual capture settings reported by the browser;
@@ -20,6 +21,14 @@ A `validation-evidence-4` bundle contains:
 
 Raw microphone PCM is intentionally excluded. Every bundle contains `rawMicrophoneSamplesIncluded: false`, and the parser rejects a bundle that violates that invariant.
 
+## Software provenance
+
+Every schema-v5 bundle must contain `softwareRevision`, a lowercase 40-hex Git commit SHA. The validation lab disables release evidence collection when its build is unstamped. CI and the Pages deployment inject the exact build SHA through `VITE_SOFTWARE_REVISION`.
+
+Gate A release evaluation requires one software revision across all imported sessions, including sessions that fail physically. Mixing evidence produced by different implementations is an evidence-integrity failure. Re-exporting one session under a different revision is also rejected by the immutable measurement-core merge.
+
+The SHA, not a branch name, is the authoritative provenance identifier.
+
 ## Physical specimen identity
 
 `specimenId` is the release identity axis. It identifies one physical test specimen across measurement sessions. The object label is descriptive metadata only.
@@ -32,7 +41,7 @@ The parser requires a non-empty specimen ID. The release evaluator groups Gate A
 
 Acquisition-quality failures are not retained in the five-attempt Gate A2 experiment. Once acquisition quality passes, the physical attempt is final and receives the next sequential attempt ID. Its subsequent analysis outcome cannot be removed or replaced. `NO_STABLE_RESONANCES`, `SIGNAL_TOO_SHORT`, and `ANALYSIS_INTERNAL_ERROR` are retained analytical outcomes.
 
-This is the principal semantic difference from the superseded record-only schema v3. Schema v4 makes analytical failures visible so release evaluation cannot select only successful analyses.
+Schema v5 retains v4's qualified-attempt semantics and adds mandatory software provenance. The earlier record-only schema v3 remains superseded because it could not make analytical failures visible without a selection loophole. Schema v4 is rejected for release collection because it did not bind evidence to the implementation revision that produced it.
 
 A true session-level internal error terminates that physical session in the validation UI. Retained evidence can be exported, but another qualified attempt is not permitted on the same potentially compromised worker/audio resources. Further capture uses a new session ID; if it is the same physical specimen, the same `specimenId` is retained.
 
@@ -48,7 +57,7 @@ These checks establish internal consistency and make accidental or stale evidenc
 
 ## Repeated exports from one session
 
-A session ID identifies one immutable physical measurement core: specimen identity, object label and material, fixed setup, capture settings, qualified attempts, analytical outcomes, fingerprints, and derived recurrence evidence. Re-exporting the same session after adding listening/device reviews is supported.
+A session ID identifies one immutable physical measurement core: software revision, specimen identity, object label and material, fixed setup, capture settings, qualified attempts, analytical outcomes, fingerprints, and derived recurrence evidence. Re-exporting the same session after adding listening/device reviews is supported.
 
 The Release Console merges repeated exports only when that immutable measurement core is identical. Additional uniquely identified reviews are combined. Reusing the same session ID with changed specimen identity or qualified-attempt evidence, changing a retained failure into a success, reusing one review ID with conflicting contents, or submitting a conflicting second logical judgment is rejected instead of silently replacing earlier evidence.
 
@@ -64,6 +73,6 @@ Release metrics preserve those ontology levels explicitly: Gate A reports `passi
 
 ## Versioning rule
 
-Thresholds and evidence contracts are frozen before the corresponding release data is collected. The v4/A2 migration and specimen-identity migration occurred before the release physical dataset was accepted because the earlier forms could encode selection or identity ambiguity. Once Gate A2 release data collection starts, threshold, attempt, or specimen-identity protocol changes require another explicit contract version.
+Thresholds and evidence contracts are frozen before the corresponding release data is collected. The v5/A2 provenance migration occurred before the release physical dataset was accepted. It preserves the v4 no-selection and specimen-identity invariants and additionally binds every bundle to one implementation commit. Once Gate A2 release data collection starts, threshold, attempt, or specimen-identity protocol changes require another explicit contract version.
 
 Algorithm or renderer changes made after a failed gate require a versioned validation cycle. Historical evidence should remain interpretable under the contract that produced it.

@@ -50,6 +50,11 @@ check_route() {
 
 check_route "/" "Hit anything." "consumer"
 check_route "/?lab=1" "Acoustic analysis lab" "lab"
+if [[ -n "${VITE_SOFTWARE_REVISION:-}" ]] && ! grep -Fq "software revision ${VITE_SOFTWARE_REVISION}" /tmp/everything-rings-lab.html; then
+  echo "Browser smoke test failed: validation build revision is not visible in the lab" >&2
+  cat /tmp/everything-rings-lab.html >&2
+  exit 1
+fi
 check_route "/?release=1" "Empirical release gates" "release"
 check_route "/?lab=1&release=1" "Empirical release gates" "precedence"
 

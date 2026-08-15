@@ -8,7 +8,7 @@ EVERYTHING RINGS is a local-first acoustic instrument for estimating the audible
 
 MVP-0 contains the full software path from microphone capture to reveal and play: deterministic impact analysis, capture-quality gates, ringdown isolation, versioned acoustic fingerprints, one-to-one recurrence comparison, modal reconstruction, realtime playable modal synthesis, Acoustic DNA, and the consumer **STRIKE → REVEAL → HEAR → PLAY** loop.
 
-The empirical release gates remain open until representative physical and perceptual evidence passes their frozen contracts. Gate A2 defines each physical-session experiment as the first five acquisition-quality-passing attempts. Once an attempt qualifies, its analytical outcome is immutable: a failed analysis occupies its slot and cannot be retried away. Evidence schema v4 records those success/failure outcomes explicitly, and recurrence is recomputed from retained fingerprints with attempt 1 fixed as the reference.
+The empirical release gates remain open until representative physical and perceptual evidence passes their frozen contracts. Gate A2 defines each physical-session experiment as the first five acquisition-quality-passing attempts. Once an attempt qualifies, its analytical outcome is immutable: a failed analysis occupies its slot and cannot be retried away. Evidence schema v5 records those success/failure outcomes explicitly, stamps the exact software commit that produced each bundle, and recomputes recurrence from retained fingerprints with attempt 1 fixed as the reference.
 
 Every physical validation object also receives a stable `specimenId`. That identity, not a display label, defines release distinctness and links repeated sessions of the same physical specimen. Relabeling an object cannot manufacture another release specimen. An analysis-worker crash or other true internal session error terminates the current validation session; subsequent capture uses a new session ID and retains the specimen ID when the same object is tested again.
 
@@ -42,6 +42,8 @@ pnpm typecheck
 pnpm test
 pnpm build
 ```
+
+Release-validation builds must set `VITE_SOFTWARE_REVISION` to the exact 40-hex Git commit. The GitHub Pages and CI workflows do this automatically; an unstamped local build can use the consumer surfaces but cannot arm release evidence collection.
 
 The root web experience is the consumer loop. Append `?lab=1` for physical/listening evidence collection and `?release=1` for the local release-evidence console.
 

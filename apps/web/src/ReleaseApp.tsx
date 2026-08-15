@@ -2,7 +2,7 @@ import {
   buildReleaseVerdict,
   mergeValidationEvidence,
   parseValidationEvidenceJson,
-  type ValidationEvidenceV4,
+  type ValidationEvidenceV5,
 } from "@everything-rings/validation";
 import { useMemo, useState } from "react";
 
@@ -26,7 +26,7 @@ function Reasons({ reasons }: { readonly reasons: readonly string[] }) {
 }
 
 export function ReleaseApp() {
-  const [evidence, setEvidence] = useState<ValidationEvidenceV4[]>([]);
+  const [evidence, setEvidence] = useState<ValidationEvidenceV5[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const gateBReviews = useMemo(() => evidence.flatMap((bundle) => bundle.gateBReviews), [evidence]);
   const gateCReviews = useMemo(() => evidence.flatMap((bundle) => bundle.gateCReviews), [evidence]);
@@ -37,7 +37,7 @@ export function ReleaseApp() {
 
   async function importFiles(files: FileList | null): Promise<void> {
     if (files === null) return;
-    const loaded: Array<{ readonly filename: string; readonly evidence: ValidationEvidenceV4 }> = [];
+    const loaded: Array<{ readonly filename: string; readonly evidence: ValidationEvidenceV5 }> = [];
     const nextErrors: string[] = [];
     for (const file of Array.from(files)) {
       const result = parseValidationEvidenceJson(await file.text());
@@ -68,12 +68,13 @@ export function ReleaseApp() {
     const finalVerdict = buildReleaseVerdict(evidence, gateBReviews, gateCReviews, new Date().toISOString());
     downloadJson(`everything-rings-release-verdict-${Date.now()}.json`, {
       ...finalVerdict,
-      evidenceContractVersion: "validation-evidence-4",
+      evidenceContractVersion: "validation-evidence-5",
       gateAContractVersion: "gate-a-2",
       evidenceSessions: evidence.map((bundle) => ({
         sessionId: bundle.sessionId,
         object: bundle.object,
         createdAt: bundle.createdAt,
+        softwareRevision: bundle.softwareRevision,
       })),
     });
   }
@@ -82,7 +83,7 @@ export function ReleaseApp() {
     <header>
       <p className="eyebrow">EVERYTHING RINGS / RELEASE CONSOLE</p>
       <h1>Empirical release gates</h1>
-      <p className="lede">Import local validation-evidence-4 bundles. The console evaluates frozen Gate A2/B/C contracts without uploading evidence or microphone audio.</p>
+      <p className="lede">Import local validation-evidence-5 bundles. The console evaluates frozen Gate A2/B/C contracts without uploading evidence or microphone audio.</p>
     </header>
 
     <section className="release-import">
@@ -98,6 +99,7 @@ export function ReleaseApp() {
       <article className="release-card release-overall">
         <div className="release-card-head"><div><p className="eyebrow">RELEASE</p><h2>{verdict.releaseReady ? "Empirically ready" : "Evidence incomplete"}</h2></div><Verdict passed={verdict.releaseReady} /></div>
         <p className="small">Release becomes ready only when Gate A2, Gate B, and Gate C all pass their frozen contracts.</p>
+        <p className="small">Software revision: {verdict.softwareRevision ?? "mixed / no evidence"}</p>
       </article>
       <article className="release-card">
         <div className="release-card-head"><div><p className="eyebrow">GATE A2 / PHYSICAL</p><h2>Repeatable acoustic structure</h2></div><Verdict passed={verdict.gateA.passed} /></div>
@@ -141,6 +143,7 @@ export function ReleaseApp() {
         <div className="release-card-head"><h3>{session.objectLabel}</h3><Verdict passed={session.passed} /></div>
         <dl>
           <div><dt>specimen ID</dt><dd>{session.specimenId}</dd></div>
+          <div><dt>software revision</dt><dd>{session.softwareRevision}</dd></div>
           <div><dt>qualified attempts</dt><dd>{session.metrics.qualifiedAttempts} / 5</dd></div>
           <div><dt>quality passing</dt><dd>{session.metrics.qualityPassingAttempts} / 5</dd></div>
           <div><dt>analysis success</dt><dd>{session.metrics.successfulAnalyses} / 5</dd></div>

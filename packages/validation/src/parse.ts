@@ -5,11 +5,11 @@ import type {
   EvidenceRecurrence,
   MaterialClass,
   ValidationEvidenceAttempt,
-  ValidationEvidenceV4,
+  ValidationEvidenceV5,
 } from "./types";
 
 export type EvidenceParseResult =
-  | { readonly ok: true; readonly evidence: ValidationEvidenceV4 }
+  | { readonly ok: true; readonly evidence: ValidationEvidenceV5 }
   | { readonly ok: false; readonly error: string };
 
 const MATERIALS: readonly MaterialClass[] = [
@@ -20,6 +20,7 @@ const ANALYSIS_FAILURE_REASONS: readonly AnalysisFailureReasonEvidence[] = [
   "SIGNAL_TOO_SHORT", "NO_STABLE_RESONANCES", "ANALYSIS_INTERNAL_ERROR",
 ];
 const NUMBER_TOLERANCE = 1e-9;
+const SOFTWARE_REVISION_PATTERN = /^[0-9a-f]{40}$/;
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined;
@@ -311,14 +312,17 @@ function validateReviewUniqueness(evidence: Record<string, unknown>): string | u
 export function parseValidationEvidence(value: unknown): EvidenceParseResult {
   const evidence = record(value);
   if (evidence === undefined) return { ok: false, error: "evidence must be a JSON object" };
-  if (evidence.schemaVersion !== 4) return { ok: false, error: "requires validation evidence schema version 4" };
-  if (evidence.evidenceContractVersion !== "validation-evidence-4") {
+  if (evidence.schemaVersion !== 5) return { ok: false, error: "requires validation evidence schema version 5" };
+  if (evidence.evidenceContractVersion !== "validation-evidence-5") {
     return { ok: false, error: "unsupported evidence contract" };
   }
   if (evidence.gateAContractVersion !== "gate-a-2") return { ok: false, error: "unsupported Gate A contract" };
   if (!nonEmptyString(evidence.sessionId)) return { ok: false, error: "sessionId is missing" };
   if (!nonEmptyString(evidence.createdAt) || !Number.isFinite(Date.parse(evidence.createdAt))) {
     return { ok: false, error: "createdAt is invalid" };
+  }
+  if (typeof evidence.softwareRevision !== "string" || !SOFTWARE_REVISION_PATTERN.test(evidence.softwareRevision)) {
+    return { ok: false, error: "softwareRevision must be a lowercase 40-hex commit SHA" };
   }
   const sessionId = evidence.sessionId;
 
@@ -404,7 +408,7 @@ export function parseValidationEvidence(value: unknown): EvidenceParseResult {
     return { ok: false, error: "raw microphone samples invariant failed" };
   }
 
-  return { ok: true, evidence: evidence as unknown as ValidationEvidenceV4 };
+  return { ok: true, evidence: evidence as unknown as ValidationEvidenceV5 };
 }
 
 export function parseValidationEvidenceJson(text: string): EvidenceParseResult {

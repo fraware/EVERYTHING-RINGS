@@ -3,9 +3,11 @@ import type {
   GateCReview,
   MaterialClass,
   ValidationEvidenceAttempt,
-  ValidationEvidenceV4,
+  ValidationEvidenceV5,
 } from "../src";
 import { deriveEvidenceRecurrence, deriveMedianModalDriftCents } from "../src";
+
+export const SOFTWARE_REVISION = "0123456789abcdef0123456789abcdef01234567";
 
 export function fingerprint(cents = 0) {
   const ratio = 2 ** (cents / 1200);
@@ -60,8 +62,9 @@ export function evidence(
     readonly failureAttemptIds?: readonly number[];
     readonly sessionId?: string;
     readonly specimenId?: string;
+    readonly softwareRevision?: string;
   } = {},
-): ValidationEvidenceV4 {
+): ValidationEvidenceV5 {
   const attemptCount = options.attemptCount ?? 5;
   const comparisonCents = options.comparisonCents ?? [5, 8, 10, 12];
   const failureIds = new Set(options.failureAttemptIds ?? []);
@@ -71,11 +74,12 @@ export function evidence(
     return qualifiedAttempt(id, cents, failureIds.has(id) ? "failure" : "success");
   });
   return {
-    schemaVersion: 4,
-    evidenceContractVersion: "validation-evidence-4",
+    schemaVersion: 5,
+    evidenceContractVersion: "validation-evidence-5",
     gateAContractVersion: "gate-a-2",
     sessionId: options.sessionId ?? `session-${label}`,
     createdAt: "2026-08-15T12:00:00.000Z",
+    softwareRevision: options.softwareRevision ?? SOFTWARE_REVISION,
     object: { specimenId: options.specimenId ?? label, label, material },
     protocol: {
       fixedSetup: true,
@@ -96,7 +100,7 @@ export function evidence(
   };
 }
 
-export function fiveObjects(): ValidationEvidenceV4[] {
+export function fiveObjects(): ValidationEvidenceV5[] {
   return [
     evidence("bell", "metal", { specimenId: "specimen-bell" }),
     evidence("wine glass", "glass", { specimenId: "specimen-wine-glass" }),

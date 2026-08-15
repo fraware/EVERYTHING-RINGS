@@ -9,7 +9,7 @@ import {
   type GateBReview,
   type GateCReview,
   type MaterialClass,
-  type ValidationEvidenceV4,
+  type ValidationEvidenceV5,
   type ValidationObjectMetadata,
 } from "@everything-rings/validation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -36,6 +36,9 @@ const MATERIALS: readonly { readonly value: MaterialClass; readonly label: strin
   { value: "composite", label: "composite" },
   { value: "other", label: "other" },
 ];
+
+const SOFTWARE_REVISION = ((import.meta as ImportMeta & { readonly env?: { readonly VITE_SOFTWARE_REVISION?: string } }).env?.VITE_SOFTWARE_REVISION ?? "").trim();
+const SOFTWARE_REVISION_VALID = /^[0-9a-f]{40}$/.test(SOFTWARE_REVISION);
 
 function createSessionId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -120,7 +123,8 @@ export function LabApp() {
   const [gateCReviews, setGateCReviews] = useState<GateCReview[]>([]);
 
   const anchor = useMemo(() => fingerprint === undefined ? undefined : chooseAnchorMode(fingerprint), [fingerprint]);
-  const protocolReady = specimenId.trim().length > 0
+  const protocolReady = SOFTWARE_REVISION_VALID
+    && specimenId.trim().length > 0
     && objectLabel.trim().length > 0
     && striker.trim().length > 0
     && strikeLocation.trim().length > 0
@@ -134,14 +138,15 @@ export function LabApp() {
   const recurrence = useMemo(() => deriveEvidenceRecurrence(session.attempts), [session.attempts]);
   const drift = useMemo(() => deriveMedianModalDriftCents(session.attempts), [session.attempts]);
 
-  function evidence(createdAt: string): ValidationEvidenceV4 | undefined {
+  function evidence(createdAt: string): ValidationEvidenceV5 | undefined {
     if (activeObject === undefined || activeProtocol === undefined) return undefined;
     return {
-      schemaVersion: 4,
-      evidenceContractVersion: "validation-evidence-4",
+      schemaVersion: 5,
+      evidenceContractVersion: "validation-evidence-5",
       gateAContractVersion: "gate-a-2",
       sessionId,
       createdAt,
+      softwareRevision: SOFTWARE_REVISION,
       object: activeObject,
       protocol: activeProtocol,
       captureSettings: session.settings ?? null,
@@ -158,12 +163,13 @@ export function LabApp() {
 
   const gateAVerdict = useMemo(() => {
     if (activeObject === undefined || activeProtocol === undefined) return undefined;
-    const preview: ValidationEvidenceV4 = {
-      schemaVersion: 4,
-      evidenceContractVersion: "validation-evidence-4",
+    const preview: ValidationEvidenceV5 = {
+      schemaVersion: 5,
+      evidenceContractVersion: "validation-evidence-5",
       gateAContractVersion: "gate-a-2",
       sessionId,
       createdAt: "preview",
+      softwareRevision: SOFTWARE_REVISION,
       object: activeObject,
       protocol: activeProtocol,
       captureSettings: session.settings ?? null,
@@ -288,6 +294,7 @@ export function LabApp() {
           <label><span>strike location</span><input disabled={protocolLocked} value={strikeLocation} onChange={(event) => setStrikeLocation(event.target.value)} /></label>
           <label><span>support condition</span><input disabled={protocolLocked} value={supportCondition} onChange={(event) => setSupportCondition(event.target.value)} /></label>
         </div>
+        <p className="validation-note">{SOFTWARE_REVISION_VALID ? `software revision ${SOFTWARE_REVISION}` : "UNSTAMPED BUILD — release evidence collection disabled."}</p>
       </section>
 
       <section className="control-panel">
