@@ -20,6 +20,12 @@ jobs:
         run: corepack enable
       - name: Install
         run: pnpm install --frozen-lockfile=false
+      - name: Export resolved lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: pnpm-lock
+          path: pnpm-lock.yaml
+          if-no-files-found: error
       - name: Typecheck
         run: pnpm typecheck
       - name: Test
