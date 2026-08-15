@@ -300,7 +300,19 @@ export function useStrikeSession() {
   }
 
   function stop(): void {
+    const alreadyIdle = state === "idle";
     disposeResources();
+    setCapture(undefined);
+    setQuality(undefined);
+    setFingerprint(undefined);
+    setFailureReason(undefined);
+    setInstrumentFailure(undefined);
+    pendingQuality.current = undefined;
+    if (alreadyIdle) {
+      setRecords([]);
+      setSettings(undefined);
+      setAudioTiming(undefined);
+    }
     setState("idle");
   }
 
