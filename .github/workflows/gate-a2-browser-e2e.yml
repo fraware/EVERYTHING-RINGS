@@ -12,16 +12,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      VITE_SOFTWARE_REVISION: 447f98dd511201367d6051704e10607d645735dd
+      TARGET_REVISION: 73c0641af57b0ccaabcfa453c34008b2417e7678
+      VITE_SOFTWARE_REVISION: 73c0641af57b0ccaabcfa453c34008b2417e7678
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 447f98dd511201367d6051704e10607d645735dd
+          ref: 73c0641af57b0ccaabcfa453c34008b2417e7678
       - uses: actions/setup-node@v6
         with:
           node-version: 22
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "${TARGET_REVISION}"
       - name: Generate looping deterministic strike WAV
         run: |
           python - <<'PY'
@@ -56,7 +59,7 @@ jobs:
           cd "${RUNNER_TEMP}/gate-a2-e2e"
           npm init -y >/dev/null
           npm install --no-save --package-lock=false puppeteer-core@24
-      - name: Collect five qualified attempts, export, and import evidence
+      - name: Collect five qualified attempts and verify release provenance
         run: |
           set -euo pipefail
           CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
@@ -73,7 +76,13 @@ jobs:
           import fs from 'node:fs';
           import path from 'node:path';
 
-          const revision = '447f98dd511201367d6051704e10607d645735dd';
+          const revision = process.env.TARGET_REVISION;
+          if (!/^[0-9a-f]{40}$/.test(revision ?? '')) throw new Error('target revision is invalid');
+          const expectedModes = [
+            { frequencyHz: 440, decaySeconds: 1.20 },
+            { frequencyHz: 997, decaySeconds: 0.70 },
+            { frequencyHz: 2413, decaySeconds: 0.38 },
+          ];
           const downloadDir = path.join(process.env.RUNNER_TEMP, 'gate-a2-downloads');
           fs.mkdirSync(downloadDir, { recursive: true });
           const browser = await puppeteer.launch({
@@ -104,6 +113,36 @@ jobs:
             await page.waitForFunction(state => document.querySelector('.status')?.textContent?.trim() === state, { timeout, polling: 100 }, expected);
           }
 
+          async function waitForJsonDownload() {
+            for (let i = 0; i < 50; i += 1) {
+              const files = fs.readdirSync(downloadDir).filter(name => name.endsWith('.json'));
+              if (files.length > 0) return path.join(downloadDir, files[0]);
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            throw new Error('evidence download did not appear');
+          }
+
+          function assertFingerprint(fingerprint, attemptId) {
+            if (fingerprint?.algorithmVersion !== 'er-dsp-2') throw new Error(`attempt ${attemptId} has wrong algorithm provenance`);
+            if (!Number.isFinite(fingerprint?.sampleRate) || fingerprint.sampleRate <= 0) throw new Error(`attempt ${attemptId} has invalid sample rate`);
+            if (!Array.isArray(fingerprint?.modes) || fingerprint.modes.length !== 3) {
+              throw new Error(`attempt ${attemptId} expected exactly 3 supported modes, got ${fingerprint?.modes?.length}`);
+            }
+            const actual = [...fingerprint.modes].sort((a, b) => a.frequencyHz - b.frequencyHz);
+            for (let index = 0; index < expectedModes.length; index += 1) {
+              const expected = expectedModes[index];
+              const mode = actual[index];
+              const frequencyTolerance = Math.max(3, expected.frequencyHz * 0.005);
+              if (Math.abs(mode.frequencyHz - expected.frequencyHz) > frequencyTolerance) {
+                throw new Error(`attempt ${attemptId} frequency ${mode.frequencyHz} outside tolerance for ${expected.frequencyHz}`);
+              }
+              const relativeDecayError = Math.abs(mode.decaySeconds - expected.decaySeconds) / expected.decaySeconds;
+              if (relativeDecayError > 0.15) {
+                throw new Error(`attempt ${attemptId} decay ${mode.decaySeconds} outside 15% tolerance for ${expected.decaySeconds}`);
+              }
+            }
+          }
+
           try {
             await page.goto('http://127.0.0.1:4173/?lab=1', { waitUntil: 'networkidle0', timeout: 30_000 });
             if (!(await page.content()).includes(`software revision ${revision}`)) throw new Error('wrong or missing software revision');
@@ -121,7 +160,7 @@ jobs:
                 modeCount: document.querySelectorAll('.mode-row:not(.mode-head)').length,
               }));
               if (!snapshot.text.includes(`${attempt} / 5`)) throw new Error(`attempt ${attempt} was not retained`);
-              if (snapshot.modeCount < 3) throw new Error(`attempt ${attempt} has fewer than three modes`);
+              if (snapshot.modeCount !== 3) throw new Error(`attempt ${attempt} expected exactly three visible modes, got ${snapshot.modeCount}`);
               if (attempt < 5) {
                 await clickButton('NEW QUALIFIED ATTEMPT');
                 await page.waitForFunction(() => document.querySelector('.status')?.textContent?.trim() !== 'success', { timeout: 3_000, polling: 50 });
@@ -129,30 +168,31 @@ jobs:
             }
 
             const finalText = await page.evaluate(() => document.body.innerText);
-            if (!finalText.includes('Five qualified attempts complete. Gate A2 passes')) throw new Error('Gate A2 did not pass after five repeated strikes');
+            if (!finalText.includes('Five qualified attempts complete. Gate A2 passes')) throw new Error('Gate A2 session did not pass after five repeated strikes');
             if (!finalText.includes('Gate A2\nPASS')) throw new Error('Gate A2 metric did not report PASS');
 
             await clickButton('EXPORT EVIDENCE');
-            let evidencePath;
-            for (let i = 0; i < 50; i += 1) {
-              const files = fs.readdirSync(downloadDir).filter(name => name.endsWith('.json'));
-              if (files.length > 0) {
-                evidencePath = path.join(downloadDir, files[0]);
-                break;
-              }
-              await new Promise(resolve => setTimeout(resolve, 100));
-            }
-            if (evidencePath === undefined) throw new Error('evidence download did not appear');
+            const evidencePath = await waitForJsonDownload();
             const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
             if (evidence.schemaVersion !== 5 || evidence.evidenceContractVersion !== 'validation-evidence-5') throw new Error('wrong evidence schema');
+            if (evidence.gateAContractVersion !== 'gate-a-2') throw new Error('wrong Gate A contract');
             if (evidence.softwareRevision !== revision) throw new Error('evidence software revision mismatch');
             if (evidence.attemptCount !== 5 || evidence.attempts?.length !== 5) throw new Error('evidence does not contain exactly five attempts');
             if (evidence.attempts.some(attempt => attempt.analysis?.status !== 'success')) throw new Error('export contains a failed analysis');
+            for (const attempt of evidence.attempts) {
+              const quality = attempt.quality;
+              if (!(quality.peakAmplitude >= 0.02 && quality.snrDb >= 12 && quality.clippedFraction <= 0.001 && quality.secondaryTransientRatio <= 0.65)) {
+                throw new Error(`attempt ${attempt.id} violates frozen capture-quality bounds`);
+              }
+              assertFingerprint(attempt.analysis.fingerprint, attempt.id);
+            }
             if (evidence.recurrence?.length !== 4) throw new Error('evidence does not contain four recurrence comparisons');
+            if (evidence.recurrence.some(comparison => comparison.matchedCount < 3 || comparison.medianCents > 50)) throw new Error('recurrence comparison violates Gate A2 bounds');
+            if (!(evidence.medianModalDriftCents <= 25)) throw new Error('session median drift violates Gate A2 bound');
             if (evidence.rawMicrophoneSamplesIncluded !== false) throw new Error('raw microphone sample invariant failed');
 
             await page.goto('http://127.0.0.1:4173/?release=1', { waitUntil: 'networkidle0', timeout: 30_000 });
-            const input = await page.$('input[type="file"]');
+            let input = await page.$('input[type="file"]');
             if (input === null) throw new Error('Release Console file input missing');
             await input.uploadFile(evidencePath);
             await page.waitForFunction(() => document.body.innerText.includes('1 sessions'), { timeout: 5_000, polling: 100 });
@@ -160,20 +200,38 @@ jobs:
             if (releaseText.includes('Rejected files')) throw new Error('Release Console rejected valid exported evidence');
             if (!releaseText.includes(`Software revision: ${revision}`)) throw new Error('Release Console lost software provenance');
             if (!releaseText.includes('gate a2 synthetic ceramic mug')) throw new Error('imported session missing from Release Console');
+            if (!releaseText.includes('A2\nPASS')) throw new Error('valid current-revision session is not Gate A2 eligible');
 
-            await input.uploadFile(evidencePath);
-            await new Promise(resolve => setTimeout(resolve, 300));
+            const wrongRevision = '0000000000000000000000000000000000000001';
+            const wrongRevisionPath = path.join(downloadDir, 'wrong-revision.json');
+            fs.writeFileSync(wrongRevisionPath, JSON.stringify({ ...evidence, softwareRevision: wrongRevision }, null, 2));
+            await clickButton('CLEAR');
+            input = await page.$('input[type="file"]');
+            if (input === null) throw new Error('Release Console file input missing after clear');
+            await input.uploadFile(wrongRevisionPath);
+            await page.waitForFunction(() => document.body.innerText.includes('1 sessions'), { timeout: 5_000, polling: 100 });
             releaseText = await page.evaluate(() => document.body.innerText);
-            if (!releaseText.includes('1 sessions')) throw new Error('idempotent repeated import duplicated the session');
+            if (releaseText.includes('Rejected files')) throw new Error('historical-revision control should remain parseable');
+            if (!releaseText.includes(`current release requires software revision ${revision}`)) {
+              throw new Error('Release Console did not enforce authorized collection revision');
+            }
+            if (releaseText.includes('A2\nPASS')) throw new Error('wrong-revision evidence remained Gate A2 eligible');
             if (pageErrors.length > 0) throw new Error(pageErrors.join('\n'));
 
+            const fingerprints = evidence.attempts.map(attempt => attempt.analysis.fingerprint);
             const report = {
-              softwareRevision: evidence.softwareRevision,
+              targetRevision: revision,
+              algorithmVersions: [...new Set(fingerprints.map(fingerprint => fingerprint.algorithmVersion))],
               attemptCount: evidence.attemptCount,
+              modeCounts: fingerprints.map(fingerprint => fingerprint.modes.length),
+              sampleRates: [...new Set(fingerprints.map(fingerprint => fingerprint.sampleRate))],
+              frequenciesHz: fingerprints[0].modes.map(mode => mode.frequencyHz),
+              decaySeconds: fingerprints[0].modes.map(mode => mode.decaySeconds),
               recurrenceComparisons: evidence.recurrence.length,
               medianModalDriftCents: evidence.medianModalDriftCents,
-              importedSessionCount: 1,
-              gateA2SessionPassed: true,
+              currentRevisionSessionEligible: true,
+              wrongRevisionSessionEligible: false,
+              rawMicrophoneSamplesIncluded: evidence.rawMicrophoneSamplesIncluded,
             };
             console.log(JSON.stringify(report, null, 2));
             fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'gate-a2-browser-report.json'), JSON.stringify(report, null, 2));
@@ -181,7 +239,7 @@ jobs:
             await browser.close();
           }
           JS
-          CHROME="${CHROME}" RUNNER_TEMP="${RUNNER_TEMP}" node "${RUNNER_TEMP}/gate-a2-e2e/test.mjs"
+          CHROME="${CHROME}" RUNNER_TEMP="${RUNNER_TEMP}" TARGET_REVISION="${TARGET_REVISION}" node "${RUNNER_TEMP}/gate-a2-e2e/test.mjs"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
