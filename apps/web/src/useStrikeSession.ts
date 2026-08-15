@@ -1,3 +1,9 @@
+import type { AnalysisFailureReasonEvidence, ValidationAttemptAnalysis } from "@everything-rings/validation";
+import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
+import type {
+  ModalInstrumentWorkletEvent,
+  ModalInstrumentWorkletMessage,
+} from "@everything-rings/instrument";
 import {
   assessCaptureQuality,
   createCaptureGraph,
@@ -9,11 +15,6 @@ import {
   type CaptureWorkletEvent,
   type OpenedMicrophone,
 } from "@everything-rings/acquisition";
-import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
-import type {
-  ModalInstrumentWorkletEvent,
-  ModalInstrumentWorkletMessage,
-} from "@everything-rings/instrument";
 import { useEffect, useRef, useState } from "react";
 import captureWorkletUrl from "../../../packages/acquisition/src/worklet/capture-processor.ts?worker&url";
 import instrumentWorkletUrl from "./instrument-processor.ts?worker&url";
@@ -28,10 +29,10 @@ export type StrikeSessionState =
   | "failure"
   | "error";
 
-export interface StrikeRecord {
+export interface StrikeAttempt {
   readonly id: number;
-  readonly fingerprint: AcousticFingerprintV1;
   readonly quality: CaptureQuality;
+  readonly analysis: ValidationAttemptAnalysis;
 }
 
 export interface RealtimeAudioTiming {
@@ -51,15 +52,7 @@ interface SessionResources {
 
 type AnalysisResponse =
   | { readonly type: "SUCCESS"; readonly requestId: string; readonly fingerprint: AcousticFingerprintV1 }
-  | { readonly type: "FAILURE"; readonly requestId: string; readonly reason: string };
-
-const EMPTY_QUALITY: CaptureQuality = {
-  score: 0,
-  snrDb: 0,
-  clippedFraction: 0,
-  peakAmplitude: 0,
-  secondaryTransientRatio: 0,
-};
+  | { readonly type: "FAILURE"; readonly requestId: string; readonly reason: AnalysisFailureReasonEvidence };
 
 function playSamples(context: AudioContext, samples: Float32Array, sampleRate: number): void {
   const buffer = context.createBuffer(1, samples.length, sampleRate);
@@ -91,13 +84,14 @@ export function useStrikeSession() {
   const [quality, setQuality] = useState<CaptureQuality>();
   const [fingerprint, setFingerprint] = useState<AcousticFingerprintV1>();
   const [failureReason, setFailureReason] = useState<string>();
-  const [records, setRecords] = useState<StrikeRecord[]>([]);
+  const [attempts, setAttempts] = useState<StrikeAttempt[]>([]);
   const [instrumentReady, setInstrumentReady] = useState(false);
   const [instrumentFailure, setInstrumentFailure] = useState<string>();
   const [audioTiming, setAudioTiming] = useState<RealtimeAudioTiming>();
   const resources = useRef<SessionResources | undefined>(undefined);
   const requestId = useRef(0);
   const pendingQuality = useRef<CaptureQuality | undefined>(undefined);
+  const pendingAnalysisRequest = useRef<string | undefined>(undefined);
   const instrumentPreparation = useRef<Promise<void> | undefined>(undefined);
   const nextInstrumentEventId = useRef(1);
   const pendingInstrumentEvents = useRef(new Map<number, number>());
@@ -107,6 +101,25 @@ export function useStrikeSession() {
     if (node === undefined) return false;
     node.port.postMessage(message);
     return true;
+  }
+
+  function appendQualifiedAttempt(analysis: ValidationAttemptAnalysis): boolean {
+    const nextQuality = pendingQuality.current;
+    if (nextQuality === undefined || pendingAnalysisRequest.current === undefined) return false;
+    setAttempts((current) => [...current, {
+      id: current.length + 1,
+      quality: nextQuality,
+      analysis,
+    }]);
+    pendingQuality.current = undefined;
+    pendingAnalysisRequest.current = undefined;
+    return true;
+  }
+
+  function retainInterruptedQualifiedAttempt(): void {
+    if (pendingQuality.current === undefined || pendingAnalysisRequest.current === undefined) return;
+    appendQualifiedAttempt({ status: "failure", reason: "ANALYSIS_INTERNAL_ERROR" });
+    requestId.current += 1;
   }
 
   async function ensureInstrument(): Promise<AudioWorkletNode | undefined> {
@@ -188,15 +201,18 @@ export function useStrikeSession() {
     let openingWorker: Worker | undefined;
 
     try {
+      retainInterruptedQualifiedAttempt();
       disposeResources();
+      requestId.current += 1;
       setFailureReason(undefined);
       setFingerprint(undefined);
       setCapture(undefined);
       setQuality(undefined);
-      setRecords([]);
+      setAttempts([]);
       setInstrumentFailure(undefined);
       setAudioTiming(undefined);
       pendingQuality.current = undefined;
+      pendingAnalysisRequest.current = undefined;
       setState("warming");
 
       openingMicrophone = await openMicrophone();
@@ -225,8 +241,9 @@ export function useStrikeSession() {
         setCapture(nextCapture);
         const assessment = assessCaptureQuality(nextCapture);
         setQuality(assessment.quality);
-        pendingQuality.current = assessment.quality;
         if (!assessment.ok) {
+          pendingQuality.current = undefined;
+          pendingAnalysisRequest.current = undefined;
           setFailureReason(assessment.reason);
           setState("failure");
           return;
@@ -235,6 +252,8 @@ export function useStrikeSession() {
         setState("analyzing");
         requestId.current += 1;
         const id = String(requestId.current);
+        pendingQuality.current = assessment.quality;
+        pendingAnalysisRequest.current = id;
         const samples = nextCapture.samples.slice();
         worker.postMessage(
           { type: "ANALYZE", requestId: id, samples, sampleRate: nextCapture.sampleRate },
@@ -243,32 +262,40 @@ export function useStrikeSession() {
       };
 
       worker.onmessage = (event: MessageEvent<AnalysisResponse>) => {
-        if (event.data.requestId !== String(requestId.current)) return;
+        if (event.data.requestId !== pendingAnalysisRequest.current) return;
         if (event.data.type === "FAILURE") {
+          appendQualifiedAttempt({ status: "failure", reason: event.data.reason });
+          setFingerprint(undefined);
           setFailureReason(event.data.reason);
           setState("failure");
           return;
         }
 
         const nextFingerprint = event.data.fingerprint;
+        if (!appendQualifiedAttempt({ status: "success", fingerprint: nextFingerprint })) {
+          setFailureReason("Qualified attempt state was lost during analysis");
+          setState("error");
+          return;
+        }
         setFingerprint(nextFingerprint);
-        setRecords((current) => [
-          ...current,
-          {
-            id: current.length + 1,
-            fingerprint: nextFingerprint,
-            quality: pendingQuality.current ?? EMPTY_QUALITY,
-          },
-        ]);
         setState("success");
         void prepareInstrument(nextFingerprint);
       };
 
       worker.onerror = (event) => {
+        const retained = appendQualifiedAttempt({ status: "failure", reason: "ANALYSIS_INTERNAL_ERROR" });
+        requestId.current += 1;
+        setFingerprint(undefined);
         setFailureReason(event.message || "Analysis worker failed");
-        setState("error");
+        setState(retained ? "failure" : "error");
       };
     } catch (error) {
+      if (pendingQuality.current !== undefined && pendingAnalysisRequest.current !== undefined) {
+        appendQualifiedAttempt({ status: "failure", reason: "ANALYSIS_INTERNAL_ERROR" });
+      }
+      requestId.current += 1;
+      pendingQuality.current = undefined;
+      pendingAnalysisRequest.current = undefined;
       if (resources.current === undefined) {
         openingGraph?.disconnect();
         openingWorker?.terminate();
@@ -281,13 +308,16 @@ export function useStrikeSession() {
   }
 
   function reset(): void {
+    retainInterruptedQualifiedAttempt();
+    requestId.current += 1;
+    pendingAnalysisRequest.current = undefined;
+    pendingQuality.current = undefined;
     setFailureReason(undefined);
     setFingerprint(undefined);
     setCapture(undefined);
     setQuality(undefined);
     setInstrumentReady(false);
     setInstrumentFailure(undefined);
-    pendingQuality.current = undefined;
     pendingInstrumentEvents.current.clear();
     postInstrument({ type: "ALL_NOTES_OFF" });
     const node = resources.current?.graph.node;
@@ -301,15 +331,18 @@ export function useStrikeSession() {
 
   function stop(): void {
     const alreadyIdle = state === "idle";
+    retainInterruptedQualifiedAttempt();
+    requestId.current += 1;
+    pendingAnalysisRequest.current = undefined;
+    pendingQuality.current = undefined;
     disposeResources();
     setCapture(undefined);
     setQuality(undefined);
     setFingerprint(undefined);
     setFailureReason(undefined);
     setInstrumentFailure(undefined);
-    pendingQuality.current = undefined;
     if (alreadyIdle) {
-      setRecords([]);
+      setAttempts([]);
       setSettings(undefined);
       setAudioTiming(undefined);
     }
@@ -351,7 +384,7 @@ export function useStrikeSession() {
     quality,
     fingerprint,
     failureReason,
-    records,
+    attempts,
     instrumentReady,
     instrumentFailure,
     audioTiming,
