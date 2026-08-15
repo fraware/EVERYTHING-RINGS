@@ -1,0 +1,42 @@
+name: validation-cap-edit
+
+on:
+  push:
+    branches: [release-validation]
+
+permissions:
+  contents: write
+
+jobs:
+  edit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: release-validation
+      - name: Apply exact validation cap edit
+        run: |
+          set -euo pipefail
+          file='apps/web/src/LabApp.tsx'
+          test "$(grep -Fxc '  const session = useStrikeSession();' "$file")" -eq 1
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('apps/web/src/LabApp.tsx')
+          text = path.read_text()
+          old = '  const session = useStrikeSession();'
+          new = '  const session = useStrikeSession({ maximumQualifiedAttempts: 5 });'
+          assert text.count(old) == 1
+          path.write_text(text.replace(old, new))
+          PY
+          grep -Fq 'useStrikeSession({ maximumQualifiedAttempts: 5 })' "$file"
+          git rm .github/workflows/validation-cap-edit.yml
+      - name: Commit exact edit
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/web/src/LabApp.tsx .github/workflows/validation-cap-edit.yml
+          git diff --cached --check
+          git commit -m 'Enforce validation attempt cap'
+          git push origin HEAD:release-validation
