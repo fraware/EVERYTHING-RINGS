@@ -98,7 +98,7 @@ jobs:
             }, { timeout: 5_000 });
             await page.evaluate(() => [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'ARM MICROPHONE')?.click());
             try {
-              await page.waitForFunction(() => document.body.innerText.includes('er-dsp-2') && document.body.innerText.includes('This attempt is retained.'), { timeout: 25_000, polling: 100 });
+              await page.waitForFunction(() => document.body.innerText.toLowerCase().includes('er-dsp-2') && document.body.innerText.includes('This attempt is retained.'), { timeout: 25_000, polling: 100 });
             } catch (error) {
               fs.writeFileSync(`${process.env.RUNNER_TEMP}/hosted-pages-body.txt`, await page.evaluate(() => document.body.innerText));
               throw error;
