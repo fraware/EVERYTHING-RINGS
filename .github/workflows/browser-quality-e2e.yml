@@ -1,0 +1,175 @@
+name: browser-quality-e2e
+
+on:
+  push:
+    branches: [validation/browser-quality-e2e]
+
+permissions:
+  contents: read
+
+jobs:
+  quality-case:
+    name: ${{ matrix.scenario }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [quiet, clipped, low-snr, multiple-impacts]
+    env:
+      VITE_SOFTWARE_REVISION: 447f98dd511201367d6051704e10607d645735dd
+      SCENARIO: ${{ matrix.scenario }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 447f98dd511201367d6051704e10607d645735dd
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Generate fake microphone quality case
+        run: |
+          python - <<'PY'
+          import math, os, random, wave
+          scenario = os.environ['SCENARIO']
+          sr = 48_000
+          duration = 6.0
+          onset = 1.0
+          random.seed(0x51554c + sum(map(ord, scenario)))
+          path = os.path.join(os.environ['RUNNER_TEMP'], f'{scenario}.wav')
+          with wave.open(path, 'wb') as wav:
+              wav.setnchannels(1)
+              wav.setsampwidth(2)
+              wav.setframerate(sr)
+              frames = bytearray()
+              for i in range(round(sr * duration)):
+                  t = i / sr
+                  if scenario == 'quiet':
+                      value = random.uniform(-0.002, 0.002)
+                  elif scenario == 'low-snr':
+                      value = random.uniform(-0.02, 0.02)
+                      dt = t - onset
+                      if 0 <= dt < 0.006:
+                          value += 0.75 * math.cos(2 * math.pi * 440 * dt) * (1 - dt / 0.006)
+                  elif scenario == 'clipped':
+                      value = random.uniform(-0.00015, 0.00015)
+                      dt = t - onset
+                      if 0 <= dt < 0.10:
+                          value = 0.999 if int(dt * sr) % 2 == 0 else -0.999
+                      elif dt >= 0:
+                          value += 0.35 * math.exp(-dt / 0.8) * math.cos(2 * math.pi * 440 * dt)
+                  elif scenario == 'multiple-impacts':
+                      value = random.uniform(-0.00015, 0.00015)
+                      dt = t - onset
+                      if dt >= 0:
+                          value += 0.38 * math.exp(-dt / 1.0) * math.cos(2 * math.pi * 440 * dt)
+                          value += 0.20 * math.exp(-dt / 0.6) * math.cos(2 * math.pi * 997 * dt)
+                      dt2 = t - (onset + 0.35)
+                      if dt2 >= 0:
+                          value += 0.58 * math.exp(-dt2 / 0.45) * math.cos(2 * math.pi * 660 * dt2)
+                      value = max(-0.95, min(0.95, value))
+                  else:
+                      raise RuntimeError(scenario)
+                  value = max(-0.999, min(0.999, value))
+                  sample = int(round(value * 32767))
+                  frames += sample.to_bytes(2, 'little', signed=True)
+              wav.writeframes(frames)
+          print(path)
+          PY
+      - run: pnpm build
+      - name: Install browser driver in temporary directory
+        run: |
+          mkdir -p "${RUNNER_TEMP}/browser-quality"
+          cd "${RUNNER_TEMP}/browser-quality"
+          npm init -y >/dev/null
+          npm install --no-save --package-lock=false puppeteer-core@24
+      - name: Verify browser quality decision
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "${CHROME}"
+          pnpm --filter @everything-rings/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort >"${RUNNER_TEMP}/vite-quality.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "${SERVER_PID}" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do
+            curl --fail --silent http://127.0.0.1:4173/ >/dev/null && break
+            sleep 0.25
+          done
+          cat >"${RUNNER_TEMP}/browser-quality/test.mjs" <<'JS'
+          import puppeteer from 'puppeteer-core';
+          import fs from 'node:fs';
+
+          const scenario = process.env.SCENARIO;
+          const audio = `${process.env.RUNNER_TEMP}/${scenario}.wav%noloop`;
+          const expectedCopy = {
+            'clipped': 'The strike overloaded the microphone.',
+            'low-snr': 'Background sound masked the ring.',
+            'multiple-impacts': 'More than one strong impact was detected.',
+          };
+          const browser = await puppeteer.launch({
+            executablePath: process.env.CHROME,
+            headless: true,
+            args: [
+              '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+              '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
+              `--use-file-for-fake-audio-capture=${audio}`,
+              '--autoplay-policy=no-user-gesture-required',
+            ],
+          });
+          const page = await browser.newPage();
+          const pageErrors = [];
+          page.on('pageerror', error => pageErrors.push(error.message));
+          try {
+            await page.goto('http://127.0.0.1:4173/?lab=1', { waitUntil: 'networkidle0', timeout: 30_000 });
+            await page.click('input[placeholder="lab-mug-01"]');
+            await page.type('input[placeholder="lab-mug-01"]', `e2e-${scenario}`);
+            await page.click('input[placeholder="ceramic mug"]');
+            await page.type('input[placeholder="ceramic mug"]', scenario);
+            await page.evaluate(() => {
+              const button = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'ARM MICROPHONE');
+              if (!(button instanceof HTMLButtonElement) || button.disabled) throw new Error('ARM MICROPHONE unavailable');
+              button.click();
+            });
+
+            if (scenario === 'quiet') {
+              await new Promise(resolve => setTimeout(resolve, 4_000));
+              const result = await page.evaluate(() => ({
+                state: document.querySelector('.status')?.textContent?.trim() ?? '',
+                waveform: document.querySelector('canvas.waveform') !== null,
+                text: document.body.innerText,
+              }));
+              console.log(JSON.stringify({ scenario, ...result, pageErrors }, null, 2));
+              if (result.state !== 'armed') throw new Error(`quiet input should remain armed, got ${result.state}`);
+              if (result.waveform) throw new Error('quiet input unexpectedly produced a capture');
+              if (result.text.includes('1 / 5')) throw new Error('quiet input unexpectedly retained an attempt');
+            } else {
+              await page.waitForFunction(() => {
+                const state = document.querySelector('.status')?.textContent?.trim();
+                return state === 'failure' || state === 'success' || state === 'error';
+              }, { timeout: 20_000, polling: 100 });
+              const result = await page.evaluate(() => ({
+                state: document.querySelector('.status')?.textContent?.trim() ?? '',
+                text: document.body.innerText,
+              }));
+              console.log(JSON.stringify({ scenario, ...result, pageErrors }, null, 2));
+              if (result.state !== 'failure') throw new Error(`${scenario} should fail quality, got ${result.state}`);
+              const expected = expectedCopy[scenario];
+              if (!result.text.includes(expected)) throw new Error(`${scenario} did not report expected quality reason`);
+              if (result.text.includes('1 / 5')) throw new Error(`${scenario} quality failure unexpectedly retained an attempt`);
+            }
+            if (pageErrors.length > 0) throw new Error(pageErrors.join('\n'));
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/${scenario}-result.json`, JSON.stringify({ scenario, ok: true }, null, 2));
+          } finally {
+            await browser.close();
+          }
+          JS
+          CHROME="${CHROME}" RUNNER_TEMP="${RUNNER_TEMP}" SCENARIO="${SCENARIO}" node "${RUNNER_TEMP}/browser-quality/test.mjs"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-quality-${{ matrix.scenario }}
+          path: |
+            ${{ runner.temp }}/${{ matrix.scenario }}-result.json
+            ${{ runner.temp }}/vite-quality.log
+          if-no-files-found: ignore
