@@ -1,4 +1,4 @@
-import type { AnalysisFailureReasonEvidence, ValidationAttemptAnalysis } from "@everything-rings/validation";
+import type { AnalysisFailureReasonEvidence } from "@everything-rings/validation";
 import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
 import type {
   ModalInstrumentWorkletEvent,
@@ -18,6 +18,15 @@ import {
 import { useEffect, useRef, useState } from "react";
 import captureWorkletUrl from "../../../packages/acquisition/src/worklet/capture-processor.ts?worker&url";
 import instrumentWorkletUrl from "./instrument-processor.ts?worker&url";
+import {
+  beginQualifiedAttempt,
+  clearQualifiedAttemptLedger,
+  createQualifiedAttemptLedger,
+  interruptQualifiedAttempt,
+  settleQualifiedAttempt,
+  type QualifiedAttempt,
+  type QualifiedAttemptLedger,
+} from "./qualifiedAttemptLedger";
 
 export type StrikeSessionState =
   | "idle"
@@ -29,17 +38,17 @@ export type StrikeSessionState =
   | "failure"
   | "error";
 
-export interface StrikeAttempt {
-  readonly id: number;
-  readonly quality: CaptureQuality;
-  readonly analysis: ValidationAttemptAnalysis;
-}
+export type StrikeAttempt = QualifiedAttempt;
 
 export interface RealtimeAudioTiming {
   readonly baseLatencyMs: number;
   readonly outputLatencyMs?: number;
   readonly renderQuantumMs: number;
   readonly lastSchedulingMs?: number;
+}
+
+export interface StrikeSessionOptions {
+  readonly maximumQualifiedAttempts?: number;
 }
 
 interface SessionResources {
@@ -77,49 +86,53 @@ function initialAudioTiming(context: AudioContext): RealtimeAudioTiming {
   return timing;
 }
 
-export function useStrikeSession() {
+export function useStrikeSession(options: StrikeSessionOptions = {}) {
   const [state, setState] = useState<StrikeSessionState>("idle");
   const [settings, setSettings] = useState<CaptureSettingsSnapshot>();
   const [capture, setCapture] = useState<AudioCapture>();
   const [quality, setQuality] = useState<CaptureQuality>();
   const [fingerprint, setFingerprint] = useState<AcousticFingerprintV1>();
   const [failureReason, setFailureReason] = useState<string>();
-  const [attempts, setAttempts] = useState<StrikeAttempt[]>([]);
+  const [attempts, setAttempts] = useState<QualifiedAttempt[]>([]);
   const [instrumentReady, setInstrumentReady] = useState(false);
   const [instrumentFailure, setInstrumentFailure] = useState<string>();
   const [audioTiming, setAudioTiming] = useState<RealtimeAudioTiming>();
   const resources = useRef<SessionResources | undefined>(undefined);
   const requestId = useRef(0);
-  const pendingQuality = useRef<CaptureQuality | undefined>(undefined);
-  const pendingAnalysisRequest = useRef<string | undefined>(undefined);
+  const attemptLedger = useRef<QualifiedAttemptLedger>(createQualifiedAttemptLedger());
   const instrumentPreparation = useRef<Promise<void> | undefined>(undefined);
   const nextInstrumentEventId = useRef(1);
   const pendingInstrumentEvents = useRef(new Map<number, number>());
+  const maximumQualifiedAttempts = options.maximumQualifiedAttempts;
+
+  function syncLedger(next: QualifiedAttemptLedger): void {
+    attemptLedger.current = next;
+    setAttempts([...next.attempts]);
+  }
+
+  function settleCurrentAttempt(
+    request: string,
+    analysis: QualifiedAttempt["analysis"],
+  ): boolean {
+    const settlement = settleQualifiedAttempt(attemptLedger.current, request, analysis);
+    if (!settlement.settled) return false;
+    syncLedger(settlement.ledger);
+    return true;
+  }
+
+  function retainInterruptedQualifiedAttempt(): boolean {
+    const settlement = interruptQualifiedAttempt(attemptLedger.current);
+    if (!settlement.settled) return false;
+    syncLedger(settlement.ledger);
+    requestId.current += 1;
+    return true;
+  }
 
   function postInstrument(message: ModalInstrumentWorkletMessage): boolean {
     const node = resources.current?.instrument;
     if (node === undefined) return false;
     node.port.postMessage(message);
     return true;
-  }
-
-  function appendQualifiedAttempt(analysis: ValidationAttemptAnalysis): boolean {
-    const nextQuality = pendingQuality.current;
-    if (nextQuality === undefined || pendingAnalysisRequest.current === undefined) return false;
-    setAttempts((current) => [...current, {
-      id: current.length + 1,
-      quality: nextQuality,
-      analysis,
-    }]);
-    pendingQuality.current = undefined;
-    pendingAnalysisRequest.current = undefined;
-    return true;
-  }
-
-  function retainInterruptedQualifiedAttempt(): void {
-    if (pendingQuality.current === undefined || pendingAnalysisRequest.current === undefined) return;
-    appendQualifiedAttempt({ status: "failure", reason: "ANALYSIS_INTERNAL_ERROR" });
-    requestId.current += 1;
   }
 
   async function ensureInstrument(): Promise<AudioWorkletNode | undefined> {
@@ -201,18 +214,17 @@ export function useStrikeSession() {
     let openingWorker: Worker | undefined;
 
     try {
-      retainInterruptedQualifiedAttempt();
       disposeResources();
       requestId.current += 1;
+      const clearedLedger = clearQualifiedAttemptLedger();
+      attemptLedger.current = clearedLedger;
+      setAttempts([]);
       setFailureReason(undefined);
       setFingerprint(undefined);
       setCapture(undefined);
       setQuality(undefined);
-      setAttempts([]);
       setInstrumentFailure(undefined);
       setAudioTiming(undefined);
-      pendingQuality.current = undefined;
-      pendingAnalysisRequest.current = undefined;
       setState("warming");
 
       openingMicrophone = await openMicrophone();
@@ -242,18 +254,27 @@ export function useStrikeSession() {
         const assessment = assessCaptureQuality(nextCapture);
         setQuality(assessment.quality);
         if (!assessment.ok) {
-          pendingQuality.current = undefined;
-          pendingAnalysisRequest.current = undefined;
           setFailureReason(assessment.reason);
           setState("failure");
           return;
         }
 
-        setState("analyzing");
         requestId.current += 1;
         const id = String(requestId.current);
-        pendingQuality.current = assessment.quality;
-        pendingAnalysisRequest.current = id;
+        try {
+          attemptLedger.current = beginQualifiedAttempt(
+            attemptLedger.current,
+            id,
+            assessment.quality,
+            maximumQualifiedAttempts,
+          );
+        } catch (error) {
+          setFailureReason(error instanceof Error ? error.message : String(error));
+          setState("error");
+          return;
+        }
+
+        setState("analyzing");
         const samples = nextCapture.samples.slice();
         worker.postMessage(
           { type: "ANALYZE", requestId: id, samples, sampleRate: nextCapture.sampleRate },
@@ -262,9 +283,8 @@ export function useStrikeSession() {
       };
 
       worker.onmessage = (event: MessageEvent<AnalysisResponse>) => {
-        if (event.data.requestId !== pendingAnalysisRequest.current) return;
         if (event.data.type === "FAILURE") {
-          appendQualifiedAttempt({ status: "failure", reason: event.data.reason });
+          if (!settleCurrentAttempt(event.data.requestId, { status: "failure", reason: event.data.reason })) return;
           setFingerprint(undefined);
           setFailureReason(event.data.reason);
           setState("failure");
@@ -272,30 +292,31 @@ export function useStrikeSession() {
         }
 
         const nextFingerprint = event.data.fingerprint;
-        if (!appendQualifiedAttempt({ status: "success", fingerprint: nextFingerprint })) {
-          setFailureReason("Qualified attempt state was lost during analysis");
-          setState("error");
-          return;
-        }
+        if (!settleCurrentAttempt(event.data.requestId, { status: "success", fingerprint: nextFingerprint })) return;
         setFingerprint(nextFingerprint);
         setState("success");
         void prepareInstrument(nextFingerprint);
       };
 
       worker.onerror = (event) => {
-        const retained = appendQualifiedAttempt({ status: "failure", reason: "ANALYSIS_INTERNAL_ERROR" });
+        const pendingRequest = attemptLedger.current.pending?.requestId;
+        if (pendingRequest === undefined) {
+          setFailureReason(event.message || "Analysis worker failed");
+          setState("error");
+          return;
+        }
+        const retained = settleCurrentAttempt(
+          pendingRequest,
+          { status: "failure", reason: "ANALYSIS_INTERNAL_ERROR" },
+        );
         requestId.current += 1;
         setFingerprint(undefined);
         setFailureReason(event.message || "Analysis worker failed");
         setState(retained ? "failure" : "error");
       };
     } catch (error) {
-      if (pendingQuality.current !== undefined && pendingAnalysisRequest.current !== undefined) {
-        appendQualifiedAttempt({ status: "failure", reason: "ANALYSIS_INTERNAL_ERROR" });
-      }
+      retainInterruptedQualifiedAttempt();
       requestId.current += 1;
-      pendingQuality.current = undefined;
-      pendingAnalysisRequest.current = undefined;
       if (resources.current === undefined) {
         openingGraph?.disconnect();
         openingWorker?.terminate();
@@ -310,8 +331,6 @@ export function useStrikeSession() {
   function reset(): void {
     retainInterruptedQualifiedAttempt();
     requestId.current += 1;
-    pendingAnalysisRequest.current = undefined;
-    pendingQuality.current = undefined;
     setFailureReason(undefined);
     setFingerprint(undefined);
     setCapture(undefined);
@@ -325,6 +344,11 @@ export function useStrikeSession() {
       setState("idle");
       return;
     }
+    if (maximumQualifiedAttempts !== undefined && attemptLedger.current.attempts.length >= maximumQualifiedAttempts) {
+      setFailureReason(`Qualified attempt limit of ${maximumQualifiedAttempts} has been reached`);
+      setState("failure");
+      return;
+    }
     node.port.postMessage({ type: "RESET" });
     setState("warming");
   }
@@ -333,8 +357,6 @@ export function useStrikeSession() {
     const alreadyIdle = state === "idle";
     retainInterruptedQualifiedAttempt();
     requestId.current += 1;
-    pendingAnalysisRequest.current = undefined;
-    pendingQuality.current = undefined;
     disposeResources();
     setCapture(undefined);
     setQuality(undefined);
@@ -342,6 +364,8 @@ export function useStrikeSession() {
     setFailureReason(undefined);
     setInstrumentFailure(undefined);
     if (alreadyIdle) {
+      const clearedLedger = clearQualifiedAttemptLedger();
+      attemptLedger.current = clearedLedger;
       setAttempts([]);
       setSettings(undefined);
       setAudioTiming(undefined);
