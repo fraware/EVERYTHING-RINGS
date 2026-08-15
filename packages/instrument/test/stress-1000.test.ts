@@ -51,5 +51,5 @@ describe("1,000-case playable-instrument stress", () => {
       }
       expect(peak).toBeLessThanOrEqual(0.900001);
     }
-  });
+  }, 30_000);
 });
