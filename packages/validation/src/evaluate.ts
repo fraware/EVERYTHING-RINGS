@@ -167,21 +167,29 @@ export function evaluateGateARelease(
 ): GateAReleaseVerdict {
   const sessions = evidence.map((bundle) => evaluateGateASession(bundle, thresholds));
   const passing = sessions.filter((session) => session.passed);
-  const materialByLabel = new Map<string, MaterialClass>();
+  const observedMaterialByLabel = new Map<string, MaterialClass>();
   const conflictingMaterialLabels = new Set<string>();
-  for (const session of passing) {
+  const seenSessionIds = new Set<string>();
+  const duplicateSessionIds = new Set<string>();
+
+  for (const session of sessions) {
+    const sessionId = session.sessionId.trim();
+    if (seenSessionIds.has(sessionId)) duplicateSessionIds.add(sessionId);
+    else seenSessionIds.add(sessionId);
+
     const label = normalizedLabel(session.objectLabel);
-    const previous = materialByLabel.get(label);
-    if (previous !== undefined && previous !== session.material) {
-      conflictingMaterialLabels.add(label);
-    } else {
-      materialByLabel.set(label, session.material);
-    }
+    const previous = observedMaterialByLabel.get(label);
+    if (previous !== undefined && previous !== session.material) conflictingMaterialLabels.add(label);
+    else observedMaterialByLabel.set(label, session.material);
   }
-  const distinctLabels = new Set(materialByLabel.keys());
-  const materialCoverage = [...new Set(materialByLabel.values())];
+
+  const distinctLabels = new Set(passing.map((session) => normalizedLabel(session.objectLabel)));
+  const materialCoverage = [...new Set(passing.map((session) => session.material))];
   const reasons: string[] = [];
 
+  if (duplicateSessionIds.size > 0) {
+    reasons.push(`duplicate session IDs: ${[...duplicateSessionIds].join(", ")}`);
+  }
   if (conflictingMaterialLabels.size > 0) {
     reasons.push(`conflicting material labels for: ${[...conflictingMaterialLabels].join(", ")}`);
   }
@@ -245,21 +253,30 @@ export function evaluateGateBRelease(
   const objects: GateBObjectVerdict[] = candidateLabels.map((labelKey) => {
     const eligibleTargets = eligibleTargetsForLabel(gateA, labelKey);
     const eligibleKeys = new Set(eligibleTargets.map(targetKey));
-    const objectReviews = dedupeReviewsByReviewer(
-      reviews.filter((review) => (
-        normalizedLabel(review.objectLabel) === labelKey
-        && review.blinded
-        && eligibleKeys.has(targetKey(review))
-      )),
-    );
+    const eligibleReviews = reviews.filter((review) => (
+      normalizedLabel(review.objectLabel) === labelKey
+      && review.blinded
+      && eligibleKeys.has(targetKey(review))
+    ));
+    const reviewedTargetKeys = new Set(eligibleReviews.map(targetKey));
+    const selectedTargetKey = reviewedTargetKeys.size === 1 ? [...reviewedTargetKeys][0] : undefined;
+    const selectedTarget = selectedTargetKey === undefined
+      ? null
+      : eligibleTargets.find((target) => targetKey(target) === selectedTargetKey) ?? null;
+    const objectReviews = selectedTarget === null
+      ? []
+      : dedupeReviewsByReviewer(eligibleReviews.filter((review) => targetKey(review) === targetKey(selectedTarget)));
     const reasons: string[] = [];
     const identityMedian = medianFinite(objectReviews.map((review) => review.identity));
     const brightnessMedian = medianFinite(objectReviews.map((review) => review.brightness));
     const decayMedian = medianFinite(objectReviews.map((review) => review.decayCharacter));
     const artifactMedian = medianFinite(objectReviews.map((review) => review.artifactSeverity));
 
+    if (reviewedTargetKeys.size > 1) {
+      reasons.push("blinded reviews for one object must use a single passing-session measurement target");
+    }
     if (objectReviews.length < thresholds.minimumReviewersPerObject) {
-      reasons.push(`requires ${thresholds.minimumReviewersPerObject} blinded reviewers on passing-session targets`);
+      reasons.push(`requires ${thresholds.minimumReviewersPerObject} blinded reviewers on one passing-session target`);
     }
     if (identityMedian === null || identityMedian < thresholds.minimumIdentityMedian) {
       reasons.push(`identity median must be at least ${thresholds.minimumIdentityMedian}`);
@@ -281,6 +298,7 @@ export function evaluateGateBRelease(
     const verdict: GateBObjectVerdict = {
       objectLabel: exemplar?.objectLabel ?? labelKey,
       eligibleTargets,
+      selectedTarget,
       passed: reasons.length === 0,
       reviewerCount: objectReviews.length,
       identityMedian,
@@ -319,13 +337,15 @@ export function evaluateGateCRelease(
   reviews: readonly GateCReview[],
   thresholds: GateCThresholds = DEFAULT_GATE_C_THRESHOLDS,
 ): GateCReleaseVerdict {
-  const eligibleObjects = gateB.objects.filter((object) => object.passed);
+  const eligibleObjects = gateB.objects.filter((object) => object.passed && object.selectedTarget !== null);
   const objects: GateCObjectVerdict[] = eligibleObjects.map((eligibleObject) => {
     const labelKey = normalizedLabel(eligibleObject.objectLabel);
-    const eligibleKeys = new Set(eligibleObject.eligibleTargets.map(targetKey));
+    const selectedTarget = eligibleObject.selectedTarget;
+    if (selectedTarget === null) throw new Error("Passing Gate B object is missing a selected target");
+    const selectedKey = targetKey(selectedTarget);
     const objectReviews = dedupeGateCReviews(reviews.filter((review) => (
       normalizedLabel(review.objectLabel) === labelKey
-      && eligibleKeys.has(targetKey(review))
+      && targetKey(review) === selectedKey
     )));
     const reasons: string[] = [];
     const identityMedian = medianFinite(objectReviews.map((review) => review.identityAcrossRange));
@@ -333,7 +353,7 @@ export function evaluateGateCRelease(
     const usefulSemitoneSpanMedian = medianFinite(objectReviews.map((review) => review.usefulSemitoneSpan));
     const latencyAcceptedByAll = objectReviews.length > 0 && objectReviews.every((review) => review.latencyAcceptable);
 
-    if (objectReviews.length === 0) reasons.push("requires a device listening review on a passing-session target");
+    if (objectReviews.length === 0) reasons.push("requires a device listening review on the Gate B selected measurement target");
     if (identityMedian === null || identityMedian < thresholds.minimumIdentityMedian) {
       reasons.push(`identity median must be at least ${thresholds.minimumIdentityMedian}`);
     }
@@ -357,12 +377,15 @@ export function evaluateGateCRelease(
     };
   });
 
-  const eligibleReviewKeys = new Set(eligibleObjects.flatMap((object) => object.eligibleTargets.map(targetKey)));
-  const eligibleLabels = new Set(eligibleObjects.map((object) => normalizedLabel(object.objectLabel)));
-  const consideredReviews = dedupeGateCReviews(reviews.filter((review) => (
-    eligibleLabels.has(normalizedLabel(review.objectLabel))
-    && eligibleReviewKeys.has(targetKey(review))
-  )));
+  const selectedTargetsByLabel = new Map(
+    eligibleObjects.map((object) => [normalizedLabel(object.objectLabel), object.selectedTarget] as const),
+  );
+  const consideredReviews = dedupeGateCReviews(reviews.filter((review) => {
+    const selectedTarget = selectedTargetsByLabel.get(normalizedLabel(review.objectLabel));
+    return selectedTarget !== undefined
+      && selectedTarget !== null
+      && targetKey(review) === targetKey(selectedTarget);
+  }));
   const deviceClassById = new Map<string, GateCReview["deviceClass"]>();
   const conflictingDeviceIds = new Set<string>();
   for (const review of consideredReviews) {
