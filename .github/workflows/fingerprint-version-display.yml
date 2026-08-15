@@ -1,0 +1,136 @@
+name: fingerprint-version-display
+
+on:
+  push:
+    branches: [validation/fingerprint-version-display]
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TARGET_REVISION: bd87a1ade8affecfcb09ffa0cb93d8d9ecff9fc1
+      VITE_SOFTWARE_REVISION: bd87a1ade8affecfcb09ffa0cb93d8d9ecff9fc1
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: bd87a1ade8affecfcb09ffa0cb93d8d9ecff9fc1
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "${TARGET_REVISION}"
+      - name: Generate deterministic strike WAV
+        run: |
+          python - <<'PY'
+          import math, os, random, wave
+          sr = 48_000
+          duration = 5.0
+          onset = 1.0
+          random.seed(0x45524432)
+          path = os.path.join(os.environ['RUNNER_TEMP'], 'version-display.wav')
+          with wave.open(path, 'wb') as wav:
+              wav.setnchannels(1)
+              wav.setsampwidth(2)
+              wav.setframerate(sr)
+              frames = bytearray()
+              for i in range(round(sr * duration)):
+                  t = i / sr
+                  value = random.uniform(-0.00012, 0.00012)
+                  if t >= onset:
+                      dt = t - onset
+                      value += 0.45 * math.exp(-dt / 1.20) * math.cos(2 * math.pi * 440 * dt)
+                      value += 0.24 * math.exp(-dt / 0.70) * math.cos(2 * math.pi * 997 * dt)
+                      value += 0.12 * math.exp(-dt / 0.38) * math.cos(2 * math.pi * 2413 * dt)
+                  value = max(-0.90, min(0.90, value))
+                  frames += int(round(value * 32767)).to_bytes(2, 'little', signed=True)
+              wav.writeframes(frames)
+          PY
+      - run: pnpm build
+      - name: Install browser driver
+        run: |
+          mkdir -p "${RUNNER_TEMP}/display-e2e"
+          cd "${RUNNER_TEMP}/display-e2e"
+          npm init -y >/dev/null
+          npm install --no-save --package-lock=false puppeteer-core@24.31.0
+          node -e "const p=require('puppeteer-core/package.json'); if(p.version!=='24.31.0') process.exit(1)"
+      - name: Verify rendered and exported algorithm provenance
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "${CHROME}"
+          pnpm --filter @everything-rings/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort >"${RUNNER_TEMP}/display-vite.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "${SERVER_PID}" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do
+            curl --fail --silent http://127.0.0.1:4173/ >/dev/null && break
+            sleep 0.25
+          done
+          cat >"${RUNNER_TEMP}/display-e2e/test.mjs" <<'JS'
+          import puppeteer from 'puppeteer-core';
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const revision = process.env.TARGET_REVISION;
+          const downloadDir = path.join(process.env.RUNNER_TEMP, 'display-downloads');
+          fs.mkdirSync(downloadDir, { recursive: true });
+          const browser = await puppeteer.launch({
+            executablePath: process.env.CHROME,
+            headless: true,
+            args: [
+              '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+              '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
+              `--use-file-for-fake-audio-capture=${process.env.RUNNER_TEMP}/version-display.wav`,
+              '--autoplay-policy=no-user-gesture-required',
+            ],
+          });
+          const page = await browser.newPage();
+          const errors = [];
+          page.on('pageerror', error => errors.push(error.message));
+          const cdp = await page.createCDPSession();
+          await cdp.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadDir });
+          try {
+            await page.goto('http://127.0.0.1:4173/?lab=1', { waitUntil: 'networkidle0', timeout: 30_000 });
+            if (!(await page.content()).includes(`software revision ${revision}`)) throw new Error('wrong build revision');
+            await page.type('input[placeholder="lab-mug-01"]', 'version-display-01');
+            await page.type('input[placeholder="ceramic mug"]', 'version display specimen');
+            await page.select('select', 'ceramic');
+            await page.evaluate(() => {
+              const button = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'ARM MICROPHONE');
+              if (!(button instanceof HTMLButtonElement) || button.disabled) throw new Error('arm unavailable');
+              button.click();
+            });
+            await page.waitForFunction(() => document.querySelector('.status')?.textContent?.trim() === 'success', { timeout: 15_000, polling: 100 });
+            const displayedVersion = await page.$eval('.result-head .eyebrow', node => node.textContent?.trim());
+            if (displayedVersion !== 'er-dsp-2') throw new Error(`displayed algorithm version ${displayedVersion}`);
+            const modeCount = await page.$$eval('.mode-row:not(.mode-head)', rows => rows.length);
+            if (modeCount !== 3) throw new Error(`expected 3 modes, got ${modeCount}`);
+            await page.evaluate(() => {
+              const button = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'EXPORT EVIDENCE');
+              if (!(button instanceof HTMLButtonElement) || button.disabled) throw new Error('export unavailable');
+              button.click();
+            });
+            let evidencePath;
+            for (let i = 0; i < 50; i += 1) {
+              const files = fs.readdirSync(downloadDir).filter(name => name.endsWith('.json'));
+              if (files.length > 0) { evidencePath = path.join(downloadDir, files[0]); break; }
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            if (evidencePath === undefined) throw new Error('evidence download missing');
+            const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+            if (evidence.softwareRevision !== revision) throw new Error('wrong evidence revision');
+            const exported = evidence.attempts?.[0]?.analysis?.fingerprint?.algorithmVersion;
+            if (exported !== displayedVersion) throw new Error(`display/export mismatch: ${displayedVersion}/${exported}`);
+            if (evidence.rawMicrophoneSamplesIncluded !== false) throw new Error('raw PCM invariant failed');
+            if (errors.length > 0) throw new Error(errors.join('\n'));
+            console.log(JSON.stringify({ revision, displayedVersion, exportedVersion: exported, modeCount }, null, 2));
+          } finally {
+            await browser.close();
+          }
+          JS
+          CHROME="${CHROME}" RUNNER_TEMP="${RUNNER_TEMP}" TARGET_REVISION="${TARGET_REVISION}" node "${RUNNER_TEMP}/display-e2e/test.mjs"
