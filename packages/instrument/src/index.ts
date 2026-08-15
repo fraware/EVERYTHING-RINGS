@@ -12,4 +12,7 @@ export {
   ModalInstrumentEngine,
   type RealtimeInstrumentConfig,
 } from "./realtime";
-export type { ModalInstrumentWorkletMessage } from "./worklet-protocol";
+export type {
+  ModalInstrumentWorkletEvent,
+  ModalInstrumentWorkletMessage,
+} from "./worklet-protocol";
