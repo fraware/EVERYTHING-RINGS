@@ -59,11 +59,11 @@ These checks establish internal consistency and make accidental or stale evidenc
 
 A session ID identifies one immutable physical measurement core: software revision, specimen identity, object label and material, fixed setup, capture settings, qualified attempts, analytical outcomes, fingerprints, and derived recurrence evidence. Re-exporting the same session after adding listening/device reviews is supported.
 
-The Release Console merges repeated exports only when that immutable measurement core is identical. Additional uniquely identified reviews are combined. Reusing the same session ID with changed specimen identity or qualified-attempt evidence, changing a retained failure into a success, reusing one review ID with conflicting contents, or submitting a conflicting second logical judgment is rejected instead of silently replacing earlier evidence.
+The Release Console merges repeated exports only when that immutable measurement core is identical. Additional uniquely identified reviews are combined. Reusing the same session ID with a changed software revision, specimen identity, or qualified-attempt evidence, changing a retained failure into a success, reusing one review ID with conflicting contents, or submitting a conflicting second logical judgment is rejected instead of silently replacing earlier evidence.
 
 ## Local release console
 
-Open the web application with `?release=1` to use the Release Console. It imports schema-v4 JSON bundles locally, evaluates the frozen `gate-a-2`, `gate-b-1`, and `gate-c-1` contracts, exposes every failed criterion, and exports one canonical release-verdict JSON artifact.
+Open the web application with `?release=1` to use the Release Console. It imports schema-v5 JSON bundles locally, evaluates the frozen `gate-a-2`, `gate-b-1`, and `gate-c-1` contracts, exposes every failed criterion, and exports one canonical release-verdict JSON artifact.
 
 The console performs no upload. Imported evidence remains in browser memory for the current page session.
 
