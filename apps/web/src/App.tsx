@@ -15,6 +15,7 @@ import { chooseAnchorMode, renderPlayableNote } from "@everything-rings/instrume
 import { renderAcousticFingerprint } from "@everything-rings/synth";
 import { useEffect, useMemo, useRef, useState } from "react";
 import captureWorkletUrl from "../../../packages/acquisition/src/worklet/capture-processor.ts?worker&url";
+import { AcousticDnaView } from "./AcousticDnaView";
 
 type LabState =
   | "idle"
@@ -365,6 +366,8 @@ export function App() {
             </div>
             <strong>{fingerprint.modes.length}</strong>
           </div>
+
+          <AcousticDnaView fingerprint={fingerprint} />
           <ModeTable modes={fingerprint.modes} />
 
           <div className="listening-lab">
