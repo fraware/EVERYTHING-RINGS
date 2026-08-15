@@ -95,11 +95,16 @@ function fiveObjects(): ValidationEvidenceV3[] {
   ];
 }
 
+function targetFor(objectLabel: string): { readonly sessionId: string; readonly recordId: number } {
+  return { sessionId: `session-${objectLabel}`, recordId: 5 };
+}
+
 function gateBReview(objectLabel: string, reviewerId: string, overrides: Partial<GateBReview> = {}): GateBReview {
   return {
     reviewId: `${objectLabel}-${reviewerId}`,
     reviewerId,
     objectLabel,
+    ...targetFor(objectLabel),
     blinded: true,
     presentationOrder: "original-model",
     identity: 4,
@@ -110,17 +115,24 @@ function gateBReview(objectLabel: string, reviewerId: string, overrides: Partial
   };
 }
 
-function gateCReview(objectLabel: string, deviceId: string, deviceClass: "desktop" | "mobile"): GateCReview {
+function gateCReview(
+  objectLabel: string,
+  deviceId: string,
+  deviceClass: "desktop" | "mobile",
+  overrides: Partial<GateCReview> = {},
+): GateCReview {
   return {
     reviewId: `${objectLabel}-${deviceId}`,
     reviewerId: "listener-1",
     objectLabel,
+    ...targetFor(objectLabel),
     deviceId,
     deviceClass,
     identityAcrossRange: 4,
     timbreContinuity: 4,
     usefulSemitoneSpan: 12,
     latencyAcceptable: true,
+    ...overrides,
   };
 }
 
@@ -130,6 +142,7 @@ describe("Gate A", () => {
     expect(verdict.passed).toBe(true);
     expect(verdict.metrics.acceptedStrikes).toBe(5);
     expect(verdict.metrics.sessionMedianDriftCents).toBe(9);
+    expect(verdict.reviewRecordId).toBe(5);
   });
 
   it("rejects optional stopping beyond the five accepted strikes", () => {
@@ -138,6 +151,7 @@ describe("Gate A", () => {
       comparisonMedians: [5, 8, 10, 12, 2],
     }));
     expect(verdict.passed).toBe(false);
+    expect(verdict.reviewRecordId).toBeNull();
     expect(verdict.reasons.some((reason) => reason.includes("exactly 5 accepted strikes"))).toBe(true);
     expect(verdict.reasons.some((reason) => reason.includes("exactly 4 recurrence comparisons"))).toBe(true);
   });
@@ -181,6 +195,19 @@ describe("Gate B", () => {
     ]);
     expect(evaluateGateBRelease(gateA, reviews).passed).toBe(false);
   });
+
+  it("does not count a review targeting the wrong session or measurement", () => {
+    const gateA = evaluateGateARelease(fiveObjects());
+    const labels = fiveObjects().map((bundle) => bundle.object.label);
+    const reviews = labels.flatMap((label) => [gateBReview(label, "r1"), gateBReview(label, "r2")]);
+    const corrupted = reviews.map((review) => review.objectLabel === "bell" && review.reviewerId === "r2"
+      ? { ...review, sessionId: "session-other", recordId: 4 }
+      : review);
+    const verdict = evaluateGateBRelease(gateA, corrupted);
+    const bell = verdict.objects.find((object) => object.objectLabel === "bell");
+    expect(bell?.reviewerCount).toBe(1);
+    expect(bell?.passed).toBe(false);
+  });
 });
 
 describe("Gate C", () => {
@@ -197,6 +224,19 @@ describe("Gate C", () => {
       ...(index === 0 ? [gateCReview(label, "mobile-1", "mobile")] : []),
     ]);
     expect(evaluateGateCRelease(gateB, mixed).passed).toBe(true);
+  });
+
+  it("does not count a device review for an ineligible measurement target", () => {
+    const gateA = evaluateGateARelease(fiveObjects());
+    const labels = fiveObjects().map((bundle) => bundle.object.label);
+    const gateB = evaluateGateBRelease(
+      gateA,
+      labels.flatMap((label) => [gateBReview(label, "r1"), gateBReview(label, "r2")]),
+    );
+    const review = gateCReview("bell", "mobile-1", "mobile", { recordId: 4 });
+    const verdict = evaluateGateCRelease(gateB, [review]);
+    const bell = verdict.objects.find((object) => object.objectLabel === "bell");
+    expect(bell?.reviewCount).toBe(0);
   });
 });
 
@@ -221,5 +261,38 @@ describe("evidence parsing", () => {
   it("accepts schema v3 and rejects legacy bundles", () => {
     expect(parseValidationEvidence(evidence("bell", "metal")).ok).toBe(true);
     expect(parseValidationEvidence({ schemaVersion: 2 }).ok).toBe(false);
+  });
+
+  it("rejects reviews that do not target their owning session", () => {
+    const bundle = evidence("bell", "metal");
+    const corrupted = {
+      ...bundle,
+      gateBReviews: [gateBReview("bell", "r1", { sessionId: "session-other" })],
+    };
+    const result = parseValidationEvidence(corrupted);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("Gate B review target");
+  });
+
+  it("rejects reviews and recurrence entries targeting missing records", () => {
+    const bundle = evidence("bell", "metal");
+    const badReview = parseValidationEvidence({
+      ...bundle,
+      gateCReviews: [gateCReview("bell", "mobile-1", "mobile", { recordId: 99 })],
+    });
+    expect(badReview.ok).toBe(false);
+
+    const badRecurrence = parseValidationEvidence({
+      ...bundle,
+      recurrence: [{ ...bundle.recurrence[0], recordId: 99 }, ...bundle.recurrence.slice(1)],
+    });
+    expect(badRecurrence.ok).toBe(false);
+  });
+
+  it("rejects duplicate measurement record IDs", () => {
+    const bundle = evidence("bell", "metal");
+    const records = bundle.records.map((record, index) => index === 1 ? { ...record, id: 1 } : record);
+    const result = parseValidationEvidence({ ...bundle, records });
+    expect(result.ok).toBe(false);
   });
 });
