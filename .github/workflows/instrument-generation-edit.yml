@@ -1,0 +1,81 @@
+name: instrument-generation-edit
+
+on:
+  push:
+    branches: [release-validation]
+
+permissions:
+  contents: write
+
+jobs:
+  edit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: release-validation
+      - name: Guard instrument preparation by generation
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('apps/web/src/useStrikeSession.ts')
+          text = path.read_text()
+
+          ref_old = '  const instrumentPreparation = useRef<Promise<void> | undefined>(undefined);\n'
+          ref_new = ref_old + '  const instrumentGeneration = useRef(0);\n'
+          assert text.count(ref_old) == 1
+          text = text.replace(ref_old, ref_new)
+
+          start_marker = '  async function prepareInstrument(nextFingerprint: AcousticFingerprintV1): Promise<void> {\n'
+          end_marker = '  function disposeResources(): void {\n'
+          assert text.count(start_marker) == 1
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          replacement = '''  async function prepareInstrument(nextFingerprint: AcousticFingerprintV1): Promise<void> {
+            const generation = instrumentGeneration.current;
+            setInstrumentReady(false);
+            setInstrumentFailure(undefined);
+            try {
+              const node = await ensureInstrument();
+              if (node === undefined || generation !== instrumentGeneration.current) return;
+              const message: ModalInstrumentWorkletMessage = {
+                type: "SET_FINGERPRINT",
+                fingerprint: nextFingerprint,
+              };
+              node.port.postMessage(message);
+              setInstrumentReady(true);
+            } catch (error) {
+              if (generation !== instrumentGeneration.current) return;
+              setInstrumentFailure(error instanceof Error ? error.message : String(error));
+              setInstrumentReady(false);
+            }
+          }
+
+          '''
+          text = text[:start] + replacement + text[end:]
+
+          dispose_old = '  function disposeResources(): void {\n    const current = resources.current;\n'
+          dispose_new = '  function disposeResources(): void {\n    instrumentGeneration.current += 1;\n    const current = resources.current;\n'
+          assert text.count(dispose_old) == 1
+          text = text.replace(dispose_old, dispose_new)
+
+          reset_old = '  function reset(): void {\n    retainInterruptedQualifiedAttempt();\n'
+          reset_new = '  function reset(): void {\n    instrumentGeneration.current += 1;\n    retainInterruptedQualifiedAttempt();\n'
+          assert text.count(reset_old) == 1
+          text = text.replace(reset_old, reset_new)
+
+          path.write_text(text)
+          PY
+          git diff --check
+          git rm .github/workflows/instrument-generation-edit.yml
+      - name: Commit exact edit
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Guard realtime preparation generation'
+          git push origin HEAD:release-validation
