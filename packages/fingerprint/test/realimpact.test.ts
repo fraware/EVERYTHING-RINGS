@@ -1,7 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { analyzeImpact, extractImpactRingdown } from "@everything-rings/dsp";
+import {
+  CURRENT_ACOUSTIC_FINGERPRINT_ALGORITHM_VERSION,
+  analyzeImpact,
+  extractImpactRingdown,
+} from "@everything-rings/dsp";
 import { fingerprintRecurrence } from "../src/recurrence";
 
 interface NpyHeader {
@@ -192,6 +196,9 @@ manual("RealImpact cross-field recurrence benchmark", () => {
     const fingerprints = attempts.flatMap(({ rowIndex, measurementOrdinal, result }) =>
       result.ok ? [{ rowIndex, measurementOrdinal, fingerprint: result.fingerprint }] : [],
     );
+    const fingerprintAlgorithmVersions = [
+      ...new Set(fingerprints.map(({ fingerprint }) => fingerprint.algorithmVersion)),
+    ];
 
     const reference = fingerprints[0];
     const comparisons = reference === undefined ? [] : fingerprints.slice(1).map(({ rowIndex, measurementOrdinal, fingerprint }) => ({
@@ -206,6 +213,7 @@ manual("RealImpact cross-field recurrence benchmark", () => {
       dataset: "RealImpact",
       validationScope: "cross-field-modal-recurrence",
       releaseGateEquivalent: false,
+      fingerprintAlgorithmVersions,
       signal: "deconvolved_0db",
       objectDirectory: path.basename(datasetDirectory),
       sampleRate,
@@ -214,7 +222,15 @@ manual("RealImpact cross-field recurrence benchmark", () => {
       attemptedRows: rowIndices,
       attempts: attempts.map(({ rowIndex, measurementOrdinal, coarseImpactSample, ringdownStartSample, result }) =>
         result.ok
-          ? { rowIndex, measurementOrdinal, coarseImpactSample, ringdownStartSample, ok: true, modeCount: result.fingerprint.modes.length }
+          ? {
+              rowIndex,
+              measurementOrdinal,
+              coarseImpactSample,
+              ringdownStartSample,
+              ok: true,
+              algorithmVersion: result.fingerprint.algorithmVersion,
+              modeCount: result.fingerprint.modes.length,
+            }
           : { rowIndex, measurementOrdinal, coarseImpactSample, ringdownStartSample, ok: false, reason: result.reason },
       ),
       acceptedRows: fingerprints.map(({ rowIndex }) => rowIndex),
@@ -242,6 +258,7 @@ manual("RealImpact cross-field recurrence benchmark", () => {
     console.log(JSON.stringify(report, null, 2));
 
     expect(fingerprints.length).toBeGreaterThanOrEqual(3);
+    expect(fingerprintAlgorithmVersions).toEqual([CURRENT_ACOUSTIC_FINGERPRINT_ALGORITHM_VERSION]);
     expect(Number.isFinite(report.medianCrossFieldDriftCents)).toBe(true);
   }, 30_000);
 });
