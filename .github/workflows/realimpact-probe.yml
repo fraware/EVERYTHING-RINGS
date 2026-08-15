@@ -9,10 +9,15 @@ on:
         default: 64_CeramicMug
         type: string
       max_strikes:
-        description: Maximum separate strikes to analyze
+        description: Maximum separate measurements to analyze
         required: true
         default: "8"
         type: string
+  push:
+    branches:
+      - gate-a-validation
+    paths:
+      - ".github/workflows/realimpact-probe.yml"
 
 permissions:
   contents: read
@@ -22,8 +27,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      OBJECT_NAME: ${{ inputs.object_name }}
-      MAX_STRIKES: ${{ inputs.max_strikes }}
+      OBJECT_NAME: ${{ github.event.inputs.object_name || '64_CeramicMug' }}
+      MAX_STRIKES: ${{ github.event.inputs.max_strikes || '8' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -44,7 +49,9 @@ jobs:
           url="https://downloads.cs.stanford.edu/viscam/RealImpact/${OBJECT_NAME}.zip"
           echo "Downloading ${url}"
           df -h .
-          curl --fail --show-error --location --retry 3 --retry-all-errors --retry-delay 5 --output ".realimpact/${OBJECT_NAME}.zip" "${url}"
+          curl --fail --show-error --location \
+            --retry 6 --retry-all-errors --retry-delay 5 \
+            --output ".realimpact/${OBJECT_NAME}.zip" "${url}"
           ls -lh ".realimpact/${OBJECT_NAME}.zip"
 
       - name: Extract object archive
@@ -52,22 +59,29 @@ jobs:
           set -euo pipefail
           unzip -q ".realimpact/${OBJECT_NAME}.zip" -d .realimpact/extracted
           rm ".realimpact/${OBJECT_NAME}.zip"
-          find .realimpact/extracted -path '*/preprocessed/sounds.npy' -print
+          find .realimpact/extracted -path '*/preprocessed/deconvolved_0db.npy' -print
           df -h .
 
       - name: Run Gate A external benchmark
         run: |
           set -euo pipefail
-          sounds_path="$(find .realimpact/extracted -path '*/preprocessed/sounds.npy' -print -quit)"
-          if [ -z "${sounds_path}" ]; then
-            echo "Could not locate preprocessed/sounds.npy" >&2
+          response_path="$(find .realimpact/extracted -path '*/preprocessed/deconvolved_0db.npy' -print -quit)"
+          if [ -z "${response_path}" ]; then
+            echo "Could not locate preprocessed/deconvolved_0db.npy" >&2
             exit 1
           fi
-          object_dir="$(dirname "$(dirname "${sounds_path}")")"
+          object_dir="$(dirname "$(dirname "${response_path}")")"
           echo "REALIMPACT_DIR=${object_dir}"
           REALIMPACT_DIR="${object_dir}" \
           REALIMPACT_MAX_STRIKES="${MAX_STRIKES}" \
           REALIMPACT_REPORT=/tmp/everything-rings-realimpact.json \
-          pnpm --filter @everything-rings/dsp test:realimpact
+          pnpm --filter @everything-rings/fingerprint test:realimpact
           echo "--- Gate A external report ---"
           cat /tmp/everything-rings-realimpact.json
+
+      - name: Upload Gate A report
+        uses: actions/upload-artifact@v4
+        with:
+          name: realimpact-gate-a-${{ env.OBJECT_NAME }}
+          path: /tmp/everything-rings-realimpact.json
+          if-no-files-found: error
