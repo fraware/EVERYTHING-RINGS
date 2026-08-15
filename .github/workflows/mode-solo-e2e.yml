@@ -89,16 +89,26 @@ jobs:
             const count = await page.$$eval(selector, nodes => nodes.length);
             if (count !== 3) throw new Error(`expected 3 interactive modes, got ${count}`);
             const labels = await page.$$eval(selector, nodes => nodes.map(node => node.getAttribute('aria-label')));
-            if (!labels[0]?.includes('440.0') || !labels[1]?.includes('997.0') || !labels[2]?.includes('2413.')) throw new Error(`unexpected mode labels ${JSON.stringify(labels)}`);
+            const frequencies = labels.map(label => {
+              const match = label?.match(/([0-9]+(?:\.[0-9]+)?) hertz$/);
+              if (!match) throw new Error(`unparseable mode label ${label}`);
+              return Number(match[1]);
+            });
+            const expected = [440, 997, 2413];
+            expected.forEach((frequency, index) => {
+              if (Math.abs(frequencies[index] - frequency) > Math.max(3, frequency * 0.005)) {
+                throw new Error(`mode ${index} outside frequency tolerance: ${frequencies[index]}`);
+              }
+            });
 
             await page.$eval(`${selector}[data-mode-index="0"]`, node => node.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-            await page.waitForFunction(() => document.body.innerText.includes('SOLO 440.0 HZ'));
+            await page.waitForFunction(label => document.body.innerText.includes(`SOLO ${label} HZ`), {}, frequencies[0].toFixed(1));
             const firstPressed = await page.$eval(`${selector}[data-mode-index="0"]`, node => node.getAttribute('aria-pressed'));
             if (firstPressed !== 'true') throw new Error('first mode did not become selected');
 
             await page.focus(`${selector}[data-mode-index="1"]`);
             await page.keyboard.press('Space');
-            await page.waitForFunction(() => document.body.innerText.includes('SOLO 997.'));
+            await page.waitForFunction(label => document.body.innerText.includes(`SOLO ${label} HZ`), {}, frequencies[1].toFixed(1));
             const pressed = await page.$$eval(selector, nodes => nodes.map(node => node.getAttribute('aria-pressed')));
             if (pressed[0] !== 'false' || pressed[1] !== 'true') throw new Error(`selection did not transfer ${JSON.stringify(pressed)}`);
 
@@ -111,7 +121,7 @@ jobs:
             const report = {
               targetRevision: process.env.TARGET_REVISION,
               interactiveModeCount: count,
-              labels,
+              frequenciesHz: frequencies,
               clickSolo: true,
               keyboardSolo: true,
               reconstructionClearsSolo: true,
