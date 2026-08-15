@@ -12,4 +12,6 @@ Analysis operates at the actual capture sample rate. Algorithms receive `sampleR
 
 The baseline STFT uses an 8192-sample Hann window and 512-sample hop. Frame spectra are streamed through a callback so the production path does not retain a full spectrogram. Frame-level candidates must be local maxima and exceed an 8 dB local prominence threshold computed outside the immediate peak neighborhood. Three-bin quadratic interpolation in log magnitude produces the sub-bin frequency estimate.
 
-All thresholds are explicit configuration values. Peak tracking and decay estimation are separate later stages; a frame peak alone is never treated as a physical resonance.
+Peak tracking links frame candidates with a 25-cent frequency tolerance plus a 3 Hz low-frequency guard, allows at most two empty frames, and assigns each track at most one peak per frame. Association uses an amplitude-weighted running frequency. A stable track initially requires at least eight observations, 80 ms duration, and at most 18 cents frequency standard deviation. These values are configuration, not physical constants.
+
+A frame peak or a stable track is still only a candidate resonance. Decay fitting is the next acceptance layer.

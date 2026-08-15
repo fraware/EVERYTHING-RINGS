@@ -23,4 +23,19 @@ export {
   type SpectrumFrameConsumer,
   type SpectrumFrameView,
 } from "./stft/frames";
+export {
+  DEFAULT_TRACK_ACCEPTANCE_CONFIG,
+  isStablePeakTrack,
+  type PeakTrackSummary,
+  summarizePeakTrack,
+  type TrackAcceptanceConfig,
+} from "./tracking/stability";
+export {
+  DEFAULT_PEAK_TRACKING_CONFIG,
+  type PeakTrack,
+  type PeakTrackObservation,
+  type PeakTrackingConfig,
+  type SpectralPeakFrame,
+  trackSpectralPeaks,
+} from "./tracking/tracks";
 export { hannWindow } from "./windows/hann";
