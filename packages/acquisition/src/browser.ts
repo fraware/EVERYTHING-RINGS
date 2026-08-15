@@ -20,6 +20,14 @@ export type MicrophoneOpenFailureReason =
   | "MICROPHONE_CONSTRAINTS_UNSATISFIED"
   | "MICROPHONE_OPEN_FAILED";
 
+export class MicrophoneOpenError extends Error {
+  readonly name = "MicrophoneOpenError";
+
+  constructor(readonly reason: MicrophoneOpenFailureReason) {
+    super(reason);
+  }
+}
+
 export interface OpenedMicrophone {
   readonly stream: MediaStream;
   readonly track: MediaStreamTrack;
@@ -80,23 +88,23 @@ export function classifyMicrophoneOpenFailure(error: unknown): MicrophoneOpenFai
 
 export async function openMicrophone(): Promise<OpenedMicrophone> {
   if (typeof isSecureContext === "boolean" && !isSecureContext) {
-    throw new Error("SECURE_CONTEXT_REQUIRED");
+    throw new MicrophoneOpenError("SECURE_CONTEXT_REQUIRED");
   }
   if (typeof navigator === "undefined" || navigator.mediaDevices === undefined || typeof navigator.mediaDevices.getUserMedia !== "function") {
-    throw new Error("MICROPHONE_UNSUPPORTED");
+    throw new MicrophoneOpenError("MICROPHONE_UNSUPPORTED");
   }
 
   let stream: MediaStream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: PREFERRED_AUDIO_CONSTRAINTS });
   } catch (error) {
-    throw new Error(classifyMicrophoneOpenFailure(error));
+    throw new MicrophoneOpenError(classifyMicrophoneOpenFailure(error));
   }
 
   const track = stream.getAudioTracks()[0];
   if (track === undefined) {
     stream.getTracks().forEach((candidate) => candidate.stop());
-    throw new Error("MICROPHONE_NOT_FOUND");
+    throw new MicrophoneOpenError("MICROPHONE_NOT_FOUND");
   }
   try {
     track.contentHint = "music";
