@@ -79,6 +79,8 @@ function evidence(
       },
       fingerprint: fingerprint(index * 0.1),
     })),
+    gateBReviews: [],
+    gateCReviews: [],
     rawMicrophoneSamplesIncluded: false,
   };
 }
@@ -99,6 +101,7 @@ function gateBReview(objectLabel: string, reviewerId: string, overrides: Partial
     reviewerId,
     objectLabel,
     blinded: true,
+    presentationOrder: "original-model",
     identity: 4,
     brightness: 4,
     decayCharacter: 4,
