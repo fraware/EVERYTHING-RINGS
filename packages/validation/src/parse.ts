@@ -1,4 +1,4 @@
-import type { MaterialClass, ValidationEvidenceV3 } from "./types";
+import type { DeviceClass, MaterialClass, ValidationEvidenceV3 } from "./types";
 
 export type EvidenceParseResult =
   | { readonly ok: true; readonly evidence: ValidationEvidenceV3 }
@@ -7,6 +7,7 @@ export type EvidenceParseResult =
 const MATERIALS: readonly MaterialClass[] = [
   "metal", "glass", "ceramic", "wood", "stone", "plastic", "composite", "other",
 ];
+const DEVICE_CLASSES: readonly DeviceClass[] = ["desktop", "mobile", "tablet", "other"];
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined;
@@ -18,6 +19,10 @@ function finiteNumber(value: unknown): value is number {
 
 function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function score(value: unknown): boolean {
+  return Number.isInteger(value) && typeof value === "number" && value >= 1 && value <= 5;
 }
 
 function validFingerprint(value: unknown): boolean {
@@ -48,6 +53,36 @@ function validRecurrence(value: unknown): boolean {
     && finiteNumber(recurrence.matchedCount)
     && finiteNumber(recurrence.unmatchedReferenceCount)
     && Array.isArray(recurrence.matches);
+}
+
+function validGateBReview(value: unknown): boolean {
+  const review = record(value);
+  return review !== undefined
+    && nonEmptyString(review.reviewId)
+    && nonEmptyString(review.reviewerId)
+    && nonEmptyString(review.objectLabel)
+    && typeof review.blinded === "boolean"
+    && (review.presentationOrder === "original-model" || review.presentationOrder === "model-original")
+    && score(review.identity)
+    && score(review.brightness)
+    && score(review.decayCharacter)
+    && score(review.artifactSeverity);
+}
+
+function validGateCReview(value: unknown): boolean {
+  const review = record(value);
+  return review !== undefined
+    && nonEmptyString(review.reviewId)
+    && nonEmptyString(review.reviewerId)
+    && nonEmptyString(review.objectLabel)
+    && nonEmptyString(review.deviceId)
+    && typeof review.deviceClass === "string"
+    && DEVICE_CLASSES.includes(review.deviceClass as DeviceClass)
+    && score(review.identityAcrossRange)
+    && score(review.timbreContinuity)
+    && finiteNumber(review.usefulSemitoneSpan)
+    && review.usefulSemitoneSpan >= 0
+    && typeof review.latencyAcceptable === "boolean";
 }
 
 export function parseValidationEvidence(value: unknown): EvidenceParseResult {
@@ -88,6 +123,12 @@ export function parseValidationEvidence(value: unknown): EvidenceParseResult {
     return entry !== undefined && finiteNumber(entry.id) && record(entry.quality) !== undefined && validFingerprint(entry.fingerprint);
   })) {
     return { ok: false, error: "measurement records are invalid" };
+  }
+  if (!Array.isArray(evidence.gateBReviews) || !evidence.gateBReviews.every(validGateBReview)) {
+    return { ok: false, error: "Gate B reviews are invalid" };
+  }
+  if (!Array.isArray(evidence.gateCReviews) || !evidence.gateCReviews.every(validGateCReview)) {
+    return { ok: false, error: "Gate C reviews are invalid" };
   }
   if (evidence.rawMicrophoneSamplesIncluded !== false) {
     return { ok: false, error: "raw microphone samples invariant failed" };
