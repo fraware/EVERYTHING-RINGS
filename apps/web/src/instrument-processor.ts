@@ -39,12 +39,9 @@ class EverythingRingsInstrumentProcessor extends AudioWorkletProcessor {
       if (message.type === "NOTE_ON") {
         const voiceId = this.engine?.noteOn(message.midiNote, message.velocity);
         if (message.eventId !== undefined) {
-          const response: ModalInstrumentWorkletEvent = {
-            type: "NOTE_STARTED",
-            eventId: message.eventId,
-            frame: currentFrame,
-            voiceId,
-          };
+          const response: ModalInstrumentWorkletEvent = voiceId === undefined
+            ? { type: "NOTE_STARTED", eventId: message.eventId, frame: currentFrame }
+            : { type: "NOTE_STARTED", eventId: message.eventId, frame: currentFrame, voiceId };
           this.port.postMessage(response);
         }
         return;
