@@ -1,0 +1,164 @@
+name: lab-playable-e2e
+
+on:
+  push:
+    branches: [validation/consumer-e2e]
+
+permissions:
+  contents: read
+
+jobs:
+  lab-playable:
+    runs-on: ubuntu-latest
+    env:
+      TARGET_REVISION: 8145247228392394b1d2c56adc4dde797da1bb92
+      VITE_SOFTWARE_REVISION: 8145247228392394b1d2c56adc4dde797da1bb92
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TARGET_REVISION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "${TARGET_REVISION}"
+      - name: Generate deterministic strike
+        run: |
+          python - <<'PY'
+          import math, os, random, wave
+          sr = 48_000; duration = 6.0; onset = 1.0
+          random.seed(0x45524c50)
+          path = os.path.join(os.environ['RUNNER_TEMP'], 'lab-playable.wav')
+          with wave.open(path, 'wb') as wav:
+              wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(sr)
+              frames = bytearray()
+              for i in range(round(sr * duration)):
+                  t = i / sr
+                  value = random.uniform(-0.00012, 0.00012)
+                  if t >= onset:
+                      dt = t - onset
+                      value += 0.45 * math.exp(-dt / 1.20) * math.cos(2 * math.pi * 440 * dt)
+                      value += 0.24 * math.exp(-dt / 0.70) * math.cos(2 * math.pi * 997 * dt)
+                      value += 0.12 * math.exp(-dt / 0.38) * math.cos(2 * math.pi * 2413 * dt)
+                  value = max(-0.90, min(0.90, value))
+                  frames += int(round(value * 32767)).to_bytes(2, 'little', signed=True)
+              wav.writeframes(frames)
+          PY
+      - run: pnpm build
+      - name: Install browser driver
+        run: |
+          mkdir -p "${RUNNER_TEMP}/lab-playable"
+          cd "${RUNNER_TEMP}/lab-playable"
+          npm init -y >/dev/null
+          npm install --no-save --package-lock=false puppeteer-core@25.4.0
+      - name: Exercise lab playable controls
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "${CHROME}"
+          pnpm --filter @everything-rings/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort >"${RUNNER_TEMP}/lab-playable-vite.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "${SERVER_PID}" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do curl --fail --silent http://127.0.0.1:4173/?lab=1 >/dev/null && break; sleep 0.25; done
+          cat >"${RUNNER_TEMP}/lab-playable/test.mjs" <<'JS'
+          import puppeteer from 'puppeteer-core';
+          import fs from 'node:fs';
+
+          const pageErrors = [];
+          const browser = await puppeteer.launch({
+            executablePath: process.env.CHROME,
+            headless: true,
+            args: [
+              '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+              '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
+              `--use-file-for-fake-audio-capture=${process.env.RUNNER_TEMP}/lab-playable.wav`,
+              '--autoplay-policy=no-user-gesture-required',
+            ],
+          });
+          try {
+            const page = await browser.newPage();
+            page.on('pageerror', error => pageErrors.push(error.message));
+            await page.evaluateOnNewDocument(() => {
+              const NativeAudioContext = window.AudioContext;
+              const contexts = [];
+              Object.defineProperty(window, '__ER_CONTEXTS__', { value: contexts });
+              window.AudioContext = new Proxy(NativeAudioContext, {
+                construct(target, args, newTarget) {
+                  const context = Reflect.construct(target, args, newTarget);
+                  contexts.push(context);
+                  return context;
+                },
+              });
+            });
+            await page.goto('http://127.0.0.1:4173/?lab=1', { waitUntil: 'networkidle0', timeout: 30_000 });
+            await page.evaluate(() => {
+              const set = (name, value) => {
+                const label = [...document.querySelectorAll('label')].find(node => node.querySelector('span')?.textContent?.trim() === name);
+                const input = label?.querySelector('input');
+                if (!(input instanceof HTMLInputElement)) throw new Error(`${name} input missing`);
+                const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+                if (setter === undefined) throw new Error('native input setter missing');
+                setter.call(input, value);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+              };
+              set('specimen ID', 'lab-playable-e2e');
+              set('object', 'test bell');
+            });
+            await page.waitForFunction(() => {
+              const button = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'ARM MICROPHONE');
+              return button instanceof HTMLButtonElement && !button.disabled;
+            });
+            await page.evaluate(() => [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'ARM MICROPHONE')?.click());
+            await page.waitForFunction(() => document.body.innerText.includes('stable resonances found. This attempt is retained.'), { timeout: 15_000, polling: 100 });
+            await page.waitForFunction(() => document.body.innerText.includes('Modal voices are rendered continuously in the audio thread.'), { timeout: 5_000 });
+
+            const groupSelector = '.keyboard[role="group"][aria-label="Chromatic playable object"]';
+            const buttonSelector = `${groupSelector} button`;
+            await page.waitForSelector(buttonSelector);
+            const labels = await page.$$eval(buttonSelector, nodes => nodes.map(node => node.getAttribute('aria-label')));
+            if (labels.length !== 13) throw new Error(`expected 13 playable notes, got ${labels.length}`);
+            if (labels[0] !== 'C4' || labels[2] !== 'D4' || labels[12] !== 'C5') throw new Error(`unexpected note labels ${JSON.stringify(labels)}`);
+
+            await page.$eval(`${buttonSelector}[aria-label="C4"]`, node => node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, pointerType: 'mouse' })));
+            await page.waitForFunction(() => {
+              const rows = [...document.querySelectorAll('dl div')];
+              const row = rows.find(node => node.querySelector('dt')?.textContent?.trim() === 'note scheduling');
+              return row?.querySelector('dd')?.textContent?.trim() !== '—';
+            }, { timeout: 5_000 });
+
+            const state = await page.evaluate(async () => {
+              const context = window.__ER_CONTEXTS__?.[0];
+              if (!(context instanceof AudioContext)) throw new Error('tracked AudioContext missing');
+              await context.suspend();
+              return context.state;
+            });
+            if (state !== 'suspended') throw new Error(`context failed to suspend: ${state}`);
+            await page.focus(`${buttonSelector}[aria-label="D4"]`);
+            await page.keyboard.press('Enter');
+            await page.waitForFunction(() => window.__ER_CONTEXTS__?.[0]?.state === 'running', { timeout: 5_000, polling: 50 });
+
+            if ((await page.evaluate(() => document.body.innerText)).includes('Audio output is paused.')) throw new Error('lab surfaced a false playback recovery failure');
+            if (pageErrors.length > 0) throw new Error(pageErrors.join('\n'));
+            const report = {
+              targetRevision: process.env.TARGET_REVISION,
+              noteCount: labels.length,
+              noteLabels: labels,
+              pointerActivation: true,
+              keyboardActivation: true,
+              suspendedContextRecovered: true,
+              pageErrors: pageErrors.length,
+            };
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/lab-playable-report.json`, JSON.stringify(report, null, 2));
+            console.log(JSON.stringify(report, null, 2));
+          } finally {
+            await browser.close();
+          }
+          JS
+          CHROME="${CHROME}" RUNNER_TEMP="${RUNNER_TEMP}" TARGET_REVISION="${TARGET_REVISION}" node "${RUNNER_TEMP}/lab-playable/test.mjs"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lab-playable-e2e
+          path: ${{ runner.temp }}/lab-playable-report.json
