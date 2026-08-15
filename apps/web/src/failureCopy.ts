@@ -24,6 +24,8 @@ export function failureCopy(reason: string | undefined): string {
       return "This browser could not open the microphone with the requested audio settings.";
     case "MICROPHONE_UNSUPPORTED":
       return "This browser cannot provide microphone access here. Use a current browser over HTTPS.";
+    case "AUDIO_PLAYBACK_UNAVAILABLE":
+      return "Audio output is paused. Tap the sound control again or check your device audio settings.";
     case "MEDIA_SESSION_ERROR":
       return "The audio session could not start.";
     case undefined:
