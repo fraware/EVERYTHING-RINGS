@@ -175,9 +175,11 @@ export function parseValidationEvidence(value: unknown): EvidenceParseResult {
   if (evidence.gateAContractVersion !== "gate-a-1") return { ok: false, error: "unsupported Gate A contract" };
   if (!nonEmptyString(evidence.sessionId)) return { ok: false, error: "sessionId is missing" };
   if (!nonEmptyString(evidence.createdAt)) return { ok: false, error: "createdAt is missing" };
+  const sessionId = evidence.sessionId;
 
   const object = record(evidence.object);
   if (object === undefined || !nonEmptyString(object.label)) return { ok: false, error: "object label is missing" };
+  const objectLabel = object.label;
   if (typeof object.material !== "string" || !MATERIALS.includes(object.material as MaterialClass)) {
     return { ok: false, error: "object material is invalid" };
   }
@@ -227,13 +229,13 @@ export function parseValidationEvidence(value: unknown): EvidenceParseResult {
   if (!Array.isArray(evidence.gateBReviews) || !evidence.gateBReviews.every(validGateBReview)) {
     return { ok: false, error: "Gate B reviews are invalid" };
   }
-  if (!evidence.gateBReviews.every((review) => reviewTargetsBundle(review, evidence.sessionId, object.label, recordIds))) {
+  if (!evidence.gateBReviews.every((review) => reviewTargetsBundle(review, sessionId, objectLabel, recordIds))) {
     return { ok: false, error: "Gate B review target does not belong to this evidence bundle" };
   }
   if (!Array.isArray(evidence.gateCReviews) || !evidence.gateCReviews.every(validGateCReview)) {
     return { ok: false, error: "Gate C reviews are invalid" };
   }
-  if (!evidence.gateCReviews.every((review) => reviewTargetsBundle(review, evidence.sessionId, object.label, recordIds))) {
+  if (!evidence.gateCReviews.every((review) => reviewTargetsBundle(review, sessionId, objectLabel, recordIds))) {
     return { ok: false, error: "Gate C review target does not belong to this evidence bundle" };
   }
   if (evidence.rawMicrophoneSamplesIncluded !== false) {
