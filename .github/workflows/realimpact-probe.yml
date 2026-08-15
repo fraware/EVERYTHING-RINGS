@@ -8,7 +8,7 @@ on:
         required: true
         default: 64_CeramicMug
         type: string
-      max_strikes:
+      max_measurements:
         description: Maximum separate measurements to analyze
         required: true
         default: "8"
@@ -18,6 +18,7 @@ on:
       - gate-a-validation
     paths:
       - ".github/workflows/realimpact-probe.yml"
+      - "packages/fingerprint/test/realimpact.test.ts"
 
 permissions:
   contents: read
@@ -28,7 +29,7 @@ jobs:
     timeout-minutes: 35
     env:
       OBJECT_NAME: ${{ github.event.inputs.object_name || '64_CeramicMug' }}
-      MAX_STRIKES: ${{ github.event.inputs.max_strikes || '8' }}
+      MAX_MEASUREMENTS: ${{ github.event.inputs.max_measurements || '8' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -62,7 +63,7 @@ jobs:
           find .realimpact/extracted -path '*/preprocessed/deconvolved_0db.npy' -print
           df -h .
 
-      - name: Run Gate A external benchmark
+      - name: Run external recurrence benchmark
         run: |
           set -euo pipefail
           response_path="$(find .realimpact/extracted -path '*/preprocessed/deconvolved_0db.npy' -print -quit)"
@@ -74,15 +75,21 @@ jobs:
           object_dir="$(realpath "${object_dir}")"
           echo "REALIMPACT_DIR=${object_dir}"
           REALIMPACT_DIR="${object_dir}" \
-          REALIMPACT_MAX_STRIKES="${MAX_STRIKES}" \
+          REALIMPACT_MAX_MEASUREMENTS="${MAX_MEASUREMENTS}" \
           REALIMPACT_REPORT=/tmp/everything-rings-realimpact.json \
           pnpm --filter @everything-rings/fingerprint test:realimpact
-          echo "--- Gate A external report ---"
-          cat /tmp/everything-rings-realimpact.json
 
-      - name: Upload Gate A report
+      - name: Print external recurrence report
+        if: always()
+        run: |
+          if [ -f /tmp/everything-rings-realimpact.json ]; then
+            cat /tmp/everything-rings-realimpact.json
+          fi
+
+      - name: Upload external recurrence report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: realimpact-gate-a-${{ env.OBJECT_NAME }}
+          name: realimpact-recurrence-${{ env.OBJECT_NAME }}
           path: /tmp/everything-rings-realimpact.json
-          if-no-files-found: error
+          if-no-files-found: warn
