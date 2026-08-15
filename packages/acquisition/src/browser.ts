@@ -11,6 +11,23 @@ export const PREFERRED_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
   autoGainControl: { ideal: false },
 };
 
+export type MicrophoneOpenFailureReason =
+  | "SECURE_CONTEXT_REQUIRED"
+  | "MICROPHONE_UNSUPPORTED"
+  | "MICROPHONE_PERMISSION_DENIED"
+  | "MICROPHONE_NOT_FOUND"
+  | "MICROPHONE_UNAVAILABLE"
+  | "MICROPHONE_CONSTRAINTS_UNSATISFIED"
+  | "MICROPHONE_OPEN_FAILED";
+
+export class MicrophoneOpenError extends Error {
+  readonly name = "MicrophoneOpenError";
+
+  constructor(readonly reason: MicrophoneOpenFailureReason) {
+    super(reason);
+  }
+}
+
 export interface OpenedMicrophone {
   readonly stream: MediaStream;
   readonly track: MediaStreamTrack;
@@ -42,12 +59,52 @@ function settingsSnapshot(settings: MediaTrackSettings): CaptureSettingsSnapshot
   return snapshot;
 }
 
+function errorName(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("name" in error)) return undefined;
+  const name = (error as { readonly name?: unknown }).name;
+  return typeof name === "string" ? name : undefined;
+}
+
+export function classifyMicrophoneOpenFailure(error: unknown): MicrophoneOpenFailureReason {
+  switch (errorName(error)) {
+    case "NotAllowedError":
+    case "PermissionDeniedError":
+    case "SecurityError":
+      return "MICROPHONE_PERMISSION_DENIED";
+    case "NotFoundError":
+    case "DevicesNotFoundError":
+      return "MICROPHONE_NOT_FOUND";
+    case "NotReadableError":
+    case "TrackStartError":
+    case "AbortError":
+      return "MICROPHONE_UNAVAILABLE";
+    case "OverconstrainedError":
+    case "ConstraintNotSatisfiedError":
+      return "MICROPHONE_CONSTRAINTS_UNSATISFIED";
+    default:
+      return "MICROPHONE_OPEN_FAILED";
+  }
+}
+
 export async function openMicrophone(): Promise<OpenedMicrophone> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: PREFERRED_AUDIO_CONSTRAINTS });
+  if (typeof isSecureContext === "boolean" && !isSecureContext) {
+    throw new MicrophoneOpenError("SECURE_CONTEXT_REQUIRED");
+  }
+  if (typeof navigator === "undefined" || navigator.mediaDevices === undefined || typeof navigator.mediaDevices.getUserMedia !== "function") {
+    throw new MicrophoneOpenError("MICROPHONE_UNSUPPORTED");
+  }
+
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: PREFERRED_AUDIO_CONSTRAINTS });
+  } catch (error) {
+    throw new MicrophoneOpenError(classifyMicrophoneOpenFailure(error));
+  }
+
   const track = stream.getAudioTracks()[0];
   if (track === undefined) {
     stream.getTracks().forEach((candidate) => candidate.stop());
-    throw new Error("Microphone stream contained no audio track");
+    throw new MicrophoneOpenError("MICROPHONE_NOT_FOUND");
   }
   try {
     track.contentHint = "music";
