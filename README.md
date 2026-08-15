@@ -8,7 +8,9 @@ EVERYTHING RINGS is a local-first acoustic instrument for estimating the audible
 
 MVP-0 contains the full software path from microphone capture to reveal and play: deterministic impact analysis, capture-quality gates, ringdown isolation, versioned acoustic fingerprints, one-to-one recurrence comparison, modal reconstruction, realtime playable modal synthesis, Acoustic DNA, and the consumer **STRIKE → REVEAL → HEAR → PLAY** loop.
 
-The empirical release gates remain open until representative physical and perceptual evidence passes their frozen contracts. The validation lab now exports versioned fixed-setup evidence, records blinded reconstruction reviews and device playability reviews, and keeps raw microphone PCM local. The Release Console aggregates those bundles into explicit Gate A/B/C verdicts. Synthetic or cross-field tests never substitute for the required local evidence.
+The empirical release gates remain open until representative physical and perceptual evidence passes their frozen contracts. Gate A2 defines each object experiment as the first five acquisition-quality-passing attempts. Once an attempt qualifies, its analytical outcome is immutable: a failed analysis occupies its slot and cannot be retried away. Evidence schema v4 records those success/failure outcomes explicitly, and recurrence is recomputed from retained fingerprints with attempt 1 fixed as the reference.
+
+The validation lab exports the versioned fixed-setup evidence, records blinded reconstruction reviews and device playability reviews, and keeps raw microphone PCM local. The Release Console aggregates those bundles into explicit Gate A2/B/C verdicts. Synthetic or cross-field tests never substitute for the required local evidence.
 
 ## Engineering invariants
 
@@ -20,14 +22,18 @@ The empirical release gates remain open until representative physical and percep
 - Reconstruction synthesizes estimated modes; recorded audio is not mixed into the model output.
 - Realtime notes preserve one global modal frequency ratio and the measured decay constants.
 - Acoustic DNA is a deterministic encoding of the measured fingerprint.
+- Gate A2 never substitutes or replaces a qualified analytical failure.
+- Gate B reviews are bound to one exact passing session/attempt target per object.
+- Gate C inherits the exact Gate B target and requires explicit cross-device evidence.
 - Release thresholds are versioned and frozen before the corresponding empirical dataset is collected.
+- The dependency graph is committed and CI/deployment use frozen lockfile installs.
 - No learned model enters the pipeline until the deterministic baseline is characterized.
 
 ## Development
 
 ```bash
 corepack enable
-pnpm install
+pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm test
 pnpm build
