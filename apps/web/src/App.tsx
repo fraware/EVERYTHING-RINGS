@@ -10,6 +10,7 @@ import {
   type OpenedMicrophone,
 } from "@everything-rings/acquisition";
 import type { AcousticFingerprintV1, AcousticMode } from "@everything-rings/dsp";
+import { fingerprintRecurrence } from "@everything-rings/fingerprint";
 import { useEffect, useMemo, useRef, useState } from "react";
 import captureWorkletUrl from "../../../packages/acquisition/src/worklet/capture-processor.ts?worker&url";
 
@@ -40,10 +41,6 @@ interface SessionResources {
   worker: Worker;
 }
 
-function centsDistance(leftHz: number, rightHz: number): number {
-  return 1200 * Math.abs(Math.log2(rightHz / leftHz));
-}
-
 function median(values: readonly number[]): number | undefined {
   if (values.length === 0) return undefined;
   const ordered = [...values].sort((left, right) => left - right);
@@ -52,22 +49,6 @@ function median(values: readonly number[]): number | undefined {
   if (value === undefined) return undefined;
   if (ordered.length % 2 === 1) return value;
   return ((ordered[middle - 1] ?? value) + value) / 2;
-}
-
-function fingerprintDriftCents(
-  reference: AcousticFingerprintV1,
-  candidate: AcousticFingerprintV1,
-): number | undefined {
-  const referenceModes = reference.modes.slice(0, 8);
-  const distances = referenceModes.map((mode) => {
-    const nearest = [...candidate.modes].sort(
-      (left, right) =>
-        centsDistance(mode.frequencyHz, left.frequencyHz) -
-        centsDistance(mode.frequencyHz, right.frequencyHz),
-    )[0];
-    return nearest === undefined ? undefined : centsDistance(mode.frequencyHz, nearest.frequencyHz);
-  });
-  return median(distances.filter((value): value is number => value !== undefined));
 }
 
 function failureCopy(reason: string): string {
@@ -155,8 +136,11 @@ export function App() {
     if (records.length < 2) return undefined;
     const reference = records[0]?.fingerprint;
     if (reference === undefined) return undefined;
-    const values = records.slice(1).map((record) => fingerprintDriftCents(reference, record.fingerprint));
-    return median(values.filter((value): value is number => value !== undefined));
+    const values = records
+      .slice(1)
+      .map((record) => fingerprintRecurrence(reference, record.fingerprint).medianCents)
+      .filter(Number.isFinite);
+    return median(values);
   }, [records]);
 
   async function start(): Promise<void> {
