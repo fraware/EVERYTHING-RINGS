@@ -10,7 +10,10 @@ import {
   type OpenedMicrophone,
 } from "@everything-rings/acquisition";
 import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
-import type { ModalInstrumentWorkletMessage } from "@everything-rings/instrument";
+import type {
+  ModalInstrumentWorkletEvent,
+  ModalInstrumentWorkletMessage,
+} from "@everything-rings/instrument";
 import { useEffect, useRef, useState } from "react";
 import captureWorkletUrl from "../../../packages/acquisition/src/worklet/capture-processor.ts?worker&url";
 import instrumentWorkletUrl from "./instrument-processor.ts?worker&url";
@@ -29,6 +32,13 @@ export interface StrikeRecord {
   readonly id: number;
   readonly fingerprint: AcousticFingerprintV1;
   readonly quality: CaptureQuality;
+}
+
+export interface RealtimeAudioTiming {
+  readonly baseLatencyMs: number;
+  readonly outputLatencyMs?: number;
+  readonly renderQuantumMs: number;
+  readonly lastSchedulingMs?: number;
 }
 
 interface SessionResources {
@@ -62,6 +72,18 @@ function playSamples(context: AudioContext, samples: Float32Array, sampleRate: n
   source.start();
 }
 
+function initialAudioTiming(context: AudioContext): RealtimeAudioTiming {
+  const outputLatency = (context as AudioContext & { readonly outputLatency?: number }).outputLatency;
+  const timing: RealtimeAudioTiming = {
+    baseLatencyMs: context.baseLatency * 1000,
+    renderQuantumMs: 128 / context.sampleRate * 1000,
+  };
+  if (typeof outputLatency === "number" && Number.isFinite(outputLatency)) {
+    return { ...timing, outputLatencyMs: outputLatency * 1000 };
+  }
+  return timing;
+}
+
 export function useStrikeSession() {
   const [state, setState] = useState<StrikeSessionState>("idle");
   const [settings, setSettings] = useState<CaptureSettingsSnapshot>();
@@ -72,10 +94,13 @@ export function useStrikeSession() {
   const [records, setRecords] = useState<StrikeRecord[]>([]);
   const [instrumentReady, setInstrumentReady] = useState(false);
   const [instrumentFailure, setInstrumentFailure] = useState<string>();
+  const [audioTiming, setAudioTiming] = useState<RealtimeAudioTiming>();
   const resources = useRef<SessionResources | undefined>(undefined);
   const requestId = useRef(0);
   const pendingQuality = useRef<CaptureQuality | undefined>(undefined);
   const instrumentPreparation = useRef<Promise<void> | undefined>(undefined);
+  const nextInstrumentEventId = useRef(1);
+  const pendingInstrumentEvents = useRef(new Map<number, number>());
 
   function postInstrument(message: ModalInstrumentWorkletMessage): boolean {
     const node = resources.current?.instrument;
@@ -99,6 +124,15 @@ export function useStrikeSession() {
           numberOfOutputs: 1,
           outputChannelCount: [1],
         });
+        node.port.onmessage = (event: MessageEvent<ModalInstrumentWorkletEvent>) => {
+          if (event.data.type !== "NOTE_STARTED") return;
+          const sentContextTime = pendingInstrumentEvents.current.get(event.data.eventId);
+          if (sentContextTime === undefined) return;
+          pendingInstrumentEvents.current.delete(event.data.eventId);
+          const scheduledContextTime = event.data.frame / context.sampleRate;
+          const schedulingMs = Math.max(0, (scheduledContextTime - sentContextTime) * 1000);
+          setAudioTiming((value) => value === undefined ? value : { ...value, lastSchedulingMs: schedulingMs });
+        };
         node.connect(context.destination);
         current.instrument = node;
       })();
@@ -143,6 +177,7 @@ export function useStrikeSession() {
     void current.context.close();
     resources.current = undefined;
     instrumentPreparation.current = undefined;
+    pendingInstrumentEvents.current.clear();
     setInstrumentReady(false);
   }
 
@@ -160,6 +195,7 @@ export function useStrikeSession() {
       setQuality(undefined);
       setRecords([]);
       setInstrumentFailure(undefined);
+      setAudioTiming(undefined);
       pendingQuality.current = undefined;
       setState("warming");
 
@@ -175,6 +211,7 @@ export function useStrikeSession() {
       const worker = openingWorker;
       resources.current = { context, microphone, graph, worker };
       setSettings(microphone.settings);
+      setAudioTiming(initialAudioTiming(context));
 
       graph.node.port.onmessage = (event: MessageEvent<CaptureWorkletEvent>) => {
         if (event.data.type === "STATE") {
@@ -251,6 +288,7 @@ export function useStrikeSession() {
     setInstrumentReady(false);
     setInstrumentFailure(undefined);
     pendingQuality.current = undefined;
+    pendingInstrumentEvents.current.clear();
     postInstrument({ type: "ALL_NOTES_OFF" });
     const node = resources.current?.graph.node;
     if (node === undefined) {
@@ -273,11 +311,18 @@ export function useStrikeSession() {
   }
 
   function noteOn(midiNote: number, velocity = 1): boolean {
-    if (!instrumentReady) return false;
-    return postInstrument({ type: "NOTE_ON", midiNote, velocity });
+    const current = resources.current;
+    if (!instrumentReady || current?.instrument === undefined) return false;
+    const eventId = nextInstrumentEventId.current;
+    nextInstrumentEventId.current += 1;
+    pendingInstrumentEvents.current.set(eventId, current.context.currentTime);
+    const message: ModalInstrumentWorkletMessage = { type: "NOTE_ON", midiNote, velocity, eventId };
+    current.instrument.port.postMessage(message);
+    return true;
   }
 
   function allNotesOff(): void {
+    pendingInstrumentEvents.current.clear();
     postInstrument({ type: "ALL_NOTES_OFF" });
   }
 
@@ -297,6 +342,7 @@ export function useStrikeSession() {
     records,
     instrumentReady,
     instrumentFailure,
+    audioTiming,
     start,
     reset,
     stop,
