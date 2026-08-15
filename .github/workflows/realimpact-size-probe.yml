@@ -11,11 +11,11 @@ permissions:
 jobs:
   sizes:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Probe representative object archive sizes
         run: |
-          set -euo pipefail
+          set -u -o pipefail
           objects=(
             64_CeramicMug
             94_GlassGoblet
@@ -28,8 +28,14 @@ jobs:
           printf '%-24s %14s %10s\n' OBJECT BYTES MIB
           for object in "${objects[@]}"; do
             url="https://downloads.cs.stanford.edu/viscam/RealImpact/${object}.zip"
-            bytes="$(curl --fail --silent --show-error --location --head --max-time 60 "${url}" \
-              | awk 'BEGIN{IGNORECASE=1} /^content-length:/ {gsub("\\r", "", $2); value=$2} END{print value}')"
-            mib="$(python -c "print(f'{int(${bytes}) / 1024 / 1024:.2f}')")"
-            printf '%-24s %14s %10s\n' "${object}" "${bytes}" "${mib}"
+            headers="$(curl --fail --silent --show-error --location --head --max-time 60 \
+              --retry 4 --retry-all-errors --retry-delay 3 "${url}" 2>/dev/null || true)"
+            bytes="$(printf '%s\n' "${headers}" | awk 'BEGIN{IGNORECASE=1} /^content-length:/ {gsub("\\r", "", $2); value=$2} END{print value}')"
+            if [ -z "${bytes}" ]; then
+              printf '%-24s %14s %10s\n' "${object}" UNAVAILABLE "—"
+            else
+              mib="$(python -c "print(f'{int(${bytes}) / 1024 / 1024:.2f}')")"
+              printf '%-24s %14s %10s\n' "${object}" "${bytes}" "${mib}"
+            fi
+            sleep 2
           done
