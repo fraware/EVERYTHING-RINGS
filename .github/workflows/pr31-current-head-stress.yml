@@ -148,8 +148,12 @@ jobs:
           node - <<'NODE'
           const fs = require('fs');
           const report = JSON.parse(fs.readFileSync('/tmp/everything-rings-realimpact.json', 'utf8'));
-          if (report.algorithmVersion !== 'er-dsp-2') {
-            throw new Error(`expected RealImpact algorithmVersion er-dsp-2; received ${report.algorithmVersion}`);
+          if (JSON.stringify(report.fingerprintAlgorithmVersions) !== JSON.stringify(['er-dsp-2'])) {
+            throw new Error(`expected RealImpact fingerprintAlgorithmVersions [\"er-dsp-2\"]; received ${JSON.stringify(report.fingerprintAlgorithmVersions)}`);
+          }
+          const successful = (report.attempts ?? []).filter((attempt) => attempt.ok === true);
+          if (successful.length < 3 || successful.some((attempt) => attempt.algorithmVersion !== 'er-dsp-2')) {
+            throw new Error('successful RealImpact attempts must all record er-dsp-2 provenance');
           }
           if (report.releaseGateEquivalent !== false) {
             throw new Error('RealImpact positive control must remain explicitly non-gate-equivalent');
