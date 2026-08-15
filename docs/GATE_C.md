@@ -44,7 +44,9 @@ An eligible object passes when:
 - median useful range spans at least 12 semitones;
 - every counted device review for that object accepts note-on latency.
 
-Gate C passes when at least four Gate B objects have eligible device reviews and all four pass, the evidence covers at least two distinct normalized device IDs, and at least one consistently identified device is mobile.
+Gate C passes when at least four Gate B objects have eligible device reviews and all four pass. **Device diversity is computed only from reviews attached to Gate C-passing objects:** those passing-object reviews must cover at least two distinct normalized device IDs, and at least one of those devices must be consistently identified as mobile. A mobile review attached only to an object that fails Gate C cannot satisfy the release mobile/device-diversity requirement.
+
+Device-class consistency is checked across all eligible selected-target reviews, including reviews for objects that fail Gate C. A contradictory device identity remains an evidence-integrity failure even when that review does not contribute to the passing-object device count.
 
 Software scheduling telemetry, modal-ratio preservation, and browser latency reports remain supporting diagnostics. They do not independently satisfy Gate C.
 
