@@ -10,8 +10,10 @@ import {
   type OpenedMicrophone,
 } from "@everything-rings/acquisition";
 import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
+import type { ModalInstrumentWorkletMessage } from "@everything-rings/instrument";
 import { useEffect, useRef, useState } from "react";
 import captureWorkletUrl from "../../../packages/acquisition/src/worklet/capture-processor.ts?worker&url";
+import instrumentWorkletUrl from "./instrument-processor.ts?worker&url";
 
 export type StrikeSessionState =
   | "idle"
@@ -34,6 +36,7 @@ interface SessionResources {
   microphone: OpenedMicrophone;
   graph: CaptureGraph;
   worker: Worker;
+  instrument?: AudioWorkletNode;
 }
 
 type AnalysisResponse =
@@ -67,18 +70,80 @@ export function useStrikeSession() {
   const [fingerprint, setFingerprint] = useState<AcousticFingerprintV1>();
   const [failureReason, setFailureReason] = useState<string>();
   const [records, setRecords] = useState<StrikeRecord[]>([]);
+  const [instrumentReady, setInstrumentReady] = useState(false);
+  const [instrumentFailure, setInstrumentFailure] = useState<string>();
   const resources = useRef<SessionResources | undefined>(undefined);
   const requestId = useRef(0);
   const pendingQuality = useRef<CaptureQuality | undefined>(undefined);
+  const instrumentPreparation = useRef<Promise<void> | undefined>(undefined);
+
+  function postInstrument(message: ModalInstrumentWorkletMessage): boolean {
+    const node = resources.current?.instrument;
+    if (node === undefined) return false;
+    node.port.postMessage(message);
+    return true;
+  }
+
+  async function ensureInstrument(): Promise<AudioWorkletNode | undefined> {
+    const current = resources.current;
+    if (current === undefined) return undefined;
+    if (current.instrument !== undefined) return current.instrument;
+
+    if (instrumentPreparation.current === undefined) {
+      const context = current.context;
+      const preparation = (async () => {
+        await context.audioWorklet.addModule(instrumentWorkletUrl);
+        if (resources.current !== current || current.instrument !== undefined) return;
+        const node = new AudioWorkletNode(context, "everything-rings-instrument", {
+          numberOfInputs: 0,
+          numberOfOutputs: 1,
+          outputChannelCount: [1],
+        });
+        node.connect(context.destination);
+        current.instrument = node;
+      })();
+      instrumentPreparation.current = preparation;
+      try {
+        await preparation;
+      } finally {
+        if (instrumentPreparation.current === preparation) instrumentPreparation.current = undefined;
+      }
+    } else {
+      await instrumentPreparation.current;
+    }
+
+    return resources.current === current ? current.instrument : undefined;
+  }
+
+  async function prepareInstrument(nextFingerprint: AcousticFingerprintV1): Promise<void> {
+    setInstrumentReady(false);
+    setInstrumentFailure(undefined);
+    try {
+      const node = await ensureInstrument();
+      if (node === undefined) return;
+      const message: ModalInstrumentWorkletMessage = {
+        type: "SET_FINGERPRINT",
+        fingerprint: nextFingerprint,
+      };
+      node.port.postMessage(message);
+      setInstrumentReady(true);
+    } catch (error) {
+      setInstrumentFailure(error instanceof Error ? error.message : String(error));
+      setInstrumentReady(false);
+    }
+  }
 
   function disposeResources(): void {
     const current = resources.current;
     if (current === undefined) return;
+    current.instrument?.disconnect();
     current.graph.disconnect();
     current.microphone.stream.getTracks().forEach((track) => track.stop());
     current.worker.terminate();
     void current.context.close();
     resources.current = undefined;
+    instrumentPreparation.current = undefined;
+    setInstrumentReady(false);
   }
 
   async function start(): Promise<void> {
@@ -94,6 +159,7 @@ export function useStrikeSession() {
       setCapture(undefined);
       setQuality(undefined);
       setRecords([]);
+      setInstrumentFailure(undefined);
       pendingQuality.current = undefined;
       setState("warming");
 
@@ -158,6 +224,7 @@ export function useStrikeSession() {
           },
         ]);
         setState("success");
+        void prepareInstrument(nextFingerprint);
       };
 
       worker.onerror = (event) => {
@@ -181,7 +248,10 @@ export function useStrikeSession() {
     setFingerprint(undefined);
     setCapture(undefined);
     setQuality(undefined);
+    setInstrumentReady(false);
+    setInstrumentFailure(undefined);
     pendingQuality.current = undefined;
+    postInstrument({ type: "ALL_NOTES_OFF" });
     const node = resources.current?.graph.node;
     if (node === undefined) {
       setState("idle");
@@ -202,6 +272,15 @@ export function useStrikeSession() {
     playSamples(context, samples, sampleRate);
   }
 
+  function noteOn(midiNote: number, velocity = 1): boolean {
+    if (!instrumentReady) return false;
+    return postInstrument({ type: "NOTE_ON", midiNote, velocity });
+  }
+
+  function allNotesOff(): void {
+    postInstrument({ type: "ALL_NOTES_OFF" });
+  }
+
   function playbackSampleRate(): number | undefined {
     return resources.current?.context.sampleRate;
   }
@@ -216,10 +295,14 @@ export function useStrikeSession() {
     fingerprint,
     failureReason,
     records,
+    instrumentReady,
+    instrumentFailure,
     start,
     reset,
     stop,
     play,
+    noteOn,
+    allNotesOff,
     playbackSampleRate,
   } as const;
 }
