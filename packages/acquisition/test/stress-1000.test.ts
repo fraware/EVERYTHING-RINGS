@@ -25,7 +25,9 @@ describe("1,000-case acquisition stress", () => {
         model.push(...Array.from(chunk));
         if (model.length > capacity) model.splice(0, model.length - capacity);
         const requested = Math.floor(random() * (capacity * 2 + 1));
-        expect(Array.from(ring.copyLast(requested))).toEqual(model.slice(-Math.min(requested, model.length)));
+        const count = Math.min(requested, model.length);
+        const expected = count === 0 ? [] : model.slice(-count);
+        expect(Array.from(ring.copyLast(requested))).toEqual(expected);
         expect(ring.availableSamples).toBe(model.length);
       }
       ring.clear();
