@@ -1,20 +1,24 @@
 import { deriveEvidenceRecurrence, deriveMedianModalDriftCents } from "./derive";
 import type {
+  AnalysisFailureReasonEvidence,
   DeviceClass,
   EvidenceRecurrence,
   MaterialClass,
-  ValidationEvidenceRecord,
-  ValidationEvidenceV3,
+  ValidationEvidenceAttempt,
+  ValidationEvidenceV4,
 } from "./types";
 
 export type EvidenceParseResult =
-  | { readonly ok: true; readonly evidence: ValidationEvidenceV3 }
+  | { readonly ok: true; readonly evidence: ValidationEvidenceV4 }
   | { readonly ok: false; readonly error: string };
 
 const MATERIALS: readonly MaterialClass[] = [
   "metal", "glass", "ceramic", "wood", "stone", "plastic", "composite", "other",
 ];
 const DEVICE_CLASSES: readonly DeviceClass[] = ["desktop", "mobile", "tablet", "other"];
+const ANALYSIS_FAILURE_REASONS: readonly AnalysisFailureReasonEvidence[] = [
+  "SIGNAL_TOO_SHORT", "NO_STABLE_RESONANCES", "ANALYSIS_INTERNAL_ERROR",
+];
 const NUMBER_TOLERANCE = 1e-9;
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -37,16 +41,12 @@ function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function normalizedLabel(value: string): string {
+function normalized(value: string): string {
   return value.trim().toLocaleLowerCase("en-US");
 }
 
 function score(value: unknown): boolean {
-  return Number.isInteger(value) && typeof value === "number" && value >= 1 && value <= 5;
-}
-
-function optionalFiniteNumber(value: unknown): boolean {
-  return value === undefined || finiteNumber(value);
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 5;
 }
 
 function optionalNonNegativeNumber(value: unknown): boolean {
@@ -126,7 +126,7 @@ function validFingerprint(value: unknown): boolean {
   if (fingerprint.version !== 1 || fingerprint.algorithmVersion !== "er-dsp-1") return false;
   if (!finiteNumber(fingerprint.sampleRate) || fingerprint.sampleRate <= 0) return false;
   if (!finiteNumber(fingerprint.durationSeconds) || fingerprint.durationSeconds <= 0) return false;
-  if (!Array.isArray(fingerprint.modes) || fingerprint.modes.length > 16) return false;
+  if (!Array.isArray(fingerprint.modes) || fingerprint.modes.length < 3 || fingerprint.modes.length > 16) return false;
   const nyquistHz = fingerprint.sampleRate / 2;
   return fingerprint.modes.every((value) => {
     const mode = record(value);
@@ -148,6 +148,15 @@ function validFingerprint(value: unknown): boolean {
   });
 }
 
+function validAnalysis(value: unknown): boolean {
+  const analysis = record(value);
+  if (analysis === undefined) return false;
+  if (analysis.status === "success") return validFingerprint(analysis.fingerprint);
+  return analysis.status === "failure"
+    && typeof analysis.reason === "string"
+    && ANALYSIS_FAILURE_REASONS.includes(analysis.reason as AnalysisFailureReasonEvidence);
+}
+
 function validModeMatch(value: unknown): boolean {
   const match = record(value);
   if (match === undefined) return false;
@@ -166,7 +175,7 @@ function validModeMatch(value: unknown): boolean {
 function validRecurrence(value: unknown): boolean {
   const recurrence = record(value);
   if (recurrence === undefined
-    || !positiveInteger(recurrence.recordId)
+    || !positiveInteger(recurrence.attemptId)
     || !finiteNumber(recurrence.medianCents)
     || recurrence.medianCents < 0
     || !finiteNumber(recurrence.meanCents)
@@ -189,7 +198,7 @@ function validGateBReview(value: unknown): boolean {
     && nonEmptyString(review.reviewerId)
     && nonEmptyString(review.objectLabel)
     && nonEmptyString(review.sessionId)
-    && positiveInteger(review.recordId)
+    && positiveInteger(review.attemptId)
     && typeof review.blinded === "boolean"
     && (review.presentationOrder === "original-model" || review.presentationOrder === "model-original")
     && score(review.identity)
@@ -205,7 +214,7 @@ function validGateCReview(value: unknown): boolean {
     && nonEmptyString(review.reviewerId)
     && nonEmptyString(review.objectLabel)
     && nonEmptyString(review.sessionId)
-    && positiveInteger(review.recordId)
+    && positiveInteger(review.attemptId)
     && nonEmptyString(review.deviceId)
     && typeof review.deviceClass === "string"
     && DEVICE_CLASSES.includes(review.deviceClass as DeviceClass)
@@ -219,19 +228,19 @@ function reviewTargetsBundle(
   value: unknown,
   sessionId: string,
   objectLabel: string,
-  recordIds: ReadonlySet<number>,
+  successfulAttemptIds: ReadonlySet<number>,
 ): boolean {
   const review = record(value);
   return review !== undefined
     && review.sessionId === sessionId
     && typeof review.objectLabel === "string"
-    && normalizedLabel(review.objectLabel) === normalizedLabel(objectLabel)
-    && typeof review.recordId === "number"
-    && recordIds.has(review.recordId);
+    && normalized(review.objectLabel) === normalized(objectLabel)
+    && typeof review.attemptId === "number"
+    && successfulAttemptIds.has(review.attemptId);
 }
 
 function recurrenceMatchesDerived(cached: EvidenceRecurrence, derived: EvidenceRecurrence): boolean {
-  if (cached.recordId !== derived.recordId
+  if (cached.attemptId !== derived.attemptId
     || cached.matchedCount !== derived.matchedCount
     || cached.unmatchedReferenceCount !== derived.unmatchedReferenceCount
     || !closeNumber(cached.medianCents, derived.medianCents)
@@ -244,7 +253,7 @@ function recurrenceMatchesDerived(cached: EvidenceRecurrence, derived: EvidenceR
     return cachedMatch.referenceIndex === derivedMatch.referenceIndex
       && cachedMatch.candidateIndex === derivedMatch.candidateIndex
       && closeNumber(cachedMatch.referenceFrequencyHz, derivedMatch.referenceFrequencyHz)
-      && cachedMatch.candidateFrequencyHz === undefined === (derivedMatch.candidateFrequencyHz === undefined)
+      && (cachedMatch.candidateFrequencyHz === undefined) === (derivedMatch.candidateFrequencyHz === undefined)
       && (cachedMatch.candidateFrequencyHz === undefined
         || derivedMatch.candidateFrequencyHz === undefined
         || closeNumber(cachedMatch.candidateFrequencyHz, derivedMatch.candidateFrequencyHz))
@@ -252,14 +261,61 @@ function recurrenceMatchesDerived(cached: EvidenceRecurrence, derived: EvidenceR
   });
 }
 
+function validateReviewUniqueness(evidence: Record<string, unknown>): string | undefined {
+  const gateBReviews = evidence.gateBReviews as unknown[];
+  const gateCReviews = evidence.gateCReviews as unknown[];
+  const reviewIds = new Set<string>();
+  const gateBLogical = new Set<string>();
+  const gateCLogical = new Set<string>();
+  const deviceClassById = new Map<string, string>();
+
+  for (const value of [...gateBReviews, ...gateCReviews]) {
+    const review = record(value);
+    if (review === undefined || typeof review.reviewId !== "string") return "review ID is invalid";
+    const reviewId = review.reviewId.trim();
+    if (reviewIds.has(reviewId)) return "review IDs must be unique within an evidence bundle";
+    reviewIds.add(reviewId);
+  }
+
+  for (const value of gateBReviews) {
+    const review = record(value);
+    if (review === undefined || typeof review.reviewerId !== "string" || typeof review.sessionId !== "string" || typeof review.attemptId !== "number") {
+      return "Gate B reviews are invalid";
+    }
+    const key = `${normalized(review.reviewerId)}\u0000${review.sessionId}\u0000${review.attemptId}`;
+    if (gateBLogical.has(key)) return "Gate B contains duplicate logical reviewer judgments";
+    gateBLogical.add(key);
+  }
+
+  for (const value of gateCReviews) {
+    const review = record(value);
+    if (review === undefined
+      || typeof review.reviewerId !== "string"
+      || typeof review.deviceId !== "string"
+      || typeof review.deviceClass !== "string"
+      || typeof review.sessionId !== "string"
+      || typeof review.attemptId !== "number") return "Gate C reviews are invalid";
+    const deviceId = normalized(review.deviceId);
+    const previousClass = deviceClassById.get(deviceId);
+    if (previousClass !== undefined && previousClass !== review.deviceClass) {
+      return `device ID ${review.deviceId.trim()} has conflicting device classes`;
+    }
+    deviceClassById.set(deviceId, review.deviceClass);
+    const key = `${normalized(review.reviewerId)}\u0000${deviceId}\u0000${review.sessionId}\u0000${review.attemptId}`;
+    if (gateCLogical.has(key)) return "Gate C contains duplicate logical reviewer/device judgments";
+    gateCLogical.add(key);
+  }
+  return undefined;
+}
+
 export function parseValidationEvidence(value: unknown): EvidenceParseResult {
   const evidence = record(value);
   if (evidence === undefined) return { ok: false, error: "evidence must be a JSON object" };
-  if (evidence.schemaVersion !== 3) return { ok: false, error: "requires validation evidence schema version 3" };
-  if (evidence.evidenceContractVersion !== "validation-evidence-3") {
+  if (evidence.schemaVersion !== 4) return { ok: false, error: "requires validation evidence schema version 4" };
+  if (evidence.evidenceContractVersion !== "validation-evidence-4") {
     return { ok: false, error: "unsupported evidence contract" };
   }
-  if (evidence.gateAContractVersion !== "gate-a-1") return { ok: false, error: "unsupported Gate A contract" };
+  if (evidence.gateAContractVersion !== "gate-a-2") return { ok: false, error: "unsupported Gate A contract" };
   if (!nonEmptyString(evidence.sessionId)) return { ok: false, error: "sessionId is missing" };
   if (!nonEmptyString(evidence.createdAt) || !Number.isFinite(Date.parse(evidence.createdAt))) {
     return { ok: false, error: "createdAt is invalid" };
@@ -284,73 +340,70 @@ export function parseValidationEvidence(value: unknown): EvidenceParseResult {
   if (!validCaptureSettings(evidence.captureSettings)) return { ok: false, error: "capture settings are invalid" };
   if (!validAudioTiming(evidence.realtimeAudioTiming)) return { ok: false, error: "realtime audio timing is invalid" };
 
-  if (!nonNegativeInteger(evidence.recordCount)) return { ok: false, error: "recordCount is invalid" };
+  if (!nonNegativeInteger(evidence.attemptCount)) return { ok: false, error: "attemptCount is invalid" };
   if (!(evidence.medianModalDriftCents === null || (finiteNumber(evidence.medianModalDriftCents) && evidence.medianModalDriftCents >= 0))) {
     return { ok: false, error: "median modal drift is invalid" };
   }
-  if (!Array.isArray(evidence.records) || !evidence.records.every((value) => {
-    const entry = record(value);
-    return entry !== undefined && positiveInteger(entry.id) && validQuality(entry.quality) && validFingerprint(entry.fingerprint);
+  if (!Array.isArray(evidence.attempts) || !evidence.attempts.every((value) => {
+    const attempt = record(value);
+    return attempt !== undefined
+      && positiveInteger(attempt.id)
+      && validQuality(attempt.quality)
+      && validAnalysis(attempt.analysis);
   })) {
-    return { ok: false, error: "measurement records are invalid" };
+    return { ok: false, error: "qualified attempts are invalid" };
   }
-  const records = evidence.records as unknown as readonly ValidationEvidenceRecord[];
-  const recordIds = new Set<number>();
-  for (let index = 0; index < records.length; index += 1) {
-    const entry = records[index];
-    if (entry === undefined) return { ok: false, error: "measurement records are invalid" };
-    if (recordIds.has(entry.id)) return { ok: false, error: "measurement record IDs must be unique" };
-    if (entry.id !== index + 1) return { ok: false, error: "measurement record IDs must be sequential from 1" };
-    recordIds.add(entry.id);
+  const attempts = evidence.attempts as unknown as readonly ValidationEvidenceAttempt[];
+  const successfulAttemptIds = new Set<number>();
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = attempts[index];
+    if (attempt === undefined || attempt.id !== index + 1) {
+      return { ok: false, error: "qualified attempt IDs must be sequential from 1" };
+    }
+    if (attempt.analysis.status === "success") successfulAttemptIds.add(attempt.id);
   }
-  if (evidence.recordCount !== records.length) {
-    return { ok: false, error: "recordCount does not match measurement records" };
+  if (evidence.attemptCount !== attempts.length) {
+    return { ok: false, error: "attemptCount does not match qualified attempts" };
   }
 
   if (!Array.isArray(evidence.recurrence) || !evidence.recurrence.every(validRecurrence)) {
     return { ok: false, error: "recurrence data is invalid" };
   }
   const cachedRecurrence = evidence.recurrence as unknown as readonly EvidenceRecurrence[];
-  const derivedRecurrence = deriveEvidenceRecurrence(records);
+  const derivedRecurrence = deriveEvidenceRecurrence(attempts);
   if (cachedRecurrence.length !== derivedRecurrence.length
     || !cachedRecurrence.every((cached, index) => {
       const derived = derivedRecurrence[index];
       return derived !== undefined && recurrenceMatchesDerived(cached, derived);
     })) {
-    return { ok: false, error: "recurrence cache does not match the measurement fingerprints" };
+    return { ok: false, error: "recurrence cache does not match the qualified-attempt fingerprints" };
   }
-  const derivedMedianDrift = deriveMedianModalDriftCents(records);
+  const derivedMedianDrift = deriveMedianModalDriftCents(attempts);
   if (derivedMedianDrift === null) {
     if (evidence.medianModalDriftCents !== null) return { ok: false, error: "median modal drift cache is inconsistent" };
   } else if (evidence.medianModalDriftCents === null || !closeNumber(evidence.medianModalDriftCents, derivedMedianDrift)) {
-    return { ok: false, error: "median modal drift cache does not match the measurement fingerprints" };
+    return { ok: false, error: "median modal drift cache does not match the qualified-attempt fingerprints" };
   }
 
   if (!Array.isArray(evidence.gateBReviews) || !evidence.gateBReviews.every(validGateBReview)) {
     return { ok: false, error: "Gate B reviews are invalid" };
   }
-  if (!evidence.gateBReviews.every((review) => reviewTargetsBundle(review, sessionId, objectLabel, recordIds))) {
-    return { ok: false, error: "Gate B review target does not belong to this evidence bundle" };
+  if (!evidence.gateBReviews.every((review) => reviewTargetsBundle(review, sessionId, objectLabel, successfulAttemptIds))) {
+    return { ok: false, error: "Gate B review target does not belong to a successful attempt in this evidence bundle" };
   }
   if (!Array.isArray(evidence.gateCReviews) || !evidence.gateCReviews.every(validGateCReview)) {
     return { ok: false, error: "Gate C reviews are invalid" };
   }
-  if (!evidence.gateCReviews.every((review) => reviewTargetsBundle(review, sessionId, objectLabel, recordIds))) {
-    return { ok: false, error: "Gate C review target does not belong to this evidence bundle" };
+  if (!evidence.gateCReviews.every((review) => reviewTargetsBundle(review, sessionId, objectLabel, successfulAttemptIds))) {
+    return { ok: false, error: "Gate C review target does not belong to a successful attempt in this evidence bundle" };
   }
-  const reviewIds = new Set<string>();
-  for (const value of [...evidence.gateBReviews, ...evidence.gateCReviews]) {
-    const review = record(value);
-    if (review === undefined || typeof review.reviewId !== "string") return { ok: false, error: "review ID is invalid" };
-    const key = review.reviewId.trim();
-    if (reviewIds.has(key)) return { ok: false, error: "review IDs must be unique within an evidence bundle" };
-    reviewIds.add(key);
-  }
+  const uniquenessError = validateReviewUniqueness(evidence);
+  if (uniquenessError !== undefined) return { ok: false, error: uniquenessError };
   if (evidence.rawMicrophoneSamplesIncluded !== false) {
     return { ok: false, error: "raw microphone samples invariant failed" };
   }
 
-  return { ok: true, evidence: evidence as unknown as ValidationEvidenceV3 };
+  return { ok: true, evidence: evidence as unknown as ValidationEvidenceV4 };
 }
 
 export function parseValidationEvidenceJson(text: string): EvidenceParseResult {
