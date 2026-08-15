@@ -1,4 +1,4 @@
-name: realimpact-probe
+name: realimpact-benchmark
 
 on:
   pull_request:
@@ -9,30 +9,55 @@ permissions:
   contents: read
 
 jobs:
-  probe:
+  benchmark:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 35
+    env:
+      OBJECT_NAME: 64_CeramicMug
     steps:
-      - name: Probe RealImpact object archive
-        env:
-          OBJECT_NAME: 64_CeramicMug
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Download RealImpact object
         run: |
           set -euo pipefail
+          mkdir -p .realimpact
           url="https://downloads.cs.stanford.edu/viscam/RealImpact/${OBJECT_NAME}.zip"
-          echo "url=${url}"
-          curl --fail --silent --show-error --location --head --max-time 60 "${url}" | tee headers.txt
-          python - <<'PY'
-          import re
-          headers = open("headers.txt", encoding="utf-8").read().splitlines()
-          lengths = []
-          for line in headers:
-              match = re.match(r"(?i)^content-length:\s*(\d+)", line.strip())
-              if match:
-                  lengths.append(int(match.group(1)))
-          if lengths:
-              size = lengths[-1]
-              print(f"final_content_length_bytes={size}")
-              print(f"final_content_length_mib={size / 1024 / 1024:.2f}")
-          else:
-              print("final_content_length=unknown")
-          PY
+          echo "Downloading ${url}"
+          df -h .
+          curl --fail --show-error --location --retry 3 --retry-delay 5 --output ".realimpact/${OBJECT_NAME}.zip" "${url}"
+          ls -lh ".realimpact/${OBJECT_NAME}.zip"
+
+      - name: Extract object archive
+        run: |
+          set -euo pipefail
+          unzip -q ".realimpact/${OBJECT_NAME}.zip" -d .realimpact/extracted
+          rm ".realimpact/${OBJECT_NAME}.zip"
+          find .realimpact/extracted -path '*/preprocessed/sounds.npy' -print
+          df -h .
+
+      - name: Run Gate A external benchmark
+        run: |
+          set -euo pipefail
+          sounds_path="$(find .realimpact/extracted -path '*/preprocessed/sounds.npy' -print -quit)"
+          if [ -z "${sounds_path}" ]; then
+            echo "Could not locate preprocessed/sounds.npy" >&2
+            exit 1
+          fi
+          object_dir="$(dirname "$(dirname "${sounds_path}")")"
+          echo "REALIMPACT_DIR=${object_dir}"
+          REALIMPACT_DIR="${object_dir}" \
+          REALIMPACT_MAX_STRIKES=8 \
+          REALIMPACT_REPORT=/tmp/everything-rings-realimpact.json \
+          pnpm --filter @everything-rings/dsp test:realimpact
+          echo "--- Gate A external report ---"
+          cat /tmp/everything-rings-realimpact.json
