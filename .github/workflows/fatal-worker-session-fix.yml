@@ -1,0 +1,69 @@
+name: fatal-worker-session-fix
+
+on:
+  push:
+    branches: [release-validation]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: release-validation
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Apply exact worker-failure policy
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('apps/web/src/useStrikeSession.ts')
+          text = path.read_text()
+          old = '''        const retained = settleCurrentAttempt(
+          pendingRequest,
+          { status: "failure", reason: "ANALYSIS_INTERNAL_ERROR" },
+        );
+        requestId.current += 1;
+        setFingerprint(undefined);
+        setFailureReason(event.message || "Analysis worker failed");
+        setState(retained ? "failure" : "error");'''
+          new = '''        settleCurrentAttempt(
+          pendingRequest,
+          { status: "failure", reason: "ANALYSIS_INTERNAL_ERROR" },
+        );
+        requestId.current += 1;
+        setFingerprint(undefined);
+        setFailureReason(event.message || "Analysis worker failed");
+        setState("error");'''
+          assert text.count(old) == 1, text.count(old)
+          path.write_text(text.replace(old, new))
+          PY
+          git diff --check
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Test
+        run: pnpm test
+      - name: Build
+        run: pnpm build
+      - name: Browser smoke
+        run: bash scripts/browser-smoke.sh
+      - name: Commit verified fix
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/fatal-worker-session-fix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Terminate validation sessions on worker failure'
+          git push origin HEAD:release-validation
