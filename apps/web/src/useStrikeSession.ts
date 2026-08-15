@@ -82,6 +82,11 @@ export function useStrikeSession() {
   }
 
   async function start(): Promise<void> {
+    let openingMicrophone: OpenedMicrophone | undefined;
+    let openingContext: AudioContext | undefined;
+    let openingGraph: CaptureGraph | undefined;
+    let openingWorker: Worker | undefined;
+
     try {
       disposeResources();
       setFailureReason(undefined);
@@ -92,11 +97,16 @@ export function useStrikeSession() {
       pendingQuality.current = undefined;
       setState("warming");
 
-      const microphone = await openMicrophone();
-      const context = new AudioContext();
-      await context.resume();
-      const graph = await createCaptureGraph(context, microphone.stream, captureWorkletUrl);
-      const worker = new Worker(new URL("./analysis.worker.ts", import.meta.url), { type: "module" });
+      openingMicrophone = await openMicrophone();
+      openingContext = new AudioContext();
+      await openingContext.resume();
+      openingGraph = await createCaptureGraph(openingContext, openingMicrophone.stream, captureWorkletUrl);
+      openingWorker = new Worker(new URL("./analysis.worker.ts", import.meta.url), { type: "module" });
+
+      const microphone = openingMicrophone;
+      const context = openingContext;
+      const graph = openingGraph;
+      const worker = openingWorker;
       resources.current = { context, microphone, graph, worker };
       setSettings(microphone.settings);
 
@@ -149,7 +159,18 @@ export function useStrikeSession() {
         ]);
         setState("success");
       };
+
+      worker.onerror = (event) => {
+        setFailureReason(event.message || "Analysis worker failed");
+        setState("error");
+      };
     } catch (error) {
+      if (resources.current === undefined) {
+        openingGraph?.disconnect();
+        openingWorker?.terminate();
+        openingMicrophone?.stream.getTracks().forEach((track) => track.stop());
+        if (openingContext !== undefined) void openingContext.close();
+      }
       setFailureReason(error instanceof Error ? error.message : String(error));
       setState("error");
     }
