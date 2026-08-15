@@ -390,27 +390,37 @@ export function evaluateGateCRelease(
   });
 
   const selectedTargetsByLabel = new Map(
-    eligibleObjects.map((object) => [normalizedLabel(object.objectLabel), object.selectedTarget] as const),
-  );
-  const consideredReviews = dedupeGateCReviews(reviews.filter((review) => {
-    const selectedTarget = selectedTargetsByLabel.get(normalizedLabel(review.objectLabel));
-    return selectedTarget !== undefined
-      && selectedTarget !== null
-      && targetKey(review) === targetKey(selectedTarget);
-  }));
-  const deviceClassById = new Map<string, GateCReview["deviceClass"]>();
-  const conflictingDeviceIds = new Set<string>();
-  for (const review of consideredReviews) {
-    const deviceId = normalizedIdentifier(review.deviceId);
-    if (deviceId.length === 0) continue;
-    const previousClass = deviceClassById.get(deviceId);
-    if (previousClass !== undefined && previousClass !== review.deviceClass) conflictingDeviceIds.add(deviceId);
-    else deviceClassById.set(deviceId, review.deviceClass);
+  eligibleObjects.map((object) => [normalizedLabel(object.objectLabel), object.selectedTarget] as const),
+);
+const eligibleReviews = dedupeGateCReviews(reviews.filter((review) => {
+  const selectedTarget = selectedTargetsByLabel.get(normalizedLabel(review.objectLabel));
+  return selectedTarget !== undefined
+    && selectedTarget !== null
+    && targetKey(review) === targetKey(selectedTarget);
+}));
+const eligibleDeviceClassById = new Map<string, GateCReview["deviceClass"]>();
+const conflictingDeviceIds = new Set<string>();
+for (const review of eligibleReviews) {
+  const deviceId = normalizedIdentifier(review.deviceId);
+  if (deviceId.length === 0) continue;
+  const previousClass = eligibleDeviceClassById.get(deviceId);
+  if (previousClass !== undefined && previousClass !== review.deviceClass) conflictingDeviceIds.add(deviceId);
+  else eligibleDeviceClassById.set(deviceId, review.deviceClass);
+}
+
+const passing = objects.filter((object) => object.passed);
+const passingLabels = new Set(passing.map((object) => normalizedLabel(object.objectLabel)));
+const passingReviews = eligibleReviews.filter((review) => passingLabels.has(normalizedLabel(review.objectLabel)));
+const passingDeviceClassById = new Map<string, GateCReview["deviceClass"]>();
+for (const review of passingReviews) {
+  const deviceId = normalizedIdentifier(review.deviceId);
+  if (deviceId.length > 0 && !passingDeviceClassById.has(deviceId)) {
+    passingDeviceClassById.set(deviceId, review.deviceClass);
   }
-  const distinctDeviceCount = deviceClassById.size;
-  const hasMobileDevice = [...deviceClassById.values()].includes("mobile");
-  const passing = objects.filter((object) => object.passed);
-  const reviewedObjectCount = objects.filter((object) => object.reviewCount > 0).length;
+}
+const distinctDeviceCount = passingDeviceClassById.size;
+const hasMobileDevice = [...passingDeviceClassById.values()].includes("mobile");
+const reviewedObjectCount = objects.filter((object) => object.reviewCount > 0).length;
   const reasons: string[] = [];
 
   if (!gateB.passed) reasons.push("Gate B has not passed");
