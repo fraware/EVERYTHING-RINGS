@@ -1,0 +1,60 @@
+name: realimpact-layout
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect archive layout
+        env:
+          URL: https://downloads.cs.stanford.edu/viscam/RealImpact/64_CeramicMug.zip
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import io, os, struct, urllib.request
+
+          url = os.environ["URL"]
+          req = urllib.request.Request(url, method="HEAD")
+          with urllib.request.urlopen(req, timeout=60) as response:
+              size = int(response.headers["Content-Length"])
+
+          tail_size = min(size, 4 * 1024 * 1024)
+          start = size - tail_size
+          req = urllib.request.Request(url, headers={"Range": f"bytes={start}-{size-1}"})
+          with urllib.request.urlopen(req, timeout=120) as response:
+              tail = response.read()
+
+          sig = b"PK\x05\x06"
+          eocd = tail.rfind(sig)
+          if eocd < 0:
+              raise SystemExit("EOCD not found in archive tail")
+          _, _, _, _, entries, cd_size, cd_offset, _ = struct.unpack_from("<4s4H2LH", tail, eocd)
+
+          cd_start_in_tail = cd_offset - start
+          if cd_start_in_tail < 0:
+              req = urllib.request.Request(url, headers={"Range": f"bytes={cd_offset}-{cd_offset+cd_size-1}"})
+              with urllib.request.urlopen(req, timeout=120) as response:
+                  cd = response.read()
+          else:
+              cd = tail[cd_start_in_tail:cd_start_in_tail + cd_size]
+
+          names = []
+          offset = 0
+          while offset + 46 <= len(cd) and cd[offset:offset+4] == b"PK\x01\x02":
+              fields = struct.unpack_from("<4s6H3L5H2L", cd, offset)
+              name_len, extra_len, comment_len = fields[10], fields[11], fields[12]
+              name = cd[offset+46:offset+46+name_len].decode("utf-8", "replace")
+              names.append(name)
+              offset += 46 + name_len + extra_len + comment_len
+
+          print(f"archive_bytes={size}")
+          print(f"entries={len(names)}")
+          for name in names[:200]:
+              print(name)
+          PY
