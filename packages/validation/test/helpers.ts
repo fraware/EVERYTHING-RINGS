@@ -59,6 +59,7 @@ export function evidence(
     readonly attemptCount?: number;
     readonly failureAttemptIds?: readonly number[];
     readonly sessionId?: string;
+    readonly specimenId?: string;
   } = {},
 ): ValidationEvidenceV4 {
   const attemptCount = options.attemptCount ?? 5;
@@ -75,7 +76,7 @@ export function evidence(
     gateAContractVersion: "gate-a-2",
     sessionId: options.sessionId ?? `session-${label}`,
     createdAt: "2026-08-15T12:00:00.000Z",
-    object: { label, material },
+    object: { specimenId: options.specimenId ?? label, label, material },
     protocol: {
       fixedSetup: true,
       microphoneDistanceCm: 20,
@@ -97,11 +98,11 @@ export function evidence(
 
 export function fiveObjects(): ValidationEvidenceV4[] {
   return [
-    evidence("bell", "metal"),
-    evidence("wine glass", "glass"),
-    evidence("metal bowl", "metal"),
-    evidence("glass bottle", "glass"),
-    evidence("ceramic mug", "ceramic"),
+    evidence("bell", "metal", { specimenId: "specimen-bell" }),
+    evidence("wine glass", "glass", { specimenId: "specimen-wine-glass" }),
+    evidence("metal bowl", "metal", { specimenId: "specimen-metal-bowl" }),
+    evidence("glass bottle", "glass", { specimenId: "specimen-glass-bottle" }),
+    evidence("ceramic mug", "ceramic", { specimenId: "specimen-ceramic-mug" }),
   ];
 }
 
