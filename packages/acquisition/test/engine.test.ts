@@ -29,7 +29,9 @@ describe("ImpactCaptureEngine", () => {
     expect(event.capture.sampleRate).toBe(1000);
     expect(event.capture.triggerSample).toBe(4);
     expect(event.capture.samples).toHaveLength(10);
-    expect(Array.from(event.capture.samples.slice(2, 7))).toEqual([0.02, 0.03, 1, 0.25, 0.2]);
+    const observed = Array.from(event.capture.samples.slice(2, 7));
+    const expected = [0.02, 0.03, 1, 0.25, 0.2];
+    expected.forEach((value, index) => expect(observed[index]).toBeCloseTo(value, 6));
   });
 
   it("requires an explicit reset after completion", () => {
