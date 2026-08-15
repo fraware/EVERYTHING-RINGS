@@ -1,0 +1,147 @@
+name: browser-mic-e2e
+
+on:
+  push:
+    branches:
+      - stress/browser-mic-e2e-2026-08-15
+
+permissions:
+  contents: read
+
+jobs:
+  chromium-fake-microphone:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      VITE_SOFTWARE_REVISION: 447f98dd511201367d6051704e10607d645735dd
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Generate deterministic fake microphone impact WAV
+        shell: bash
+        run: |
+          python - <<'PY'
+          import math, random, struct, wave
+          rate = 48000
+          seconds = 5.0
+          onset = 0.85
+          rng = random.Random(20260815)
+          modes = [(440.0, 0.55, 1.20), (997.0, 0.31, 0.70), (2413.0, 0.17, 0.38)]
+          path = '/tmp/everything-rings-fake-impact.wav'
+          with wave.open(path, 'wb') as out:
+              out.setnchannels(1)
+              out.setsampwidth(2)
+              out.setframerate(rate)
+              frames = bytearray()
+              for i in range(round(rate * seconds)):
+                  t = i / rate
+                  value = (rng.random() * 2 - 1) * 0.00025
+                  if t >= onset:
+                      dt = t - onset
+                      value += sum(a * math.exp(-dt / tau) * math.sin(2 * math.pi * f * dt) for f, a, tau in modes)
+                  value = max(-0.92, min(0.92, value))
+                  frames += struct.pack('<h', round(value * 32767))
+              out.writeframes(frames)
+          print(path)
+          PY
+      - name: Install isolated Playwright Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/everything-rings-mic-e2e
+          cd /tmp/everything-rings-mic-e2e
+          npm init -y >/dev/null
+          npm install --save-exact playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Exercise microphone to exported evidence end to end
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @everything-rings/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort >/tmp/everything-rings-mic-e2e-vite.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4173 >/dev/null; then break; fi
+            sleep 0.25
+          done
+          cat >/tmp/everything-rings-mic-e2e/e2e.mjs <<'NODE'
+          import fs from 'node:fs';
+          import { chromium } from 'playwright';
+
+          const revision = '447f98dd511201367d6051704e10607d645735dd';
+          const origin = 'http://127.0.0.1:4173';
+          const browser = await chromium.launch({
+            headless: true,
+            args: [
+              '--use-fake-ui-for-media-stream',
+              '--use-fake-device-for-media-stream',
+              '--use-file-for-fake-audio-capture=/tmp/everything-rings-fake-impact.wav',
+              '--autoplay-policy=no-user-gesture-required',
+            ],
+          });
+          const context = await browser.newContext({ acceptDownloads: true });
+          await context.grantPermissions(['microphone'], { origin });
+          const page = await context.newPage();
+          const pageErrors = [];
+          page.on('pageerror', (error) => pageErrors.push(String(error)));
+          await page.goto(`${origin}/?lab=1`, { waitUntil: 'networkidle' });
+
+          const body = await page.locator('body').innerText();
+          if (!body.includes(`software revision ${revision}`)) throw new Error('lab does not expose frozen revision');
+
+          await page.getByLabel('specimen ID').fill('fake-mic-positive-control');
+          await page.getByLabel('object').fill('synthetic modal impact');
+          await page.getByLabel('material').selectOption('metal');
+          await page.getByLabel('microphone distance').locator('input').fill('20');
+          await page.getByLabel('striker').fill('deterministic fake microphone waveform');
+          await page.getByLabel('strike location').fill('synthetic onset');
+          await page.getByLabel('support condition').fill('CI positive control');
+
+          const arm = page.getByRole('button', { name: 'ARM MICROPHONE' });
+          if (await arm.isDisabled()) throw new Error('ARM MICROPHONE unexpectedly disabled');
+          await arm.click();
+
+          await page.locator('.status-success').waitFor({ state: 'visible', timeout: 20000 });
+          const modeRows = page.locator('[aria-label="Estimated acoustic modes"] .mode-row:not(.mode-head)');
+          const modeCount = await modeRows.count();
+          if (modeCount < 3) throw new Error(`expected at least 3 modes after microphone analysis, got ${modeCount}`);
+          const modeText = await modeRows.allInnerTexts();
+          const frequencies = modeText.map((text) => Number.parseFloat(text));
+          for (const expected of [440, 997, 2413]) {
+            if (!frequencies.some((actual) => Number.isFinite(actual) && Math.abs(actual - expected) <= Math.max(5, expected * 0.01))) {
+              throw new Error(`expected resonance near ${expected} Hz; observed ${JSON.stringify(frequencies)}`);
+            }
+          }
+
+          const downloadPromise = page.waitForEvent('download');
+          await page.getByRole('button', { name: 'EXPORT EVIDENCE' }).click();
+          const download = await downloadPromise;
+          const exportPath = '/tmp/everything-rings-mic-e2e/evidence.json';
+          await download.saveAs(exportPath);
+          const evidence = JSON.parse(fs.readFileSync(exportPath, 'utf8'));
+          if (evidence.schemaVersion !== 5 || evidence.evidenceContractVersion !== 'validation-evidence-5') {
+            throw new Error('exported evidence has wrong schema contract');
+          }
+          if (evidence.softwareRevision !== revision) throw new Error(`wrong exported revision ${evidence.softwareRevision}`);
+          if (evidence.attemptCount !== 1 || evidence.attempts?.length !== 1) throw new Error('expected one retained qualified attempt');
+          if (evidence.attempts[0]?.analysis?.status !== 'success') throw new Error('exported microphone attempt is not analytically successful');
+          if (evidence.rawMicrophoneSamplesIncluded !== false) throw new Error('raw PCM invariant violated');
+          if (pageErrors.length > 0) throw new Error(`uncaught page errors: ${pageErrors.join(' | ')}`);
+          console.log(JSON.stringify({ modeCount, frequencies, quality: evidence.attempts[0].quality }, null, 2));
+          await browser.close();
+          NODE
+          cd /tmp/everything-rings-mic-e2e
+          node e2e.mjs | tee /tmp/everything-rings-mic-e2e-result.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-mic-e2e-report
+          path: |
+            /tmp/everything-rings-mic-e2e-result.json
+            /tmp/everything-rings-mic-e2e/evidence.json
+          if-no-files-found: warn
