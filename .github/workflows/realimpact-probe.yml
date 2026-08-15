@@ -71,6 +71,7 @@ jobs:
             exit 1
           fi
           object_dir="$(dirname "$(dirname "${response_path}")")"
+          object_dir="$(realpath "${object_dir}")"
           echo "REALIMPACT_DIR=${object_dir}"
           REALIMPACT_DIR="${object_dir}" \
           REALIMPACT_MAX_STRIKES="${MAX_STRIKES}" \
