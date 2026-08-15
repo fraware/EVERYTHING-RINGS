@@ -1,9 +1,11 @@
 export {
   CAPTURE_PROCESSOR_NAME,
   PREFERRED_AUDIO_CONSTRAINTS,
+  classifyMicrophoneOpenFailure,
   createCaptureGraph,
   openMicrophone,
   type CaptureGraph,
+  type MicrophoneOpenFailureReason,
   type OpenedMicrophone,
 } from "./browser";
 export { DEFAULT_CAPTURE_CONFIG, type CaptureConfig } from "./config";
