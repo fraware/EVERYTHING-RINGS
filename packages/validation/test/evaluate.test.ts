@@ -38,7 +38,7 @@ function fingerprint(offsetHz = 0) {
 function evidence(
   label: string,
   material: MaterialClass,
-  options: { readonly comparisonMedians?: readonly number[]; readonly recordCount?: number } = {},
+  options: { readonly comparisonMedians?: readonly number[]; readonly recordCount?: number; readonly sessionId?: string } = {},
 ): ValidationEvidenceV3 {
   const recordCount = options.recordCount ?? 5;
   const comparisonMedians = options.comparisonMedians ?? [5, 8, 10, 12];
@@ -46,7 +46,7 @@ function evidence(
     schemaVersion: 3,
     evidenceContractVersion: "validation-evidence-3",
     gateAContractVersion: "gate-a-1",
-    sessionId: `session-${label}`,
+    sessionId: options.sessionId ?? `session-${label}`,
     createdAt: "2026-08-15T12:00:00.000Z",
     object: { label, material },
     protocol: {
@@ -132,6 +132,16 @@ describe("Gate A", () => {
     expect(verdict.metrics.sessionMedianDriftCents).toBe(9);
   });
 
+  it("rejects optional stopping beyond the five accepted strikes", () => {
+    const verdict = evaluateGateASession(evidence("bell", "metal", {
+      recordCount: 6,
+      comparisonMedians: [5, 8, 10, 12, 2],
+    }));
+    expect(verdict.passed).toBe(false);
+    expect(verdict.reasons.some((reason) => reason.includes("exactly 5 accepted strikes"))).toBe(true);
+    expect(verdict.reasons.some((reason) => reason.includes("exactly 4 recurrence comparisons"))).toBe(true);
+  });
+
   it("rejects a recurrence tail above the frozen worst-comparison bound", () => {
     const verdict = evaluateGateASession(evidence("bell", "metal", { comparisonMedians: [4, 5, 6, 51] }));
     expect(verdict.passed).toBe(false);
@@ -142,6 +152,15 @@ describe("Gate A", () => {
     expect(evaluateGateARelease(fiveObjects()).passed).toBe(true);
     const duplicate = [...fiveObjects().slice(0, 4), evidence("bell", "ceramic")];
     expect(evaluateGateARelease(duplicate).passed).toBe(false);
+  });
+
+  it("rejects conflicting material labels for the same physical object name", () => {
+    const verdict = evaluateGateARelease([
+      ...fiveObjects(),
+      evidence("Bell", "ceramic", { sessionId: "session-bell-conflict" }),
+    ]);
+    expect(verdict.passed).toBe(false);
+    expect(verdict.reasons.some((reason) => reason.includes("conflicting material labels"))).toBe(true);
   });
 });
 
