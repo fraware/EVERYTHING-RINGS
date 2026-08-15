@@ -7,7 +7,10 @@ export {
   evaluateGateBRelease,
   evaluateGateCRelease,
 } from "./evaluate";
-export { buildReleaseVerdict } from "./current-release";
+export {
+  buildReleaseVerdict,
+  buildReleaseVerdictForRevision,
+} from "./current-release";
 export {
   deriveEvidenceRecurrence,
   deriveMedianModalDriftCents,
