@@ -1,0 +1,130 @@
+name: mode-solo-e2e
+
+on:
+  push:
+    branches: [validation/consumer-e2e]
+
+permissions:
+  contents: read
+
+jobs:
+  mode-solo:
+    runs-on: ubuntu-latest
+    env:
+      TARGET_REVISION: 0f24b94057a082ae89a1d02c4650364982b01763
+      VITE_SOFTWARE_REVISION: 0f24b94057a082ae89a1d02c4650364982b01763
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TARGET_REVISION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "${TARGET_REVISION}"
+      - name: Generate deterministic strike
+        run: |
+          python - <<'PY'
+          import math, os, random, wave
+          sr = 48_000; duration = 6.0; onset = 1.0
+          random.seed(0x45524d53)
+          path = os.path.join(os.environ['RUNNER_TEMP'], 'mode-solo.wav')
+          with wave.open(path, 'wb') as wav:
+              wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(sr)
+              frames = bytearray()
+              for i in range(round(sr * duration)):
+                  t = i / sr
+                  value = random.uniform(-0.00012, 0.00012)
+                  if t >= onset:
+                      dt = t - onset
+                      value += 0.45 * math.exp(-dt / 1.20) * math.cos(2 * math.pi * 440 * dt)
+                      value += 0.24 * math.exp(-dt / 0.70) * math.cos(2 * math.pi * 997 * dt)
+                      value += 0.12 * math.exp(-dt / 0.38) * math.cos(2 * math.pi * 2413 * dt)
+                  value = max(-0.90, min(0.90, value))
+                  frames += int(round(value * 32767)).to_bytes(2, 'little', signed=True)
+              wav.writeframes(frames)
+          PY
+      - run: pnpm build
+      - name: Install browser driver
+        run: |
+          mkdir -p "${RUNNER_TEMP}/mode-solo"
+          cd "${RUNNER_TEMP}/mode-solo"
+          npm init -y >/dev/null
+          npm install --no-save --package-lock=false puppeteer-core@25.4.0
+      - name: Exercise mode solo controls
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "${CHROME}"
+          pnpm --filter @everything-rings/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort >"${RUNNER_TEMP}/mode-solo-vite.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "${SERVER_PID}" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do curl --fail --silent http://127.0.0.1:4173/ >/dev/null && break; sleep 0.25; done
+          cat >"${RUNNER_TEMP}/mode-solo/test.mjs" <<'JS'
+          import puppeteer from 'puppeteer-core';
+          import fs from 'node:fs';
+
+          const browser = await puppeteer.launch({
+            executablePath: process.env.CHROME,
+            headless: true,
+            args: [
+              '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+              '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
+              `--use-file-for-fake-audio-capture=${process.env.RUNNER_TEMP}/mode-solo.wav`,
+              '--autoplay-policy=no-user-gesture-required',
+            ],
+          });
+          const pageErrors = [];
+          try {
+            const page = await browser.newPage();
+            page.on('pageerror', error => pageErrors.push(error.message));
+            await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle0', timeout: 30_000 });
+            await page.evaluate(() => [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'START LISTENING')?.click());
+            await page.waitForFunction(() => document.body.innerText.includes('We estimated 3 audible resonances.'), { timeout: 15_000, polling: 100 });
+
+            const selector = 'circle.dna-ring[role="button"]';
+            await page.waitForSelector(selector);
+            const count = await page.$$eval(selector, nodes => nodes.length);
+            if (count !== 3) throw new Error(`expected 3 interactive modes, got ${count}`);
+            const labels = await page.$$eval(selector, nodes => nodes.map(node => node.getAttribute('aria-label')));
+            if (!labels[0]?.includes('440.0') || !labels[1]?.includes('997.0') || !labels[2]?.includes('2413.')) throw new Error(`unexpected mode labels ${JSON.stringify(labels)}`);
+
+            await page.$eval(`${selector}[data-mode-index="0"]`, node => node.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+            await page.waitForFunction(() => document.body.innerText.includes('SOLO 440.0 HZ'));
+            const firstPressed = await page.$eval(`${selector}[data-mode-index="0"]`, node => node.getAttribute('aria-pressed'));
+            if (firstPressed !== 'true') throw new Error('first mode did not become selected');
+
+            await page.focus(`${selector}[data-mode-index="1"]`);
+            await page.keyboard.press('Space');
+            await page.waitForFunction(() => document.body.innerText.includes('SOLO 997.'));
+            const pressed = await page.$$eval(selector, nodes => nodes.map(node => node.getAttribute('aria-pressed')));
+            if (pressed[0] !== 'false' || pressed[1] !== 'true') throw new Error(`selection did not transfer ${JSON.stringify(pressed)}`);
+
+            await page.evaluate(() => [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'HEAR RECONSTRUCTION')?.click());
+            await page.waitForFunction(() => !document.body.innerText.includes('SOLO '));
+            const cleared = await page.$$eval(selector, nodes => nodes.every(node => node.getAttribute('aria-pressed') === 'false'));
+            if (!cleared) throw new Error('full reconstruction did not clear solo state');
+            if (pageErrors.length > 0) throw new Error(pageErrors.join('\n'));
+
+            const report = {
+              targetRevision: process.env.TARGET_REVISION,
+              interactiveModeCount: count,
+              labels,
+              clickSolo: true,
+              keyboardSolo: true,
+              reconstructionClearsSolo: true,
+              pageErrors: pageErrors.length,
+            };
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/mode-solo-report.json`, JSON.stringify(report, null, 2));
+            console.log(JSON.stringify(report, null, 2));
+          } finally {
+            await browser.close();
+          }
+          JS
+          CHROME="${CHROME}" RUNNER_TEMP="${RUNNER_TEMP}" TARGET_REVISION="${TARGET_REVISION}" node "${RUNNER_TEMP}/mode-solo/test.mjs"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mode-solo-e2e
+          path: ${{ runner.temp }}/mode-solo-report.json
