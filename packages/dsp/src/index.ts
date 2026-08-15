@@ -1,4 +1,11 @@
 export {
+  type AnalysisConfig,
+  type AnalysisFailureReason,
+  type AnalysisResult,
+  DEFAULT_ANALYSIS_CONFIG_V1,
+  analyzeImpact,
+} from "./analysis/analyze-impact";
+export {
   DEFAULT_DECAY_FIT_CONFIG,
   type DecayEstimate,
   type DecayFitConfig,
@@ -14,6 +21,21 @@ export {
 } from "./decay/robust-line";
 export type { FFTBackend } from "./fft/backend";
 export { FFTJsBackend } from "./fft/fft-js-backend";
+export {
+  DEFAULT_MODE_CONFIDENCE_CONFIG,
+  type ModeConfidenceConfig,
+  modeConfidence,
+} from "./modes/confidence";
+export {
+  DEFAULT_MODE_SELECTION_CONFIG,
+  type ModeSelectionConfig,
+  selectAcousticModes,
+} from "./modes/select";
+export type {
+  AcousticFingerprintV1,
+  AcousticMode,
+  AcousticModeDiagnostics,
+} from "./modes/types";
 export {
   DEFAULT_PEAK_DETECTION_CONFIG,
   detectSpectralPeaks,
