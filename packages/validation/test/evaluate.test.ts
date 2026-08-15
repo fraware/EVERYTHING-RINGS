@@ -11,15 +11,17 @@ import {
   type MaterialClass,
   type ValidationEvidenceV3,
 } from "../src";
+import { deriveEvidenceRecurrence, deriveMedianModalDriftCents } from "../src/derive";
 
-function fingerprint(offsetHz = 0) {
+function fingerprint(cents = 0) {
+  const ratio = 2 ** (cents / 1200);
   return {
     version: 1 as const,
     algorithmVersion: "er-dsp-1" as const,
     sampleRate: 48000,
     durationSeconds: 2,
     modes: [440, 880, 1320].map((frequencyHz, index) => ({
-      frequencyHz: frequencyHz + offsetHz,
+      frequencyHz: frequencyHz * ratio,
       relativeAmplitude: 1 / (index + 1),
       decaySeconds: 0.4 / (index + 1),
       q: 100,
@@ -38,10 +40,25 @@ function fingerprint(offsetHz = 0) {
 function evidence(
   label: string,
   material: MaterialClass,
-  options: { readonly comparisonMedians?: readonly number[]; readonly recordCount?: number; readonly sessionId?: string } = {},
+  options: {
+    readonly comparisonCents?: readonly number[];
+    readonly recordCount?: number;
+    readonly sessionId?: string;
+  } = {},
 ): ValidationEvidenceV3 {
   const recordCount = options.recordCount ?? 5;
-  const comparisonMedians = options.comparisonMedians ?? [5, 8, 10, 12];
+  const comparisonCents = options.comparisonCents ?? [5, 8, 10, 12];
+  const records = Array.from({ length: recordCount }, (_, index) => ({
+    id: index + 1,
+    quality: {
+      score: 0.95,
+      snrDb: 30,
+      clippedFraction: 0,
+      peakAmplitude: 0.5,
+      secondaryTransientRatio: 0.05,
+    },
+    fingerprint: fingerprint(index === 0 ? 0 : comparisonCents[index - 1] ?? 0),
+  }));
   return {
     schemaVersion: 3,
     evidenceContractVersion: "validation-evidence-3",
@@ -59,26 +76,9 @@ function evidence(
     captureSettings: null,
     realtimeAudioTiming: null,
     recordCount,
-    medianModalDriftCents: 9,
-    recurrence: comparisonMedians.map((medianCents, index) => ({
-      recordId: index + 2,
-      medianCents,
-      meanCents: medianCents,
-      matchedCount: 3,
-      unmatchedReferenceCount: 0,
-      matches: [],
-    })),
-    records: Array.from({ length: recordCount }, (_, index) => ({
-      id: index + 1,
-      quality: {
-        score: 0.95,
-        snrDb: 30,
-        clippedFraction: 0,
-        peakAmplitude: 0.5,
-        secondaryTransientRatio: 0.05,
-      },
-      fingerprint: fingerprint(index * 0.1),
-    })),
+    medianModalDriftCents: deriveMedianModalDriftCents(records),
+    recurrence: deriveEvidenceRecurrence(records),
+    records,
     gateBReviews: [],
     gateCReviews: [],
     rawMicrophoneSamplesIncluded: false,
@@ -122,7 +122,7 @@ function gateCReview(
   overrides: Partial<GateCReview> = {},
 ): GateCReview {
   return {
-    reviewId: `${objectLabel}-${deviceId}`,
+    reviewId: `${objectLabel}-${deviceId}-${overrides.reviewerId ?? "listener-1"}`,
     reviewerId: "listener-1",
     objectLabel,
     ...targetFor(objectLabel),
@@ -141,14 +141,14 @@ describe("Gate A", () => {
     const verdict = evaluateGateASession(evidence("bell", "metal"));
     expect(verdict.passed).toBe(true);
     expect(verdict.metrics.acceptedStrikes).toBe(5);
-    expect(verdict.metrics.sessionMedianDriftCents).toBe(9);
+    expect(verdict.metrics.sessionMedianDriftCents).toBeCloseTo(9, 8);
     expect(verdict.reviewRecordId).toBe(5);
   });
 
   it("rejects optional stopping beyond the five accepted strikes", () => {
     const verdict = evaluateGateASession(evidence("bell", "metal", {
       recordCount: 6,
-      comparisonMedians: [5, 8, 10, 12, 2],
+      comparisonCents: [5, 8, 10, 12, 2],
     }));
     expect(verdict.passed).toBe(false);
     expect(verdict.reviewRecordId).toBeNull();
@@ -157,9 +157,31 @@ describe("Gate A", () => {
   });
 
   it("rejects a recurrence tail above the frozen worst-comparison bound", () => {
-    const verdict = evaluateGateASession(evidence("bell", "metal", { comparisonMedians: [4, 5, 6, 51] }));
+    const verdict = evaluateGateASession(evidence("bell", "metal", { comparisonCents: [4, 5, 6, 51] }));
     expect(verdict.passed).toBe(false);
     expect(verdict.reasons.some((reason) => reason.includes("worst comparison"))).toBe(true);
+  });
+
+  it("recomputes recurrence from fingerprints instead of trusting cached summaries", () => {
+    const bundle = evidence("bell", "metal");
+    const tampered = {
+      ...bundle,
+      recurrence: bundle.recurrence.map((comparison) => ({ ...comparison, medianCents: 0, matchedCount: 0 })),
+      medianModalDriftCents: 0,
+    };
+    const verdict = evaluateGateASession(tampered);
+    expect(verdict.passed).toBe(true);
+    expect(verdict.metrics.comparisonsWithEnoughMatches).toBe(4);
+    expect(verdict.metrics.sessionMedianDriftCents).toBeCloseTo(9, 8);
+  });
+
+  it("rejects non-sequential measurement IDs even for typed evidence", () => {
+    const bundle = evidence("bell", "metal");
+    const records = bundle.records.map((record, index) => index === 4 ? { ...record, id: 9 } : record);
+    const verdict = evaluateGateASession({ ...bundle, records, recordCount: records.length });
+    expect(verdict.passed).toBe(false);
+    expect(verdict.reviewRecordId).toBeNull();
+    expect(verdict.reasons.some((reason) => reason.includes("sequential"))).toBe(true);
   });
 
   it("requires five distinct passing objects with metal, glass, and ceramic coverage", () => {
@@ -196,6 +218,15 @@ describe("Gate B", () => {
     expect(evaluateGateBRelease(gateA, reviews).passed).toBe(false);
   });
 
+  it("does not count case variants of one reviewer as independent reviewers", () => {
+    const gateA = evaluateGateARelease(fiveObjects());
+    const bellReviews = [gateBReview("bell", "reviewer-1"), gateBReview("bell", "Reviewer-1")];
+    const verdict = evaluateGateBRelease(gateA, bellReviews);
+    const bell = verdict.objects.find((object) => object.objectLabel === "bell");
+    expect(bell?.reviewerCount).toBe(1);
+    expect(bell?.passed).toBe(false);
+  });
+
   it("does not count a review targeting the wrong session or measurement", () => {
     const gateA = evaluateGateARelease(fiveObjects());
     const labels = fiveObjects().map((bundle) => bundle.object.label);
@@ -211,11 +242,17 @@ describe("Gate B", () => {
 });
 
 describe("Gate C", () => {
-  it("requires multiple devices and a mobile review", () => {
+  function passingGateB() {
     const gateA = evaluateGateARelease(fiveObjects());
     const labels = fiveObjects().map((bundle) => bundle.object.label);
-    const gateBReviews = labels.flatMap((label) => [gateBReview(label, "r1"), gateBReview(label, "r2")]);
-    const gateB = evaluateGateBRelease(gateA, gateBReviews);
+    return evaluateGateBRelease(
+      gateA,
+      labels.flatMap((label) => [gateBReview(label, "r1"), gateBReview(label, "r2")]),
+    );
+  }
+
+  it("requires multiple devices and a mobile review", () => {
+    const gateB = passingGateB();
     const eligible = gateB.objects.filter((object) => object.passed).slice(0, 4).map((object) => object.objectLabel);
     const desktopOnly = eligible.map((label) => gateCReview(label, "desktop-1", "desktop"));
     expect(evaluateGateCRelease(gateB, desktopOnly).passed).toBe(false);
@@ -227,16 +264,35 @@ describe("Gate C", () => {
   });
 
   it("does not count a device review for an ineligible measurement target", () => {
-    const gateA = evaluateGateARelease(fiveObjects());
-    const labels = fiveObjects().map((bundle) => bundle.object.label);
-    const gateB = evaluateGateBRelease(
-      gateA,
-      labels.flatMap((label) => [gateBReview(label, "r1"), gateBReview(label, "r2")]),
-    );
+    const gateB = passingGateB();
     const review = gateCReview("bell", "mobile-1", "mobile", { recordId: 4 });
     const verdict = evaluateGateCRelease(gateB, [review]);
     const bell = verdict.objects.find((object) => object.objectLabel === "bell");
     expect(bell?.reviewCount).toBe(0);
+  });
+
+  it("deduplicates repeated reviews from the same reviewer, device, and target", () => {
+    const gateB = passingGateB();
+    const reviews = [
+      gateCReview("bell", "desktop-1", "desktop"),
+      gateCReview("bell", "DESKTOP-1", "desktop", { reviewId: "duplicate", identityAcrossRange: 1 }),
+    ];
+    const verdict = evaluateGateCRelease(gateB, reviews);
+    const bell = verdict.objects.find((object) => object.objectLabel === "bell");
+    expect(bell?.reviewCount).toBe(1);
+    expect(bell?.identityMedian).toBe(4);
+  });
+
+  it("rejects conflicting device classes for one device identifier", () => {
+    const gateB = passingGateB();
+    const eligible = gateB.objects.filter((object) => object.passed).slice(0, 4).map((object) => object.objectLabel);
+    const reviews = eligible.flatMap((label, index) => [
+      gateCReview(label, "device-1", index === 0 ? "mobile" : "desktop", { reviewerId: `r-${index}` }),
+      ...(index === 0 ? [gateCReview(label, "device-2", "desktop", { reviewerId: "r-extra" })] : []),
+    ]);
+    const verdict = evaluateGateCRelease(gateB, reviews);
+    expect(verdict.passed).toBe(false);
+    expect(verdict.reasons.some((reason) => reason.includes("conflicting device classes"))).toBe(true);
   });
 });
 
@@ -263,6 +319,25 @@ describe("evidence parsing", () => {
     expect(parseValidationEvidence({ schemaVersion: 2 }).ok).toBe(false);
   });
 
+  it("rejects a recurrence cache that disagrees with the fingerprints", () => {
+    const bundle = evidence("bell", "metal");
+    const result = parseValidationEvidence({
+      ...bundle,
+      recurrence: bundle.recurrence.map((comparison, index) => index === 0
+        ? { ...comparison, medianCents: comparison.medianCents + 1 }
+        : comparison),
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("recurrence cache");
+  });
+
+  it("rejects a cached session median that disagrees with the fingerprints", () => {
+    const bundle = evidence("bell", "metal");
+    const result = parseValidationEvidence({ ...bundle, medianModalDriftCents: 0 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("median modal drift cache");
+  });
+
   it("rejects reviews that do not target their owning session", () => {
     const bundle = evidence("bell", "metal");
     const corrupted = {
@@ -274,25 +349,53 @@ describe("evidence parsing", () => {
     if (!result.ok) expect(result.error).toContain("Gate B review target");
   });
 
-  it("rejects reviews and recurrence entries targeting missing records", () => {
+  it("rejects reviews targeting missing records", () => {
     const bundle = evidence("bell", "metal");
-    const badReview = parseValidationEvidence({
+    const result = parseValidationEvidence({
       ...bundle,
       gateCReviews: [gateCReview("bell", "mobile-1", "mobile", { recordId: 99 })],
     });
-    expect(badReview.ok).toBe(false);
-
-    const badRecurrence = parseValidationEvidence({
-      ...bundle,
-      recurrence: [{ ...bundle.recurrence[0], recordId: 99 }, ...bundle.recurrence.slice(1)],
-    });
-    expect(badRecurrence.ok).toBe(false);
+    expect(result.ok).toBe(false);
   });
 
-  it("rejects duplicate measurement record IDs", () => {
+  it("rejects duplicate or non-sequential measurement record IDs", () => {
     const bundle = evidence("bell", "metal");
-    const records = bundle.records.map((record, index) => index === 1 ? { ...record, id: 1 } : record);
-    const result = parseValidationEvidence({ ...bundle, records });
+    const duplicate = bundle.records.map((record, index) => index === 1 ? { ...record, id: 1 } : record);
+    expect(parseValidationEvidence({ ...bundle, records: duplicate }).ok).toBe(false);
+
+    const nonSequential = bundle.records.map((record, index) => index === 4 ? { ...record, id: 9 } : record);
+    expect(parseValidationEvidence({ ...bundle, records: nonSequential }).ok).toBe(false);
+  });
+
+  it("rejects malformed modal diagnostics", () => {
+    const bundle = evidence("bell", "metal");
+    const first = bundle.records[0];
+    if (first === undefined) throw new Error("missing fixture record");
+    const firstMode = first.fingerprint.modes[0];
+    if (firstMode === undefined) throw new Error("missing fixture mode");
+    const malformed = {
+      ...bundle,
+      records: [
+        {
+          ...first,
+          fingerprint: {
+            ...first.fingerprint,
+            modes: [{ ...firstMode, confidence: 1.5 }, ...first.fingerprint.modes.slice(1)],
+          },
+        },
+        ...bundle.records.slice(1),
+      ],
+    };
+    expect(parseValidationEvidence(malformed).ok).toBe(false);
+  });
+
+  it("rejects duplicate review IDs in one evidence bundle", () => {
+    const bundle = evidence("bell", "metal");
+    const result = parseValidationEvidence({
+      ...bundle,
+      gateBReviews: [gateBReview("bell", "r1", { reviewId: "same" })],
+      gateCReviews: [gateCReview("bell", "mobile-1", "mobile", { reviewId: "same" })],
+    });
     expect(result.ok).toBe(false);
   });
 });
