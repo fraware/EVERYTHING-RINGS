@@ -1,5 +1,6 @@
 import {
   buildReleaseVerdict,
+  mergeValidationEvidence,
   parseValidationEvidenceJson,
   type ValidationEvidenceV3,
 } from "@everything-rings/validation";
@@ -36,18 +37,30 @@ export function ReleaseApp() {
 
   async function importFiles(files: FileList | null): Promise<void> {
     if (files === null) return;
-    const loaded: ValidationEvidenceV3[] = [];
+    const loaded: Array<{ readonly filename: string; readonly evidence: ValidationEvidenceV3 }> = [];
     const nextErrors: string[] = [];
     for (const file of Array.from(files)) {
       const result = parseValidationEvidenceJson(await file.text());
-      if (result.ok) loaded.push(result.evidence);
+      if (result.ok) loaded.push({ filename: file.name, evidence: result.evidence });
       else nextErrors.push(`${file.name}: ${result.error}`);
     }
-    setEvidence((current) => {
-      const bySession = new Map(current.map((bundle) => [bundle.sessionId, bundle]));
-      for (const bundle of loaded) bySession.set(bundle.sessionId, bundle);
-      return [...bySession.values()].sort((left, right) => left.object.label.localeCompare(right.object.label));
-    });
+
+    const bySession = new Map(evidence.map((bundle) => [bundle.sessionId, bundle]));
+    for (const item of loaded) {
+      const existing = bySession.get(item.evidence.sessionId);
+      if (existing === undefined) {
+        bySession.set(item.evidence.sessionId, item.evidence);
+        continue;
+      }
+      const merged = mergeValidationEvidence(existing, item.evidence);
+      if (!merged.ok) {
+        nextErrors.push(`${item.filename}: ${merged.error}`);
+        continue;
+      }
+      bySession.set(item.evidence.sessionId, merged.evidence);
+    }
+
+    setEvidence([...bySession.values()].sort((left, right) => left.object.label.localeCompare(right.object.label)));
     setErrors(nextErrors);
   }
 
@@ -124,6 +137,7 @@ export function ReleaseApp() {
       {verdict.gateA.sessions.map((session) => <article className="release-detail" key={session.sessionId}>
         <div className="release-card-head"><h3>{session.objectLabel}</h3><Verdict passed={session.passed} /></div>
         <dl>
+          <div><dt>accepted quality</dt><dd>{session.metrics.qualityPassingStrikes} / 5</dd></div>
           <div><dt>stable strikes</dt><dd>{session.metrics.strikesWithStableModes} / 5</dd></div>
           <div><dt>matched comparisons</dt><dd>{session.metrics.comparisonsWithEnoughMatches} / 4</dd></div>
           <div><dt>median drift</dt><dd>{session.metrics.sessionMedianDriftCents === null ? "—" : `${session.metrics.sessionMedianDriftCents.toFixed(1)}¢`}</dd></div>
