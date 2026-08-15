@@ -1,0 +1,53 @@
+name: realimpact-external
+
+on:
+  push:
+    branches: [validation/realimpact-external]
+
+permissions:
+  contents: read
+
+jobs:
+  ceramic-mug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 447f98dd511201367d6051704e10607d645735dd
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Download official RealImpact ceramic mug archive
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/realimpact"
+          cd "${RUNNER_TEMP}/realimpact"
+          wget --tries=3 --timeout=30 --progress=dot:giga \
+            http://downloads.cs.stanford.edu/viscam/RealImpact/64_CeramicMug.zip
+          ls -lh 64_CeramicMug.zip
+          unzip -q 64_CeramicMug.zip
+          find . -maxdepth 3 -type f \( -name 'deconvolved_0db.npy' -o -name 'vertexID.npy' -o -name 'micID.npy' \) -print
+      - name: Run exact frozen RealImpact benchmark
+        run: |
+          set -euo pipefail
+          DATASET_DIR="$(find "${RUNNER_TEMP}/realimpact" -type f -path '*/preprocessed/deconvolved_0db.npy' -printf '%h\n' | sed 's#/preprocessed$##' | head -n 1)"
+          if [[ -z "${DATASET_DIR}" ]]; then
+            echo 'Could not locate extracted RealImpact object directory' >&2
+            exit 1
+          fi
+          echo "REALIMPACT_DIR=${DATASET_DIR}"
+          REALIMPACT_DIR="${DATASET_DIR}" \
+          REALIMPACT_REPORT="${RUNNER_TEMP}/realimpact-report.json" \
+          REALIMPACT_MIC_ID=7 \
+          REALIMPACT_MAX_MEASUREMENTS=8 \
+          pnpm --filter @everything-rings/fingerprint test:realimpact
+          cat "${RUNNER_TEMP}/realimpact-report.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: realimpact-64-ceramic-mug-report
+          path: ${{ runner.temp }}/realimpact-report.json
+          if-no-files-found: ignore
