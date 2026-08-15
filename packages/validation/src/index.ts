@@ -22,6 +22,7 @@ export type {
   GateASessionVerdict,
   GateAThresholds,
   GateBObjectVerdict,
+  GateBPresentationOrder,
   GateBReleaseVerdict,
   GateBReview,
   GateBThresholds,
