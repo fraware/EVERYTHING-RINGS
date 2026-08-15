@@ -37,6 +37,7 @@ export interface CaptureQualityEvidence {
 }
 
 export interface ValidationObjectMetadata {
+  readonly specimenId: string;
   readonly label: string;
   readonly material: MaterialClass;
 }
@@ -152,6 +153,7 @@ export interface GateASessionMetrics {
 
 export interface GateASessionVerdict {
   readonly sessionId: string;
+  readonly specimenId: string;
   readonly objectLabel: string;
   readonly material: MaterialClass;
   readonly reviewAttemptId: number | null;
@@ -164,7 +166,7 @@ export interface GateAReleaseVerdict {
   readonly contractVersion: "gate-a-2";
   readonly passed: boolean;
   readonly passingObjectCount: number;
-  readonly distinctPassingObjectCount: number;
+  readonly distinctPassingSpecimenCount: number;
   readonly materialCoverage: readonly MaterialClass[];
   readonly sessions: readonly GateASessionVerdict[];
   readonly reasons: readonly string[];
@@ -183,6 +185,7 @@ export interface GateBThresholds {
 }
 
 export interface GateBObjectVerdict {
+  readonly specimenId: string;
   readonly objectLabel: string;
   readonly material?: MaterialClass;
   readonly eligibleTargets: readonly ReviewTarget[];
@@ -216,6 +219,7 @@ export interface GateCThresholds {
 }
 
 export interface GateCObjectVerdict {
+  readonly specimenId: string;
   readonly objectLabel: string;
   readonly passed: boolean;
   readonly reviewCount: number;
