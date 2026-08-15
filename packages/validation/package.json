@@ -10,7 +10,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@everything-rings/acquisition": "workspace:*",
     "@everything-rings/dsp": "workspace:*",
     "@everything-rings/fingerprint": "workspace:*"
   }
