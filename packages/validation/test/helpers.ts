@@ -1,3 +1,4 @@
+import { CURRENT_ACOUSTIC_FINGERPRINT_ALGORITHM_VERSION } from "@everything-rings/dsp";
 import type {
   GateBReview,
   GateCReview,
@@ -13,7 +14,7 @@ export function fingerprint(cents = 0) {
   const ratio = 2 ** (cents / 1200);
   return {
     version: 1 as const,
-    algorithmVersion: "er-dsp-1" as const,
+    algorithmVersion: CURRENT_ACOUSTIC_FINGERPRINT_ALGORITHM_VERSION,
     sampleRate: 48000,
     durationSeconds: 2,
     modes: [440, 880, 1320].map((frequencyHz, index) => ({

@@ -2,8 +2,11 @@ export {
   type AnalysisConfig,
   type AnalysisFailureReason,
   type AnalysisResult,
+  type ConfiguredAnalysisResult,
+  type DiagnosticAcousticFingerprintV1,
   DEFAULT_ANALYSIS_CONFIG_V1,
   analyzeImpact,
+  analyzeImpactWithConfig,
 } from "./analysis/analyze-impact";
 export {
   DEFAULT_DECAY_FIT_CONFIG,
@@ -31,10 +34,14 @@ export {
   type ModeSelectionConfig,
   selectAcousticModes,
 } from "./modes/select";
-export type {
-  AcousticFingerprintV1,
-  AcousticMode,
-  AcousticModeDiagnostics,
+export {
+  ACOUSTIC_FINGERPRINT_ALGORITHM_VERSIONS,
+  CURRENT_ACOUSTIC_FINGERPRINT_ALGORITHM_VERSION,
+  isAcousticFingerprintAlgorithmVersion,
+  type AcousticFingerprintAlgorithmVersion,
+  type AcousticFingerprintV1,
+  type AcousticMode,
+  type AcousticModeDiagnostics,
 } from "./modes/types";
 export {
   DEFAULT_PEAK_DETECTION_CONFIG,

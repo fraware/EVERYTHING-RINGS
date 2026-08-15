@@ -1,10 +1,13 @@
 import {
-  buildReleaseVerdict,
+  buildReleaseVerdictForRevision,
   mergeValidationEvidence,
   parseValidationEvidenceJson,
   type ValidationEvidenceV5,
 } from "@everything-rings/validation";
 import { useMemo, useState } from "react";
+
+const SOFTWARE_REVISION = ((import.meta as ImportMeta & { readonly env?: { readonly VITE_SOFTWARE_REVISION?: string } }).env?.VITE_SOFTWARE_REVISION ?? "").trim();
+const SOFTWARE_REVISION_VALID = /^[0-9a-f]{40}$/.test(SOFTWARE_REVISION);
 
 function downloadJson(filename: string, value: unknown): void {
   const blob = new Blob([`${JSON.stringify(value, null, 2)}\n`], { type: "application/json" });
@@ -31,7 +34,7 @@ export function ReleaseApp() {
   const gateBReviews = useMemo(() => evidence.flatMap((bundle) => bundle.gateBReviews), [evidence]);
   const gateCReviews = useMemo(() => evidence.flatMap((bundle) => bundle.gateCReviews), [evidence]);
   const verdict = useMemo(
-    () => buildReleaseVerdict(evidence, gateBReviews, gateCReviews, "preview"),
+    () => buildReleaseVerdictForRevision(evidence, gateBReviews, gateCReviews, "preview", SOFTWARE_REVISION),
     [evidence, gateBReviews, gateCReviews],
   );
 
@@ -65,11 +68,18 @@ export function ReleaseApp() {
   }
 
   function exportVerdict(): void {
-    const finalVerdict = buildReleaseVerdict(evidence, gateBReviews, gateCReviews, new Date().toISOString());
+    const finalVerdict = buildReleaseVerdictForRevision(
+      evidence,
+      gateBReviews,
+      gateCReviews,
+      new Date().toISOString(),
+      SOFTWARE_REVISION,
+    );
     downloadJson(`everything-rings-release-verdict-${Date.now()}.json`, {
       ...finalVerdict,
       evidenceContractVersion: "validation-evidence-5",
       gateAContractVersion: "gate-a-2",
+      authorizedCollectionSoftwareRevision: SOFTWARE_REVISION_VALID ? SOFTWARE_REVISION : null,
       evidenceSessions: evidence.map((bundle) => ({
         sessionId: bundle.sessionId,
         object: bundle.object,
@@ -99,7 +109,8 @@ export function ReleaseApp() {
       <article className="release-card release-overall">
         <div className="release-card-head"><div><p className="eyebrow">RELEASE</p><h2>{verdict.releaseReady ? "Empirically ready" : "Evidence incomplete"}</h2></div><Verdict passed={verdict.releaseReady} /></div>
         <p className="small">Release becomes ready only when Gate A2, Gate B, and Gate C all pass their frozen contracts.</p>
-        <p className="small">Software revision: {verdict.softwareRevision ?? "mixed / no evidence"}</p>
+        <p className="small">Authorized collection revision: {SOFTWARE_REVISION_VALID ? SOFTWARE_REVISION : "invalid / unset"}</p>
+        <p className="small">Evidence revision: {verdict.softwareRevision ?? "mixed / no evidence"}</p>
       </article>
       <article className="release-card">
         <div className="release-card-head"><div><p className="eyebrow">GATE A2 / PHYSICAL</p><h2>Repeatable acoustic structure</h2></div><Verdict passed={verdict.gateA.passed} /></div>

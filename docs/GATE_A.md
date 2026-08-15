@@ -16,7 +16,7 @@ The initial release set is: bell, wine glass, metal bowl, glass bottle, ceramic 
 
 For every qualified attempt record the native sample rate, actual microphone-processing settings, capture-quality diagnostics, and one terminal analytical outcome:
 
-- `success`, with the complete versioned `er-dsp-1` fingerprint; or
+- `success`, with the complete versioned `er-dsp-2` fingerprint; or
 - `failure`, with `SIGNAL_TOO_SHORT`, `NO_STABLE_RESONANCES`, or `ANALYSIS_INTERNAL_ERROR`.
 
 Raw microphone PCM remains local.
@@ -30,7 +30,7 @@ A specimen session passes only when all of the following hold:
 - a non-empty stable `specimenId` is present;
 - exactly five qualified attempts are present, with sequential attempt IDs `1..5`;
 - every retained attempt satisfies the acquisition bounds used by the capture path: peak amplitude ≥ 0.02, SNR ≥ 12 dB, clipped fraction ≤ 0.001, and secondary-impact ratio ≤ 0.65;
-- all five qualified attempts produce valid `er-dsp-1` fingerprints containing at least three accepted modes;
+- all five qualified attempts produce valid `er-dsp-2` fingerprints containing at least three accepted modes;
 - no qualified analytical failure is present;
 - recurrence is recomputed from the successful fingerprints using the shared one-to-one matcher, with **attempt 1 fixed as the reference** and attempts 2–5 as the four candidates;
 - every recomputed comparison matches at least three strong reference modes;
@@ -43,7 +43,7 @@ Attempt 1 is never substituted. If attempt 1 fails analysis, the session cannot 
 
 The exported recurrence rows and aggregate drift are caches for audit and display. The parser requires them to agree with recomputation from the retained qualified-attempt fingerprints, and the release evaluator uses the recomputed values as its source of truth.
 
-Gate A2 passes at release level when all imported sessions come from one software revision, at least **five distinct normalized `specimenId` values** have passing sessions, and the passing specimen set contains metal, glass, and ceramic. Multiple passing sessions for one physical specimen still count as one specimen. Changing only an object label cannot increase release distinctness. Duplicate session IDs invalidate the release verdict. Reusing one normalized `specimenId` with conflicting material classes also invalidates the release-level verdict, including when the conflicting session itself fails physically.
+Gate A2 passes at release level when all imported sessions come from one software revision and one fingerprint algorithm version, at least **five distinct normalized `specimenId` values** have passing sessions, and the passing specimen set contains metal, glass, and ceramic. Multiple passing sessions for one physical specimen still count as one specimen. Changing only an object label cannot increase release distinctness. Duplicate session IDs invalidate the release verdict. Reusing one normalized `specimenId` with conflicting material classes also invalidates the release-level verdict, including when the conflicting session itself fails physically.
 
 The drift bounds are release criteria for repeatable structure. They are not a general perceptual similarity metric.
 
@@ -53,9 +53,11 @@ A recoverable analytical result such as `NO_STABLE_RESONANCES` is retained as th
 
 A true session-level internal error is different. The validation lab does not permit another qualified attempt on potentially compromised worker/audio resources. Retained evidence should be exported, the session stopped, and any further experiment started under a **new session ID**. If the same physical specimen is tested again, it must retain the same `specimenId`. The interrupted session does not become passable by continuing after the fatal error.
 
-## Evidence versioning
+## Evidence and algorithm versioning
 
-Gate A2 uses `validation-evidence-5` with `schemaVersion: 5` and `gateAContractVersion: "gate-a-2"`. Schema v5 requires the exact software commit and release-level evidence must use one revision. Schema v4 is superseded before physical release collection because it lacked implementation provenance; the older record-only Gate A1 format is also superseded because it could not represent qualified analytical failures without selection bias.
+Gate A2 uses `validation-evidence-5` with `schemaVersion: 5` and `gateAContractVersion: "gate-a-2"`. Schema v5 requires the exact software commit, and release-level evidence must use one revision and one fingerprint algorithm version. `er-dsp-2` is the canonical estimator for the new physical collection cycle; it adds the frozen -60 dB relative-amplitude measurement-support floor. Historical `er-dsp-1` bundles remain readable for audit but must not be mixed with `er-dsp-2` evidence in one session or release evaluation.
+
+Schema v4 was superseded before physical release collection because it lacked implementation provenance; the older record-only Gate A1 format is also superseded because it could not represent qualified analytical failures without selection bias.
 
 ## External evidence
 

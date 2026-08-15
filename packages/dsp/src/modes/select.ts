@@ -2,12 +2,14 @@ import type { AcousticMode } from "./types";
 
 export interface ModeSelectionConfig {
   readonly minimumConfidence: number;
+  readonly minimumRelativeAmplitude: number;
   readonly maximumModes: number;
   readonly duplicateDistanceCents: number;
 }
 
 export const DEFAULT_MODE_SELECTION_CONFIG: ModeSelectionConfig = {
   minimumConfidence: 0.55,
+  minimumRelativeAmplitude: 0.001,
   maximumModes: 16,
   duplicateDistanceCents: 12,
 };
@@ -21,7 +23,10 @@ export function selectAcousticModes(
   config: ModeSelectionConfig = DEFAULT_MODE_SELECTION_CONFIG,
 ): AcousticMode[] {
   const eligible = candidates
-    .filter((mode) => mode.confidence >= config.minimumConfidence)
+    .filter((mode) => (
+      mode.confidence >= config.minimumConfidence
+      && mode.relativeAmplitude >= config.minimumRelativeAmplitude
+    ))
     .sort((left, right) => left.frequencyHz - right.frequencyHz);
   const deduplicated: AcousticMode[] = [];
 

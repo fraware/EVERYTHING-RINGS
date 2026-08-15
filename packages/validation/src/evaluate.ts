@@ -1,3 +1,4 @@
+import { isAcousticFingerprintAlgorithmVersion } from "@everything-rings/dsp";
 import { deriveEvidenceRecurrence, medianFinite } from "./derive";
 import type {
   GateAReleaseVerdict,
@@ -85,8 +86,19 @@ function captureQualityPasses(attempt: ValidationEvidenceAttempt, thresholds: Ga
 function successfulAnalysis(attempt: ValidationEvidenceAttempt): boolean {
   return attempt.analysis.status === "success"
     && attempt.analysis.fingerprint.version === 1
-    && attempt.analysis.fingerprint.algorithmVersion === "er-dsp-1"
+    && isAcousticFingerprintAlgorithmVersion(attempt.analysis.fingerprint.algorithmVersion)
     && attempt.analysis.fingerprint.modes.length >= 3;
+}
+
+function evidenceAlgorithmVersions(evidence: ValidationEvidenceV5): ReadonlySet<string> {
+  const versions = new Set<string>();
+  for (const attempt of evidence.attempts) {
+    if (attempt.analysis.status === "success"
+      && isAcousticFingerprintAlgorithmVersion(attempt.analysis.fingerprint.algorithmVersion)) {
+      versions.add(attempt.analysis.fingerprint.algorithmVersion);
+    }
+  }
+  return versions;
 }
 
 export function evaluateGateASession(
@@ -99,6 +111,7 @@ export function evaluateGateASession(
   const qualityPassingAttempts = evidence.attempts.filter((attempt) => captureQualityPasses(attempt, thresholds)).length;
   const successfulAnalyses = evidence.attempts.filter(successfulAnalysis).length;
   const analyticalFailures = qualifiedAttempts - successfulAnalyses;
+  const algorithmVersions = evidenceAlgorithmVersions(evidence);
   const recurrence = deriveEvidenceRecurrence(evidence.attempts);
   const recurrenceComparisons = recurrence.length;
   const comparisonsWithEnoughMatches = recurrence.filter(
@@ -112,6 +125,7 @@ export function evaluateGateASession(
     : Math.max(...finiteRecurrenceMedians);
 
   if (!SOFTWARE_REVISION_PATTERN.test(evidence.softwareRevision)) reasons.push("software revision is invalid");
+  if (algorithmVersions.size > 1) reasons.push("qualified attempts must use one fingerprint algorithm version");
   if (evidence.object.specimenId.trim().length === 0) reasons.push("specimen ID is missing");
   if (evidence.object.label.trim().length === 0) reasons.push("object label is missing");
   if (!evidence.protocol.fixedSetup) reasons.push("fixed-setup protocol is not declared");
@@ -132,7 +146,7 @@ export function evaluateGateASession(
     reasons.push(`all ${thresholds.qualifiedAttemptsPerObject} retained attempts must satisfy the frozen acquisition-quality bounds`);
   }
   if (successfulAnalyses !== thresholds.requiredSuccessfulAnalyses) {
-    reasons.push(`all ${thresholds.requiredSuccessfulAnalyses} qualified attempts must produce valid er-dsp-1 fingerprints; analytical failures cannot be replaced`);
+    reasons.push(`all ${thresholds.requiredSuccessfulAnalyses} qualified attempts must produce valid versioned fingerprints; analytical failures cannot be replaced`);
   }
 
   const requiredComparisons = Math.max(0, thresholds.requiredSuccessfulAnalyses - 1);
@@ -189,6 +203,11 @@ export function evaluateGateARelease(
   const conflictingMaterialSpecimens = new Set<string>();
   const seenSessionIds = new Set<string>();
   const duplicateSessionIds = new Set<string>();
+  const releaseAlgorithmVersions = new Set<string>();
+
+  for (const bundle of evidence) {
+    for (const version of evidenceAlgorithmVersions(bundle)) releaseAlgorithmVersions.add(version);
+  }
 
   for (const session of sessions) {
     const sessionId = session.sessionId.trim();
@@ -211,6 +230,7 @@ export function evaluateGateARelease(
     reasons.push(`duplicate session IDs: ${[...duplicateSessionIds].join(", ")}`);
   }
   if (softwareRevisions.size > 1) reasons.push("release evidence must use one software revision");
+  if (releaseAlgorithmVersions.size > 1) reasons.push("release evidence must use one fingerprint algorithm version");
   if (conflictingMaterialSpecimens.size > 0) {
     reasons.push(`conflicting material classes for specimen IDs: ${[...conflictingMaterialSpecimens].join(", ")}`);
   }

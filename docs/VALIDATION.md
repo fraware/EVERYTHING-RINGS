@@ -18,7 +18,7 @@ A Gate A2 session is the first five acquisition-quality-passing attempts under o
 
 A true internal session error terminates that session. Further capture requires a new session ID, retaining the same specimen ID when the same physical object is tested again.
 
-Gate A2 release status requires at least five distinct passing physical specimens with metal, glass, and ceramic coverage. Synthetic fixtures and external/cross-field recordings are supporting evidence only.
+Gate A2 release status requires at least five distinct passing physical specimens with metal, glass, and ceramic coverage. The current physical collection cycle uses the canonical `er-dsp-2` estimator under one exact software revision. Synthetic fixtures and external/cross-field recordings are supporting evidence only.
 
 ## Perceptual validation — Gate B
 
@@ -30,4 +30,4 @@ Gate C inherits the exact target selected by Gate B and evaluates whether the sp
 
 ## Release rule
 
-The release console evaluates the frozen Gate A2/B/C contracts from local schema-v4 evidence. Missing, malformed, contradictory, or provenance-inconsistent evidence remains OPEN. The release is empirically ready only when all three gates pass without changing thresholds, specimen identity, targets, or failed attempts to fit the observed data.
+The release console evaluates the frozen Gate A2/B/C contracts from local `validation-evidence-5` bundles. Missing, malformed, contradictory, mixed-revision, or mixed-algorithm evidence remains OPEN. Historical algorithm versions remain parseable for audit, but evidence from different algorithm versions cannot be combined into one physical session or one release evaluation. The release is empirically ready only when all three gates pass without changing thresholds, specimen identity, targets, or failed attempts to fit the observed data.

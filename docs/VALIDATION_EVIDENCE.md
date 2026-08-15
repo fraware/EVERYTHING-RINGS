@@ -13,7 +13,7 @@ A `validation-evidence-5` bundle contains:
 - actual capture settings reported by the browser;
 - exactly the retained **qualified attempts**, where qualification means the acquisition-quality gate passed;
 - per-attempt capture-quality metrics;
-- one terminal analysis outcome per qualified attempt: a complete versioned `er-dsp-1` fingerprint or an explicit analytical failure reason;
+- one terminal analysis outcome per qualified attempt: a complete versioned acoustic fingerprint or an explicit analytical failure reason;
 - one-to-one recurrence measurements using successful attempt 1 as the fixed reference;
 - browser audio-thread and output-path timing diagnostics when available;
 - blinded Gate B reviews, including the hidden A/B presentation order and exact session/attempt target;
@@ -21,13 +21,15 @@ A `validation-evidence-5` bundle contains:
 
 Raw microphone PCM is intentionally excluded. Every bundle contains `rawMicrophoneSamplesIncluded: false`, and the parser rejects a bundle that violates that invariant.
 
-## Software provenance
+## Software and algorithm provenance
 
 Every schema-v5 bundle must contain `softwareRevision`, a lowercase 40-hex Git commit SHA. The validation lab disables release evidence collection when its build is unstamped. CI and the Pages deployment inject the exact build SHA through `VITE_SOFTWARE_REVISION`.
 
+Each successful fingerprint also carries an explicit algorithm identifier. `er-dsp-1` denotes the historical estimator. `er-dsp-2` denotes the estimator with the -60 dB relative-amplitude measurement floor. The parser keeps both identifiers readable so historical evidence remains interpretable, but one physical session and one release evaluation must each use a single fingerprint algorithm version.
+
 Gate A release evaluation requires one software revision across all imported sessions, including sessions that fail physically. Mixing evidence produced by different implementations is an evidence-integrity failure. Re-exporting one session under a different revision is also rejected by the immutable measurement-core merge.
 
-The SHA, not a branch name, is the authoritative provenance identifier.
+The SHA is the authoritative implementation provenance identifier; the fingerprint algorithm identifier records the estimator semantics carried by each successful analytical outcome.
 
 ## Physical specimen identity
 
@@ -47,7 +49,7 @@ A true session-level internal error terminates that physical session in the vali
 
 ## Consistency checks
 
-The retained attempts and successful fingerprints are the source of truth for Gate A2. On import, the parser validates specimen identity, the complete fingerprint shape and diagnostics, requires sequential qualified-attempt IDs, recomputes recurrence from the retained successful fingerprints, and rejects cached recurrence rows or aggregate drift that disagree with recomputation. The release evaluator also recomputes recurrence independently instead of trusting cached medians or match counts.
+The retained attempts and successful fingerprints are the source of truth for Gate A2. On import, the parser validates specimen identity, the complete fingerprint shape and diagnostics, requires sequential qualified-attempt IDs, requires one fingerprint algorithm version within a session, recomputes recurrence from the retained successful fingerprints, and rejects cached recurrence rows or aggregate drift that disagree with recomputation. The release evaluator also recomputes recurrence independently instead of trusting cached medians or match counts and rejects mixed fingerprint algorithm versions across release evidence.
 
 The first qualified attempt is the fixed recurrence reference. If it fails analysis, no later attempt is substituted. Recurrence cache entries therefore exist only for later successful attempts when attempt 1 itself succeeded.
 
@@ -75,4 +77,4 @@ Release metrics preserve those ontology levels explicitly: Gate A reports `passi
 
 Thresholds and evidence contracts are frozen before the corresponding release data is collected. The v5/A2 provenance migration occurred before the release physical dataset was accepted. It preserves the v4 no-selection and specimen-identity invariants and additionally binds every bundle to one implementation commit. Once Gate A2 release data collection starts, threshold, attempt, or specimen-identity protocol changes require another explicit contract version.
 
-Algorithm or renderer changes made after a failed gate require a versioned validation cycle. Historical evidence should remain interpretable under the contract that produced it.
+Algorithm or renderer changes made after a failed gate require a versioned validation cycle. Historical evidence remains interpretable under the contract, algorithm identifier, and software revision that produced it.

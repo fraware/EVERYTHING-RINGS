@@ -10,7 +10,11 @@ import {
   selectAcousticModes,
   type ModeSelectionConfig,
 } from "../modes/select";
-import type { AcousticFingerprintV1, AcousticMode } from "../modes/types";
+import {
+  CURRENT_ACOUSTIC_FINGERPRINT_ALGORITHM_VERSION,
+  type AcousticFingerprintV1,
+  type AcousticMode,
+} from "../modes/types";
 import {
   DEFAULT_PEAK_DETECTION_CONFIG,
   detectSpectralPeaks,
@@ -59,15 +63,27 @@ export type AnalysisResult =
   | { readonly ok: true; readonly fingerprint: AcousticFingerprintV1 }
   | { readonly ok: false; readonly reason: AnalysisFailureReason };
 
+export type DiagnosticAcousticFingerprintV1 = Omit<AcousticFingerprintV1, "algorithmVersion">;
+
+export type ConfiguredAnalysisResult =
+  | { readonly ok: true; readonly fingerprint: DiagnosticAcousticFingerprintV1 }
+  | { readonly ok: false; readonly reason: AnalysisFailureReason };
+
 function maximumTrackMagnitudeDb(observations: readonly { magnitudeDb: number }[]): number {
   return Math.max(...observations.map((observation) => observation.magnitudeDb));
 }
 
-export function analyzeImpact(
+/**
+ * Runs the estimator with an explicit research configuration.
+ *
+ * The returned fingerprint is intentionally unversioned: custom parameters are
+ * diagnostic output and cannot claim the canonical er-dsp-* evidence contract.
+ */
+export function analyzeImpactWithConfig(
   samples: Float32Array,
   sampleRate: number,
-  config: AnalysisConfig = DEFAULT_ANALYSIS_CONFIG_V1,
-): AnalysisResult {
+  config: AnalysisConfig,
+): ConfiguredAnalysisResult {
   if (!(sampleRate > 0) || !Number.isFinite(sampleRate)) {
     throw new RangeError(`Sample rate must be finite and positive; received ${sampleRate}`);
   }
@@ -139,10 +155,22 @@ export function analyzeImpact(
     ok: true,
     fingerprint: {
       version: 1,
-      algorithmVersion: "er-dsp-1",
       sampleRate,
       durationSeconds: samples.length / sampleRate,
       modes,
+    },
+  };
+}
+
+/** Runs the frozen canonical estimator and emits evidence-eligible algorithm provenance. */
+export function analyzeImpact(samples: Float32Array, sampleRate: number): AnalysisResult {
+  const result = analyzeImpactWithConfig(samples, sampleRate, DEFAULT_ANALYSIS_CONFIG_V1);
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    fingerprint: {
+      ...result.fingerprint,
+      algorithmVersion: CURRENT_ACOUSTIC_FINGERPRINT_ALGORITHM_VERSION,
     },
   };
 }
