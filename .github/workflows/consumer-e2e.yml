@@ -1,0 +1,188 @@
+name: consumer-e2e
+
+on:
+  push:
+    branches: [validation/consumer-e2e]
+
+permissions:
+  contents: read
+
+jobs:
+  consumer-flow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TARGET_REVISION: 5de7e472982da3451c1b43d7a421701648105fa2
+      VITE_SOFTWARE_REVISION: 5de7e472982da3451c1b43d7a421701648105fa2
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 5de7e472982da3451c1b43d7a421701648105fa2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "${TARGET_REVISION}"
+      - name: Generate deterministic strike
+        run: |
+          python - <<'PY'
+          import math, os, random, wave
+          sr = 48_000
+          duration = 6.0
+          onset = 1.0
+          random.seed(0x45524331)
+          path = os.path.join(os.environ['RUNNER_TEMP'], 'consumer-loop.wav')
+          with wave.open(path, 'wb') as wav:
+              wav.setnchannels(1)
+              wav.setsampwidth(2)
+              wav.setframerate(sr)
+              frames = bytearray()
+              for i in range(round(sr * duration)):
+                  t = i / sr
+                  value = random.uniform(-0.00012, 0.00012)
+                  if t >= onset:
+                      dt = t - onset
+                      value += 0.45 * math.exp(-dt / 1.20) * math.cos(2 * math.pi * 440 * dt)
+                      value += 0.24 * math.exp(-dt / 0.70) * math.cos(2 * math.pi * 997 * dt)
+                      value += 0.12 * math.exp(-dt / 0.38) * math.cos(2 * math.pi * 2413 * dt)
+                  value = max(-0.90, min(0.90, value))
+                  frames += int(round(value * 32767)).to_bytes(2, 'little', signed=True)
+              wav.writeframes(frames)
+          print(path)
+          PY
+      - run: pnpm build
+      - name: Install browser driver
+        run: |
+          mkdir -p "${RUNNER_TEMP}/consumer-e2e"
+          cd "${RUNNER_TEMP}/consumer-e2e"
+          npm init -y >/dev/null
+          npm install --no-save --package-lock=false puppeteer-core@24.31.0
+          node -e "const p=require('puppeteer-core/package.json'); if(p.version!=='24.31.0') process.exit(1)"
+      - name: Exercise consumer flow
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "${CHROME}"
+          pnpm --filter @everything-rings/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort >"${RUNNER_TEMP}/consumer-vite.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "${SERVER_PID}" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do
+            curl --fail --silent http://127.0.0.1:4173/ >/dev/null && break
+            sleep 0.25
+          done
+          cat >"${RUNNER_TEMP}/consumer-e2e/test.mjs" <<'JS'
+          import puppeteer from 'puppeteer-core';
+          import fs from 'node:fs';
+
+          const browser = await puppeteer.launch({
+            executablePath: process.env.CHROME,
+            headless: true,
+            args: [
+              '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+              '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
+              `--use-file-for-fake-audio-capture=${process.env.RUNNER_TEMP}/consumer-loop.wav`,
+              '--autoplay-policy=no-user-gesture-required',
+            ],
+          });
+          const page = await browser.newPage();
+          const pageErrors = [];
+          page.on('pageerror', error => pageErrors.push(error.message));
+
+          async function button(label) {
+            return page.evaluateHandle(text => {
+              const match = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === text);
+              if (!(match instanceof HTMLButtonElement)) throw new Error(`${text} missing`);
+              return match;
+            }, label);
+          }
+
+          async function clickButton(label) {
+            await page.evaluate(text => {
+              const match = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === text);
+              if (!(match instanceof HTMLButtonElement) || match.disabled) throw new Error(`${text} unavailable`);
+              match.click();
+            }, label);
+          }
+
+          try {
+            await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle0', timeout: 30_000 });
+            await clickButton('START LISTENING');
+            await page.waitForFunction(
+              () => document.body.innerText.includes('We estimated 3 audible resonances.'),
+              { timeout: 15_000, polling: 100 },
+            );
+
+            const reveal = await page.evaluate(() => ({
+              text: document.body.innerText,
+              dna: document.querySelector('.dna-view') !== null,
+              originalDisabled: [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'HEAR ORIGINAL')?.disabled ?? true,
+              reconstructionDisabled: [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'HEAR RECONSTRUCTION')?.disabled ?? true,
+            }));
+            if (!reveal.dna) throw new Error('Acoustic DNA missing');
+            if (!reveal.text.includes('stable resonance supported by this recording')) throw new Error('truth-qualified reveal copy missing');
+            if (reveal.originalDisabled) throw new Error('original playback unavailable after successful capture');
+            if (reveal.reconstructionDisabled) throw new Error('reconstruction playback unavailable after successful analysis');
+
+            await clickButton('HEAR ORIGINAL');
+            await new Promise(resolve => setTimeout(resolve, 150));
+            await clickButton('HEAR RECONSTRUCTION');
+            await new Promise(resolve => setTimeout(resolve, 150));
+
+            await page.waitForFunction(() => {
+              const match = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'PLAY IT');
+              return match instanceof HTMLButtonElement && !match.disabled;
+            }, { timeout: 5_000, polling: 100 });
+            await clickButton('PLAY IT');
+
+            const keyboard = await page.evaluate(() => ({
+              keyCount: document.querySelectorAll('.consumer-keyboard button').length,
+              expanded: [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'HIDE KEYS')?.getAttribute('aria-expanded'),
+              c4: document.querySelector('.consumer-keyboard button[aria-label="C4"]') !== null,
+              d4: document.querySelector('.consumer-keyboard button[aria-label="D4"]') !== null,
+            }));
+            if (keyboard.keyCount !== 13 || keyboard.expanded !== 'true' || !keyboard.c4 || !keyboard.d4) {
+              throw new Error(`keyboard contract failed: ${JSON.stringify(keyboard)}`);
+            }
+
+            await page.focus('.consumer-keyboard button[aria-label="C4"]');
+            await page.keyboard.press('Enter');
+            await page.$eval('.consumer-keyboard button[aria-label="D4"]', node => {
+              node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' }));
+            });
+
+            await clickButton('HIDE KEYS');
+            const closed = await page.evaluate(() => ({
+              keyboardPresent: document.querySelector('.consumer-keyboard') !== null,
+              expanded: [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'PLAY IT')?.getAttribute('aria-expanded'),
+            }));
+            if (closed.keyboardPresent || closed.expanded !== 'false') throw new Error(`keyboard did not close cleanly: ${JSON.stringify(closed)}`);
+            if (pageErrors.length > 0) throw new Error(pageErrors.join('\n'));
+
+            const report = {
+              targetRevision: process.env.TARGET_REVISION,
+              revealCopy: 'estimated audible resonances',
+              originalPlayback: true,
+              reconstructionPlayback: true,
+              playableKeyCount: keyboard.keyCount,
+              keyboardActivation: true,
+              pointerActivation: true,
+              closeSilencesInstrumentPath: true,
+              pageErrors: pageErrors.length,
+            };
+            console.log(JSON.stringify(report, null, 2));
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/consumer-e2e-report.json`, JSON.stringify(report, null, 2));
+          } finally {
+            await browser.close();
+          }
+          JS
+          CHROME="${CHROME}" RUNNER_TEMP="${RUNNER_TEMP}" TARGET_REVISION="${TARGET_REVISION}" node "${RUNNER_TEMP}/consumer-e2e/test.mjs"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: consumer-e2e
+          path: |
+            ${{ runner.temp }}/consumer-e2e-report.json
+            ${{ runner.temp }}/consumer-vite.log
+          if-no-files-found: ignore
