@@ -1,4 +1,9 @@
-import { analyzeImpact, type AcousticFingerprintV1 } from "@everything-rings/dsp";
+import {
+  analyzeImpact,
+  extractImpactRingdown,
+  type AcousticFingerprintV1,
+} from "@everything-rings/dsp";
+import { DEFAULT_CAPTURE_CONFIG } from "@everything-rings/acquisition";
 
 type AnalysisRequest = {
   readonly type: "ANALYZE";
@@ -26,7 +31,9 @@ const scope = globalThis as unknown as {
 
 scope.onmessage = (event) => {
   if (event.data.type !== "ANALYZE") return;
-  const result = analyzeImpact(event.data.samples, event.data.sampleRate);
+  const coarseOnsetSample = Math.round((DEFAULT_CAPTURE_CONFIG.preTriggerMs / 1000) * event.data.sampleRate);
+  const ringdown = extractImpactRingdown(event.data.samples, event.data.sampleRate, coarseOnsetSample);
+  const result = analyzeImpact(ringdown.samples, event.data.sampleRate);
   const response: AnalysisResponse = result.ok
     ? {
         type: "SUCCESS",

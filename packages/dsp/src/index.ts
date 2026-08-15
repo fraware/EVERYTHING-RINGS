@@ -45,6 +45,13 @@ export {
 export { findMaximumBin } from "./peaks/maximum";
 export { type InterpolatedPeak, interpolateQuadraticPeakDb } from "./peaks/quadratic";
 export {
+  DEFAULT_IMPACT_ONSET_CONFIG,
+  extractImpactRingdown,
+  refineImpactOnset,
+  type ImpactOnsetConfig,
+  type RingdownSignal,
+} from "./preprocess/ringdown";
+export {
   computeWindowedMagnitudeSpectrumDb,
   createMagnitudeSpectrumWorkspace,
   type MagnitudeSpectrumWorkspace,
