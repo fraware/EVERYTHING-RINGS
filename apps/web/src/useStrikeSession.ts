@@ -177,24 +177,24 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
   }
 
   async function prepareInstrument(nextFingerprint: AcousticFingerprintV1): Promise<void> {
-  const generation = instrumentGeneration.current;
-  setInstrumentReady(false);
-  setInstrumentFailure(undefined);
-  try {
-    const node = await ensureInstrument();
-    if (node === undefined || generation !== instrumentGeneration.current) return;
-    const message: ModalInstrumentWorkletMessage = {
-      type: "SET_FINGERPRINT",
-      fingerprint: nextFingerprint,
-    };
-    node.port.postMessage(message);
-    setInstrumentReady(true);
-  } catch (error) {
-    if (generation !== instrumentGeneration.current) return;
-    setInstrumentFailure(error instanceof Error ? error.message : String(error));
+    const generation = instrumentGeneration.current;
     setInstrumentReady(false);
+    setInstrumentFailure(undefined);
+    try {
+      const node = await ensureInstrument();
+      if (node === undefined || generation !== instrumentGeneration.current) return;
+      const message: ModalInstrumentWorkletMessage = {
+        type: "SET_FINGERPRINT",
+        fingerprint: nextFingerprint,
+      };
+      node.port.postMessage(message);
+      setInstrumentReady(true);
+    } catch (error) {
+      if (generation !== instrumentGeneration.current) return;
+      setInstrumentFailure(error instanceof Error ? error.message : String(error));
+      setInstrumentReady(false);
+    }
   }
-}
 
   function disposeResources(): void {
     instrumentGeneration.current += 1;
