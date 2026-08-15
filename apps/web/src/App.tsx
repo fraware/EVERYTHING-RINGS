@@ -11,6 +11,8 @@ import {
 } from "@everything-rings/acquisition";
 import type { AcousticFingerprintV1, AcousticMode } from "@everything-rings/dsp";
 import { fingerprintRecurrence } from "@everything-rings/fingerprint";
+import { chooseAnchorMode, renderPlayableNote } from "@everything-rings/instrument";
+import { renderAcousticFingerprint } from "@everything-rings/synth";
 import { useEffect, useMemo, useRef, useState } from "react";
 import captureWorkletUrl from "../../../packages/acquisition/src/worklet/capture-processor.ts?worker&url";
 
@@ -41,6 +43,22 @@ interface SessionResources {
   worker: Worker;
 }
 
+const KEYBOARD_NOTES = [
+  { midi: 60, label: "C4" },
+  { midi: 61, label: "C♯4" },
+  { midi: 62, label: "D4" },
+  { midi: 63, label: "D♯4" },
+  { midi: 64, label: "E4" },
+  { midi: 65, label: "F4" },
+  { midi: 66, label: "F♯4" },
+  { midi: 67, label: "G4" },
+  { midi: 68, label: "G♯4" },
+  { midi: 69, label: "A4" },
+  { midi: 70, label: "A♯4" },
+  { midi: 71, label: "B4" },
+  { midi: 72, label: "C5" },
+] as const;
+
 function median(values: readonly number[]): number | undefined {
   if (values.length === 0) return undefined;
   const ordered = [...values].sort((left, right) => left - right);
@@ -66,6 +84,17 @@ function failureCopy(reason: string): string {
     default:
       return reason;
   }
+}
+
+function playSamples(context: AudioContext, samples: Float32Array, sampleRate: number): void {
+  const buffer = context.createBuffer(1, samples.length, sampleRate);
+  const playbackSamples = new Float32Array(samples.length);
+  playbackSamples.set(samples);
+  buffer.copyToChannel(playbackSamples, 0);
+  const source = context.createBufferSource();
+  source.buffer = buffer;
+  source.connect(context.destination);
+  source.start();
 }
 
 function Waveform({ capture }: { readonly capture: AudioCapture }) {
@@ -142,6 +171,11 @@ export function App() {
       .filter(Number.isFinite);
     return median(values);
   }, [records]);
+
+  const anchor = useMemo(
+    () => fingerprint === undefined ? undefined : chooseAnchorMode(fingerprint),
+    [fingerprint],
+  );
 
   async function start(): Promise<void> {
     try {
@@ -228,14 +262,21 @@ export function App() {
   function playOriginal(): void {
     const current = resources.current;
     if (capture === undefined || current === undefined) return;
-    const buffer = current.context.createBuffer(1, capture.samples.length, capture.sampleRate);
-    const playbackSamples = new Float32Array(capture.samples.length);
-    playbackSamples.set(capture.samples);
-    buffer.copyToChannel(playbackSamples, 0);
-    const source = current.context.createBufferSource();
-    source.buffer = buffer;
-    source.connect(current.context.destination);
-    source.start();
+    playSamples(current.context, capture.samples, capture.sampleRate);
+  }
+
+  function playReconstruction(): void {
+    const current = resources.current;
+    if (fingerprint === undefined || current === undefined) return;
+    const samples = renderAcousticFingerprint(fingerprint, current.context.sampleRate);
+    playSamples(current.context, samples, current.context.sampleRate);
+  }
+
+  function playNote(midiNote: number): void {
+    const current = resources.current;
+    if (fingerprint === undefined || current === undefined) return;
+    const note = renderPlayableNote(fingerprint, midiNote, current.context.sampleRate);
+    playSamples(current.context, note.samples, current.context.sampleRate);
   }
 
   function stop(): void {
@@ -255,9 +296,9 @@ export function App() {
   return (
     <main className="shell">
       <header>
-        <p className="eyebrow">EVERYTHING RINGS / GATE A</p>
+        <p className="eyebrow">EVERYTHING RINGS / GATES A–C</p>
         <h1>Acoustic analysis lab</h1>
-        <p className="lede">Strike one resonant object once. Repeat five times. Stable modal frequencies are the gate.</p>
+        <p className="lede">Strike once. Measure the ring. Compare the reconstruction. Then play the same modal structure across notes.</p>
       </header>
 
       <section className="control-panel">
@@ -277,6 +318,7 @@ export function App() {
           {labState === "idle" ? <button onClick={() => void start()}>ARM MICROPHONE</button> : null}
           {labState !== "idle" ? <button onClick={resetCapture}>NEW STRIKE</button> : null}
           {capture !== undefined ? <button onClick={playOriginal}>PLAY ORIGINAL</button> : null}
+          {fingerprint !== undefined ? <button onClick={playReconstruction}>PLAY MODEL</button> : null}
           {labState !== "idle" ? <button className="secondary" onClick={stop}>STOP</button> : null}
         </div>
       </section>
@@ -308,6 +350,7 @@ export function App() {
           <dl>
             <div><dt>accepted strikes</dt><dd>{records.length} / 5</dd></div>
             <div><dt>median modal drift</dt><dd>{drift === undefined ? "—" : `${drift.toFixed(1)} cents`}</dd></div>
+            <div><dt>play anchor</dt><dd>{anchor === undefined ? "—" : `${anchor.frequencyHz.toFixed(1)} Hz`}</dd></div>
           </dl>
           <p className="small">Use the same object, striker, support, distance, and position for all five strikes.</p>
         </article>
@@ -323,6 +366,33 @@ export function App() {
             <strong>{fingerprint.modes.length}</strong>
           </div>
           <ModeTable modes={fingerprint.modes} />
+
+          <div className="listening-lab">
+            <div>
+              <p className="eyebrow">GATE B</p>
+              <h3>Original / modal reconstruction</h3>
+              <p className="small">Level-matched playback only. The model contains no recorded audio.</p>
+            </div>
+            <div className="actions">
+              {capture !== undefined ? <button onClick={playOriginal}>ORIGINAL</button> : null}
+              <button onClick={playReconstruction}>MODEL</button>
+            </div>
+          </div>
+
+          <div className="instrument-lab">
+            <div>
+              <p className="eyebrow">GATE C</p>
+              <h3>Play the object</h3>
+              <p className="small">Every key applies one frequency ratio to the full measured modal structure.</p>
+            </div>
+            <div className="keyboard" aria-label="Chromatic modal keyboard">
+              {KEYBOARD_NOTES.map((note) => (
+                <button key={note.midi} onClick={() => playNote(note.midi)} aria-label={`Play ${note.label}`}>
+                  {note.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </section>
       ) : null}
     </main>
