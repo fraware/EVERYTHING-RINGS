@@ -17,6 +17,7 @@ export type MaterialClass =
 
 export type Score1To5 = 1 | 2 | 3 | 4 | 5;
 export type DeviceClass = "desktop" | "mobile" | "tablet" | "other";
+export type GateBPresentationOrder = "original-model" | "model-original";
 
 export interface ValidationObjectMetadata {
   readonly label: string;
@@ -48,6 +49,30 @@ export interface EvidenceRecurrence extends FingerprintRecurrence {
   readonly recordId: number;
 }
 
+export interface GateBReview {
+  readonly reviewId: string;
+  readonly reviewerId: string;
+  readonly objectLabel: string;
+  readonly blinded: true;
+  readonly presentationOrder: GateBPresentationOrder;
+  readonly identity: Score1To5;
+  readonly brightness: Score1To5;
+  readonly decayCharacter: Score1To5;
+  readonly artifactSeverity: Score1To5;
+}
+
+export interface GateCReview {
+  readonly reviewId: string;
+  readonly reviewerId: string;
+  readonly objectLabel: string;
+  readonly deviceId: string;
+  readonly deviceClass: DeviceClass;
+  readonly identityAcrossRange: Score1To5;
+  readonly timbreContinuity: Score1To5;
+  readonly usefulSemitoneSpan: number;
+  readonly latencyAcceptable: boolean;
+}
+
 export interface ValidationEvidenceV3 {
   readonly schemaVersion: 3;
   readonly evidenceContractVersion: "validation-evidence-3";
@@ -62,6 +87,8 @@ export interface ValidationEvidenceV3 {
   readonly medianModalDriftCents: number | null;
   readonly recurrence: readonly EvidenceRecurrence[];
   readonly records: readonly ValidationEvidenceRecord[];
+  readonly gateBReviews: readonly GateBReview[];
+  readonly gateCReviews: readonly GateCReview[];
   readonly rawMicrophoneSamplesIncluded: false;
 }
 
@@ -105,17 +132,6 @@ export interface GateAReleaseVerdict {
   readonly reasons: readonly string[];
 }
 
-export interface GateBReview {
-  readonly reviewId: string;
-  readonly reviewerId: string;
-  readonly objectLabel: string;
-  readonly blinded: boolean;
-  readonly identity: Score1To5;
-  readonly brightness: Score1To5;
-  readonly decayCharacter: Score1To5;
-  readonly artifactSeverity: Score1To5;
-}
-
 export interface GateBThresholds {
   readonly contractVersion: "gate-b-1";
   readonly minimumObjects: number;
@@ -146,18 +162,6 @@ export interface GateBReleaseVerdict {
   readonly passingObjectCount: number;
   readonly objects: readonly GateBObjectVerdict[];
   readonly reasons: readonly string[];
-}
-
-export interface GateCReview {
-  readonly reviewId: string;
-  readonly reviewerId: string;
-  readonly objectLabel: string;
-  readonly deviceId: string;
-  readonly deviceClass: DeviceClass;
-  readonly identityAcrossRange: Score1To5;
-  readonly timbreContinuity: Score1To5;
-  readonly usefulSemitoneSpan: number;
-  readonly latencyAcceptable: boolean;
 }
 
 export interface GateCThresholds {
