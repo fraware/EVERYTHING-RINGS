@@ -1,3 +1,4 @@
+import { isAcousticFingerprintAlgorithmVersion } from "@everything-rings/dsp";
 import { deriveEvidenceRecurrence, deriveMedianModalDriftCents } from "./derive";
 import type {
   AnalysisFailureReasonEvidence,
@@ -124,7 +125,7 @@ function validDiagnostics(value: unknown): boolean {
 function validFingerprint(value: unknown): boolean {
   const fingerprint = record(value);
   if (fingerprint === undefined) return false;
-  if (fingerprint.version !== 1 || fingerprint.algorithmVersion !== "er-dsp-1") return false;
+  if (fingerprint.version !== 1 || !isAcousticFingerprintAlgorithmVersion(fingerprint.algorithmVersion)) return false;
   if (!finiteNumber(fingerprint.sampleRate) || fingerprint.sampleRate <= 0) return false;
   if (!finiteNumber(fingerprint.durationSeconds) || fingerprint.durationSeconds <= 0) return false;
   if (!Array.isArray(fingerprint.modes) || fingerprint.modes.length < 3 || fingerprint.modes.length > 16) return false;
@@ -360,12 +361,19 @@ export function parseValidationEvidence(value: unknown): EvidenceParseResult {
   }
   const attempts = evidence.attempts as unknown as readonly ValidationEvidenceAttempt[];
   const successfulAttemptIds = new Set<number>();
+  const algorithmVersions = new Set<string>();
   for (let index = 0; index < attempts.length; index += 1) {
     const attempt = attempts[index];
     if (attempt === undefined || attempt.id !== index + 1) {
       return { ok: false, error: "qualified attempt IDs must be sequential from 1" };
     }
-    if (attempt.analysis.status === "success") successfulAttemptIds.add(attempt.id);
+    if (attempt.analysis.status === "success") {
+      successfulAttemptIds.add(attempt.id);
+      algorithmVersions.add(attempt.analysis.fingerprint.algorithmVersion);
+    }
+  }
+  if (algorithmVersions.size > 1) {
+    return { ok: false, error: "qualified attempts must use one fingerprint algorithm version" };
   }
   if (evidence.attemptCount !== attempts.length) {
     return { ok: false, error: "attemptCount does not match qualified attempts" };
