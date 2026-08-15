@@ -29,7 +29,7 @@ export const DEFAULT_GATE_A_THRESHOLDS: GateAThresholds = {
   minimumMatchedModesPerComparison: 3,
   maximumSessionMedianDriftCents: 25,
   maximumComparisonMedianDriftCents: 50,
-  minimumDistinctObjects: 5,
+  minimumDistinctSpecimens: 5,
   requiredMaterials: ["metal", "glass", "ceramic"],
 };
 
@@ -207,8 +207,8 @@ export function evaluateGateARelease(
   if (conflictingMaterialSpecimens.size > 0) {
     reasons.push(`conflicting material classes for specimen IDs: ${[...conflictingMaterialSpecimens].join(", ")}`);
   }
-  if (distinctSpecimens.size < thresholds.minimumDistinctObjects) {
-    reasons.push(`requires ${thresholds.minimumDistinctObjects} distinct passing physical specimens`);
+  if (distinctSpecimens.size < thresholds.minimumDistinctSpecimens) {
+    reasons.push(`requires ${thresholds.minimumDistinctSpecimens} distinct passing physical specimens`);
   }
   for (const material of thresholds.requiredMaterials) {
     if (!materialCoverage.includes(material)) reasons.push(`missing passing ${material} specimen`);
@@ -217,7 +217,7 @@ export function evaluateGateARelease(
   return {
     contractVersion: thresholds.contractVersion,
     passed: reasons.length === 0,
-    passingObjectCount: passing.length,
+    passingSessionCount: passing.length,
     distinctPassingSpecimenCount: distinctSpecimens.size,
     materialCoverage,
     sessions,
@@ -347,7 +347,7 @@ export function evaluateGateBRelease(
   return {
     contractVersion: thresholds.contractVersion,
     passed: reasons.length === 0,
-    passingObjectCount: passing.length,
+    passingSpecimenCount: passing.length,
     objects,
     reasons,
   };
@@ -447,7 +447,7 @@ export function evaluateGateCRelease(
   return {
     contractVersion: thresholds.contractVersion,
     passed: reasons.length === 0,
-    passingObjectCount: passing.length,
+    passingSpecimenCount: passing.length,
     distinctDeviceCount,
     hasMobileDevice,
     objects,

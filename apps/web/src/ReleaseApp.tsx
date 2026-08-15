@@ -106,12 +106,12 @@ export function ReleaseApp() {
       </article>
       <article className="release-card">
         <div className="release-card-head"><div><p className="eyebrow">GATE B / PERCEPTUAL</p><h2>Reconstruction identity</h2></div><Verdict passed={verdict.gateB.passed} /></div>
-        <p className="metric-line">{verdict.gateB.passingObjectCount} / 4 required passing objects</p>
+        <p className="metric-line">{verdict.gateB.passingSpecimenCount} / 4 required passing specimens</p>
         <Reasons reasons={verdict.gateB.reasons} />
       </article>
       <article className="release-card">
         <div className="release-card-head"><div><p className="eyebrow">GATE C / PLAYABLE</p><h2>Instrument identity</h2></div><Verdict passed={verdict.gateC.passed} /></div>
-        <p className="metric-line">{verdict.gateC.passingObjectCount} / 4 objects · {verdict.gateC.distinctDeviceCount} / 2 devices</p>
+        <p className="metric-line">{verdict.gateC.passingSpecimenCount} / 4 specimens · {verdict.gateC.distinctDeviceCount} / 2 devices</p>
         <Reasons reasons={verdict.gateC.reasons} />
       </article>
     </section>

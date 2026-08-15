@@ -27,7 +27,7 @@ describe("Gate C release device coverage", () => {
     });
 
     const verdict = evaluateGateCRelease(gateB, [...passingDesktopReviews, failedMobileReview]);
-    expect(verdict.passingObjectCount).toBe(4);
+    expect(verdict.passingSpecimenCount).toBe(4);
     expect(verdict.passed).toBe(false);
     expect(verdict.distinctDeviceCount).toBe(1);
     expect(verdict.hasMobileDevice).toBe(false);

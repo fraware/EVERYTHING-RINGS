@@ -136,7 +136,7 @@ export interface GateAThresholds {
   readonly minimumMatchedModesPerComparison: number;
   readonly maximumSessionMedianDriftCents: number;
   readonly maximumComparisonMedianDriftCents: number;
-  readonly minimumDistinctObjects: number;
+  readonly minimumDistinctSpecimens: number;
   readonly requiredMaterials: readonly MaterialClass[];
 }
 
@@ -165,7 +165,7 @@ export interface GateASessionVerdict {
 export interface GateAReleaseVerdict {
   readonly contractVersion: "gate-a-2";
   readonly passed: boolean;
-  readonly passingObjectCount: number;
+  readonly passingSessionCount: number;
   readonly distinctPassingSpecimenCount: number;
   readonly materialCoverage: readonly MaterialClass[];
   readonly sessions: readonly GateASessionVerdict[];
@@ -202,7 +202,7 @@ export interface GateBObjectVerdict {
 export interface GateBReleaseVerdict {
   readonly contractVersion: "gate-b-1";
   readonly passed: boolean;
-  readonly passingObjectCount: number;
+  readonly passingSpecimenCount: number;
   readonly objects: readonly GateBObjectVerdict[];
   readonly reasons: readonly string[];
 }
@@ -233,7 +233,7 @@ export interface GateCObjectVerdict {
 export interface GateCReleaseVerdict {
   readonly contractVersion: "gate-c-1";
   readonly passed: boolean;
-  readonly passingObjectCount: number;
+  readonly passingSpecimenCount: number;
   readonly distinctDeviceCount: number;
   readonly hasMobileDevice: boolean;
   readonly objects: readonly GateCObjectVerdict[];
