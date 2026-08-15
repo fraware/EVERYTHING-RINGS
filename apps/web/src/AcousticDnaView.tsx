@@ -5,7 +5,7 @@ import type { KeyboardEvent } from "react";
 export interface AcousticDnaViewProps {
   readonly fingerprint: AcousticFingerprintV1;
   readonly onModeActivate?: (modeIndex: number) => void;
-  readonly selectedModeIndex?: number;
+  readonly selectedModeIndex?: number | undefined;
 }
 
 export function AcousticDnaView({ fingerprint, onModeActivate, selectedModeIndex }: AcousticDnaViewProps) {
