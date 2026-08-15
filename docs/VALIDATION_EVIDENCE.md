@@ -1,11 +1,31 @@
 # Validation evidence
 
-The browser validation lab can export a local JSON evidence bundle after one or more accepted strikes. The bundle is designed for comparing devices, objects, and repeated-measurement sessions without exporting microphone audio.
+The validation lab exports one local JSON evidence bundle per object session. The artifact is designed to make physical recurrence, blinded reconstruction review, and device playability review auditable without exporting microphone audio.
 
-Each bundle contains the actual capture settings reported by the browser, per-strike capture-quality metrics, complete versioned acoustic fingerprints, and one-to-one recurrence measurements against the first accepted strike. It also records the aggregate modal drift in cents when repeated measurements are available.
+## Schema version 3
 
-Schema version 2 additionally records realtime audio timing when available: browser-reported base/output latency, render-quantum duration, and the most recent UI-to-audio-thread note scheduling delay. These remain separate diagnostics and are not presented as a measured acoustic end-to-end latency.
+A `validation-evidence-3` bundle contains:
 
-Raw microphone PCM is intentionally excluded. The export contains `rawMicrophoneSamplesIncluded: false` as an explicit invariant.
+- a stable session ID and creation time;
+- object label and material class;
+- the declared fixed-setup protocol: microphone distance, striker, strike location, and support condition;
+- actual capture settings reported by the browser;
+- per-strike capture-quality metrics and complete versioned acoustic fingerprints;
+- one-to-one recurrence measurements against the first accepted strike;
+- browser audio-thread and output-path timing diagnostics when available;
+- blinded Gate B reviews, including the hidden A/B presentation order;
+- Gate C reviews tied to the device ID and device class used for playback.
 
-Evidence bundles are diagnostic artifacts. A single session does not establish Gate A, Gate B, or Gate C. Release decisions should aggregate representative objects, devices, and listening evaluations under the protocols in `docs/VALIDATION.md`, `docs/GATE_B.md`, and `docs/GATE_C.md`.
+Raw microphone PCM is intentionally excluded. Every bundle contains `rawMicrophoneSamplesIncluded: false`, and the parser rejects a bundle that violates that invariant.
+
+## Local release console
+
+Open the web application with `?release=1` to use the Release Console. It imports any number of schema-v3 JSON bundles locally, deduplicates sessions by `sessionId`, evaluates the frozen `gate-a-1`, `gate-b-1`, and `gate-c-1` contracts, exposes every failed criterion, and exports one canonical release-verdict JSON artifact.
+
+The console performs no upload. Imported evidence remains in browser memory for the current page session.
+
+A release verdict does not reinterpret missing evidence as a pass. Gate B uses only blinded reviews from Gate A passing objects. Gate C uses only reviews from Gate B passing objects. The overall release state is `ready` only when all three gates pass.
+
+## Versioning rule
+
+Thresholds and evidence contracts are frozen before the corresponding release data is collected. Algorithm or renderer changes made after a failed gate require a versioned validation cycle. Historical evidence should remain interpretable under the contract that produced it.
