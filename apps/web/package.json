@@ -12,6 +12,7 @@
   "dependencies": {
     "@everything-rings/acquisition": "workspace:*",
     "@everything-rings/dsp": "workspace:*",
+    "@everything-rings/fingerprint": "workspace:*",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
