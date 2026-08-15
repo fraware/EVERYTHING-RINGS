@@ -1,13 +1,16 @@
 import type { AcousticMode } from "@everything-rings/dsp";
-import { fingerprintRecurrence } from "@everything-rings/fingerprint";
 import { chooseAnchorMode } from "@everything-rings/instrument";
 import { renderAcousticFingerprint } from "@everything-rings/synth";
-import type {
-  FixedSetupProtocol,
-  GateBReview,
-  GateCReview,
-  MaterialClass,
-  ValidationObjectMetadata,
+import {
+  deriveEvidenceRecurrence,
+  deriveMedianModalDriftCents,
+  evaluateGateASession,
+  type FixedSetupProtocol,
+  type GateBReview,
+  type GateCReview,
+  type MaterialClass,
+  type ValidationEvidenceV4,
+  type ValidationObjectMetadata,
 } from "@everything-rings/validation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AcousticDnaView } from "./AcousticDnaView";
@@ -34,19 +37,13 @@ const MATERIALS: readonly { readonly value: MaterialClass; readonly label: strin
   { value: "other", label: "other" },
 ];
 
-function median(values: readonly number[]): number | undefined {
-  if (values.length === 0) return undefined;
-  const ordered = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(ordered.length / 2);
-  const value = ordered[middle];
-  if (value === undefined) return undefined;
-  if (ordered.length % 2 === 1) return value;
-  return ((ordered[middle - 1] ?? value) + value) / 2;
-}
-
 function createSessionId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
   return `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function normalized(value: string): string {
+  return value.trim().toLocaleLowerCase("en-US");
 }
 
 function downloadJson(filename: string, value: unknown): void {
@@ -106,10 +103,6 @@ function ModeTable({ modes }: { readonly modes: readonly AcousticMode[] }) {
   );
 }
 
-function sameLabel(left: string, right: string): boolean {
-  return left.trim().toLocaleLowerCase("en-US") === right.trim().toLocaleLowerCase("en-US");
-}
-
 export function LabApp() {
   const session = useStrikeSession();
   const fingerprint = session.fingerprint;
@@ -124,12 +117,7 @@ export function LabApp() {
   const [activeProtocol, setActiveProtocol] = useState<FixedSetupProtocol>();
   const [gateBReviews, setGateBReviews] = useState<GateBReview[]>([]);
   const [gateCReviews, setGateCReviews] = useState<GateCReview[]>([]);
-  const drift = useMemo(() => {
-    if (session.records.length < 2) return undefined;
-    const reference = session.records[0]?.fingerprint;
-    if (reference === undefined) return undefined;
-    return median(session.records.slice(1).map((record) => fingerprintRecurrence(reference, record.fingerprint).medianCents));
-  }, [session.records]);
+
   const anchor = useMemo(() => fingerprint === undefined ? undefined : chooseAnchorMode(fingerprint), [fingerprint]);
   const protocolReady = objectLabel.trim().length > 0
     && striker.trim().length > 0
@@ -138,8 +126,71 @@ export function LabApp() {
     && Number.isFinite(microphoneDistanceCm)
     && microphoneDistanceCm > 0;
   const protocolLocked = activeObject !== undefined && activeProtocol !== undefined;
-  const strikeLimitReached = session.records.length >= 5;
-  const reviewRecordId = strikeLimitReached ? session.records[4]?.id : undefined;
+  const attemptLimitReached = session.attempts.length >= 5;
+  const successfulAnalyses = session.attempts.filter((attempt) => attempt.analysis.status === "success").length;
+  const analyticalFailures = session.attempts.length - successfulAnalyses;
+  const recurrence = useMemo(() => deriveEvidenceRecurrence(session.attempts), [session.attempts]);
+  const drift = useMemo(() => deriveMedianModalDriftCents(session.attempts), [session.attempts]);
+
+  function evidence(createdAt: string): ValidationEvidenceV4 | undefined {
+    if (activeObject === undefined || activeProtocol === undefined) return undefined;
+    return {
+      schemaVersion: 4,
+      evidenceContractVersion: "validation-evidence-4",
+      gateAContractVersion: "gate-a-2",
+      sessionId,
+      createdAt,
+      object: activeObject,
+      protocol: activeProtocol,
+      captureSettings: session.settings ?? null,
+      realtimeAudioTiming: session.audioTiming ?? null,
+      attemptCount: session.attempts.length,
+      medianModalDriftCents: drift,
+      recurrence,
+      attempts: session.attempts,
+      gateBReviews,
+      gateCReviews,
+      rawMicrophoneSamplesIncluded: false,
+    };
+  }
+
+  const gateAVerdict = useMemo(() => {
+    if (activeObject === undefined || activeProtocol === undefined) return undefined;
+    const preview: ValidationEvidenceV4 = {
+      schemaVersion: 4,
+      evidenceContractVersion: "validation-evidence-4",
+      gateAContractVersion: "gate-a-2",
+      sessionId,
+      createdAt: "preview",
+      object: activeObject,
+      protocol: activeProtocol,
+      captureSettings: session.settings ?? null,
+      realtimeAudioTiming: session.audioTiming ?? null,
+      attemptCount: session.attempts.length,
+      medianModalDriftCents: drift,
+      recurrence,
+      attempts: session.attempts,
+      gateBReviews,
+      gateCReviews,
+      rawMicrophoneSamplesIncluded: false,
+    };
+    return evaluateGateASession(preview);
+  }, [
+    activeObject,
+    activeProtocol,
+    sessionId,
+    session.settings,
+    session.audioTiming,
+    session.attempts,
+    drift,
+    recurrence,
+    gateBReviews,
+    gateCReviews,
+  ]);
+  const gateAPassed = gateAVerdict?.passed ?? false;
+  const reviewAttemptId = gateAVerdict?.reviewAttemptId ?? undefined;
+  const terminalState = session.state === "success" || session.state === "failure" || session.state === "error";
+  const canStartNextAttempt = terminalState && !attemptLimitReached;
 
   function startSession(): void {
     if (!protocolReady) return;
@@ -156,6 +207,7 @@ export function LabApp() {
     setGateCReviews([]);
     void session.start();
   }
+
   function prepareNewObject(): void {
     session.stop();
     setActiveObject(undefined);
@@ -164,60 +216,45 @@ export function LabApp() {
     setGateCReviews([]);
     setSessionId(createSessionId());
   }
+
   function playOriginal(): void {
     if (session.capture !== undefined) session.play(session.capture.samples, session.capture.sampleRate);
   }
+
   function playModel(): void {
     if (fingerprint === undefined) return;
     const sampleRate = session.playbackSampleRate() ?? fingerprint.sampleRate;
     session.play(renderAcousticFingerprint(fingerprint, sampleRate), sampleRate);
   }
+
   function addGateBReview(review: GateBReview): void {
     setGateBReviews((current) => [
-      ...current.filter((entry) => !(sameLabel(entry.objectLabel, review.objectLabel) && entry.reviewerId === review.reviewerId)),
-      review,
-    ]);
-  }
-  function addGateCReview(review: GateCReview): void {
-    setGateCReviews((current) => [
       ...current.filter((entry) => !(
-        sameLabel(entry.objectLabel, review.objectLabel)
-        && entry.reviewerId === review.reviewerId
-        && entry.deviceId === review.deviceId
+        normalized(entry.reviewerId) === normalized(review.reviewerId)
+        && entry.sessionId === review.sessionId
+        && entry.attemptId === review.attemptId
       )),
       review,
     ]);
   }
+
+  function addGateCReview(review: GateCReview): void {
+    setGateCReviews((current) => [
+      ...current.filter((entry) => !(
+        normalized(entry.reviewerId) === normalized(review.reviewerId)
+        && normalized(entry.deviceId) === normalized(review.deviceId)
+        && entry.sessionId === review.sessionId
+        && entry.attemptId === review.attemptId
+      )),
+      review,
+    ]);
+  }
+
   function exportEvidence(): void {
-    if (session.records.length === 0 || activeObject === undefined || activeProtocol === undefined) return;
-    const reference = session.records[0]?.fingerprint;
-    const recurrence = reference === undefined ? [] : session.records.slice(1).map((record) => ({
-      recordId: record.id,
-      ...fingerprintRecurrence(reference, record.fingerprint),
-    }));
-    const report = {
-      schemaVersion: 3,
-      evidenceContractVersion: "validation-evidence-3",
-      gateAContractVersion: "gate-a-1",
-      sessionId,
-      createdAt: new Date().toISOString(),
-      object: activeObject,
-      protocol: activeProtocol,
-      captureSettings: session.settings ?? null,
-      realtimeAudioTiming: session.audioTiming ?? null,
-      recordCount: session.records.length,
-      medianModalDriftCents: drift ?? null,
-      recurrence,
-      records: session.records.map((record) => ({
-        id: record.id,
-        quality: record.quality,
-        fingerprint: record.fingerprint,
-      })),
-      gateBReviews,
-      gateCReviews,
-      rawMicrophoneSamplesIncluded: false,
-    };
-    downloadJson(`everything-rings-${activeObject.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}.json`, report);
+    if (session.attempts.length === 0) return;
+    const report = evidence(new Date().toISOString());
+    if (report === undefined) return;
+    downloadJson(`everything-rings-${report.object.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}.json`, report);
   }
 
   const realtimeStatus = session.instrumentFailure !== undefined
@@ -237,8 +274,8 @@ export function LabApp() {
 
       <section className="protocol-panel" aria-label="Fixed setup protocol">
         <div className="protocol-heading">
-          <div><p className="eyebrow">GATE A / FIXED SETUP</p><h2>Identify this measurement session</h2></div>
-          <p className="small">{protocolLocked ? `Locked for ${activeObject.label}. Export this session before starting another object.` : "Set these fields before arming. They are locked for the full five-strike session."}</p>
+          <div><p className="eyebrow">GATE A2 / FIXED SETUP</p><h2>Identify this measurement session</h2></div>
+          <p className="small">{protocolLocked ? `Locked for ${activeObject.label}. The first five acquisition-quality-passing attempts are final; analytical failures cannot be replaced.` : "Set these fields before arming. They remain locked for all five qualified attempts."}</p>
         </div>
         <div className="protocol-grid">
           <label><span>object</span><input disabled={protocolLocked} value={objectLabel} onChange={(event) => setObjectLabel(event.target.value)} placeholder="ceramic mug" /></label>
@@ -257,23 +294,25 @@ export function LabApp() {
             {session.state === "idle" && !protocolLocked && "Complete the fixed setup, then enable the microphone."}
             {session.state === "idle" && protocolLocked && "Session stopped. Export evidence or start a new object setup."}
             {session.state === "warming" && "Measuring the room noise floor…"}
-            {session.state === "armed" && "Ready. Tap the object once."}
+            {session.state === "armed" && `Ready for qualified attempt ${Math.min(5, session.attempts.length + 1)}. Tap the object once.`}
             {session.state === "capturing" && "Capturing the decay…"}
-            {session.state === "analyzing" && "Finding stable resonances…"}
-            {session.state === "success" && !strikeLimitReached && `${fingerprint?.modes.length ?? 0} stable resonances found.`}
-            {session.state === "success" && strikeLimitReached && "Five accepted strikes collected. Run the listening reviews and export this session."}
+            {session.state === "analyzing" && "This qualified attempt is locked. Finding stable resonances…"}
+            {session.state === "success" && !attemptLimitReached && `${fingerprint?.modes.length ?? 0} stable resonances found. This attempt is retained.`}
+            {session.state === "success" && attemptLimitReached && gateAPassed && "Five qualified attempts complete. Gate A2 passes; listening reviews are now eligible."}
+            {session.state === "success" && attemptLimitReached && !gateAPassed && "Five qualified attempts complete. Gate A2 remains open; do not replace any attempt."}
             {(session.state === "failure" || session.state === "error") && failureCopy(session.failureReason)}
           </p>
         </div>
         <div className="actions">
           {session.state === "idle" && !protocolLocked ? <button disabled={!protocolReady} onClick={startSession}>ARM MICROPHONE</button> : null}
-          {session.state !== "idle" ? <button disabled={strikeLimitReached} onClick={session.reset}>NEW STRIKE</button> : null}
-          {session.records.length > 0 && protocolLocked ? <button onClick={exportEvidence}>EXPORT EVIDENCE</button> : null}
+          {session.state !== "idle" ? <button disabled={!canStartNextAttempt} onClick={session.reset}>NEW QUALIFIED ATTEMPT</button> : null}
+          {session.attempts.length > 0 && protocolLocked ? <button onClick={exportEvidence}>EXPORT EVIDENCE</button> : null}
           {session.state !== "idle" ? <button className="secondary" onClick={session.stop}>STOP</button> : null}
           {session.state === "idle" && protocolLocked ? <button className="secondary" onClick={prepareNewObject}>NEW OBJECT SETUP</button> : null}
         </div>
       </section>
       {!protocolReady && !protocolLocked ? <p className="validation-note">Complete every fixed-setup field before arming the microphone.</p> : null}
+      {attemptLimitReached && !gateAPassed ? <p className="validation-note">The five-attempt experiment is closed. Failed analyses remain part of the evidence and cannot be replaced.</p> : null}
 
       {session.capture !== undefined ? <Waveform samples={session.capture.samples} triggerSample={session.capture.triggerSample} /> : null}
 
@@ -293,8 +332,11 @@ export function LabApp() {
           <div><dt>output latency</dt><dd>{outputLatency === undefined ? "—" : `${outputLatency.toFixed(1)} ms`}</dd></div>
         </dl></article>
         <article><h2>Repeatability</h2><dl>
-          <div><dt>accepted strikes</dt><dd>{session.records.length} / 5</dd></div>
-          <div><dt>median modal drift</dt><dd>{drift === undefined ? "—" : `${drift.toFixed(1)} cents`}</dd></div>
+          <div><dt>qualified attempts</dt><dd>{session.attempts.length} / 5</dd></div>
+          <div><dt>analysis success</dt><dd>{successfulAnalyses} / 5</dd></div>
+          <div><dt>analysis failures</dt><dd>{analyticalFailures}</dd></div>
+          <div><dt>median modal drift</dt><dd>{drift === null ? "—" : `${drift.toFixed(1)} cents`}</dd></div>
+          <div><dt>Gate A2</dt><dd>{attemptLimitReached ? gateAPassed ? "PASS" : "OPEN" : "collecting"}</dd></div>
           <div><dt>play anchor</dt><dd>{anchor === undefined ? "—" : `${anchor.frequencyHz.toFixed(1)} Hz`}</dd></div>
           <div><dt>realtime engine</dt><dd>{fingerprint === undefined ? "—" : realtimeStatus}</dd></div>
           <div><dt>note scheduling</dt><dd>{schedulingLatency === undefined ? "—" : `${schedulingLatency.toFixed(1)} ms`}</dd></div>
@@ -308,10 +350,10 @@ export function LabApp() {
         <div className="instrument-lab"><p className="eyebrow">GATE C</p><h3>Realtime playable object</h3><p className="small">{session.instrumentReady ? "Modal voices are rendered continuously in the audio thread. Scheduling delay excludes the browser-reported output path." : session.instrumentFailure !== undefined ? "Realtime playback is unavailable in this browser session." : "Preparing the audio thread…"}</p><div className="keyboard">{KEYBOARD_NOTES.map((note) => <button key={note.midi} disabled={!session.instrumentReady} onPointerDown={() => session.noteOn(note.midi)}>{note.label}</button>)}</div></div>
         <GateReviewPanel
           sessionId={sessionId}
-          recordId={reviewRecordId}
+          attemptId={reviewAttemptId}
           objectLabel={activeObject?.label ?? ""}
-          canListen={strikeLimitReached && session.capture !== undefined && fingerprint !== undefined}
-          instrumentReady={strikeLimitReached && session.instrumentReady}
+          canListen={gateAPassed && session.capture !== undefined && fingerprint !== undefined}
+          instrumentReady={gateAPassed && session.instrumentReady}
           playOriginal={playOriginal}
           playModel={playModel}
           gateBReviews={gateBReviews}
