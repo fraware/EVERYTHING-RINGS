@@ -35,6 +35,7 @@ export type {
   MaterialClass,
   RealtimeAudioTimingEvidence,
   ReleaseVerdict,
+  ReviewTarget,
   Score1To5,
   ValidationEvidenceRecord,
   ValidationEvidenceV3,
