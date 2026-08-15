@@ -7,3 +7,9 @@ export {
   type AnchorConfig,
   type PlayableNote,
 } from "./playable";
+export {
+  DEFAULT_REALTIME_INSTRUMENT_CONFIG,
+  ModalInstrumentEngine,
+  type RealtimeInstrumentConfig,
+} from "./realtime";
+export type { ModalInstrumentWorkletMessage } from "./worklet-protocol";
