@@ -23,6 +23,7 @@ jobs:
       - name: Apply evidence provenance migration
         run: |
           set -euo pipefail
+          python scripts/patch-migration-v5.py
           python scripts/migrate-validation-v5.py
           git diff --check
       - name: Enable Corepack
@@ -40,7 +41,7 @@ jobs:
       - name: Commit verified migration
         run: |
           set -euo pipefail
-          git rm scripts/migrate-validation-v5.py .github/workflows/migrate-evidence-v5.yml
+          git rm scripts/migrate-validation-v5.py scripts/patch-migration-v5.py .github/workflows/migrate-evidence-v5.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
