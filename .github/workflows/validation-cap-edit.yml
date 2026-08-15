@@ -36,7 +36,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add apps/web/src/LabApp.tsx .github/workflows/validation-cap-edit.yml
+          git add -A
           git diff --cached --check
           git commit -m 'Enforce validation attempt cap'
           git push origin HEAD:release-validation
