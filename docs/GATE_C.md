@@ -19,7 +19,9 @@ These are diagnostics. Their sum is not claimed as measured acoustic end-to-end 
 
 ## Device protocol
 
-Only objects that pass Gate B are eligible. The Gate C review must target the same eligible passing-session measurement provenance used by Gate B. Play the chromatic instrument across the useful range and record the judgment on the device producing the audio. Each review records a stable device ID/class and scores:
+Only objects that pass Gate B are eligible. Gate B selects one exact `(sessionId, recordId)` measurement target per passing object. Gate C inherits that target exactly. A device review for another passing Gate A session of the same named object does not count.
+
+Play the chromatic instrument across the useful range and record the judgment on the device producing the audio. Each review records a stable device ID/class and scores:
 
 - identity across the useful note range, 1–5;
 - timbre continuity across adjacent notes, 1–5;
@@ -28,7 +30,7 @@ Only objects that pass Gate B are eligible. The Gate C review must target the sa
 
 Include low and high transpositions where Nyquist filtering removes modes. A reviewer should judge the range that is actually musically usable, not the maximum range the UI permits.
 
-Repeated submissions from the same normalized reviewer ID, device ID, and measurement target count once. A device ID must map consistently to one device class across the release evidence; conflicting desktop/mobile/tablet claims for the same normalized device ID invalidate Gate C.
+Repeated submissions from the same normalized reviewer ID, device ID, and selected measurement target count once defensively; the normal UI and evidence merge path treat that logical judgment as immutable and reject conflicting repeated submissions. A device ID must map consistently to one device class across the release evidence; conflicting desktop/mobile/tablet claims for the same normalized device ID invalidate Gate C.
 
 ## Frozen release contract — `gate-c-1`
 
@@ -36,6 +38,7 @@ These thresholds are fixed before release device-listening data is collected.
 
 An eligible object passes when:
 
+- every counted review targets the exact Gate B-selected measurement;
 - median identity across the range is at least 4/5;
 - median timbre continuity is at least 4/5;
 - median useful range spans at least 12 semitones;
