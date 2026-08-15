@@ -2,10 +2,11 @@ import type { AcousticMode } from "@everything-rings/dsp";
 import { fingerprintRecurrence } from "@everything-rings/fingerprint";
 import { chooseAnchorMode } from "@everything-rings/instrument";
 import { renderAcousticFingerprint } from "@everything-rings/synth";
-import type { MaterialClass } from "@everything-rings/validation";
+import type { GateBReview, GateCReview, MaterialClass } from "@everything-rings/validation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AcousticDnaView } from "./AcousticDnaView";
 import { failureCopy } from "./failureCopy";
+import { GateReviewPanel } from "./GateReviewPanel";
 import { useStrikeSession } from "./useStrikeSession";
 
 const KEYBOARD_NOTES = [
@@ -99,6 +100,10 @@ function ModeTable({ modes }: { readonly modes: readonly AcousticMode[] }) {
   );
 }
 
+function sameLabel(left: string, right: string): boolean {
+  return left.trim().toLocaleLowerCase("en-US") === right.trim().toLocaleLowerCase("en-US");
+}
+
 export function LabApp() {
   const session = useStrikeSession();
   const fingerprint = session.fingerprint;
@@ -109,6 +114,8 @@ export function LabApp() {
   const [striker, setStriker] = useState("finger tap");
   const [strikeLocation, setStrikeLocation] = useState("marked point");
   const [supportCondition, setSupportCondition] = useState("held consistently");
+  const [gateBReviews, setGateBReviews] = useState<GateBReview[]>([]);
+  const [gateCReviews, setGateCReviews] = useState<GateCReview[]>([]);
   const drift = useMemo(() => {
     if (session.records.length < 2) return undefined;
     const reference = session.records[0]?.fingerprint;
@@ -125,6 +132,8 @@ export function LabApp() {
 
   function startSession(): void {
     setSessionId(createSessionId());
+    setGateBReviews([]);
+    setGateCReviews([]);
     void session.start();
   }
   function playOriginal(): void {
@@ -134,6 +143,22 @@ export function LabApp() {
     if (fingerprint === undefined) return;
     const sampleRate = session.playbackSampleRate() ?? fingerprint.sampleRate;
     session.play(renderAcousticFingerprint(fingerprint, sampleRate), sampleRate);
+  }
+  function addGateBReview(review: GateBReview): void {
+    setGateBReviews((current) => [
+      ...current.filter((entry) => !(sameLabel(entry.objectLabel, review.objectLabel) && entry.reviewerId === review.reviewerId)),
+      review,
+    ]);
+  }
+  function addGateCReview(review: GateCReview): void {
+    setGateCReviews((current) => [
+      ...current.filter((entry) => !(
+        sameLabel(entry.objectLabel, review.objectLabel)
+        && entry.reviewerId === review.reviewerId
+        && entry.deviceId === review.deviceId
+      )),
+      review,
+    ]);
   }
   function exportEvidence(): void {
     if (session.records.length === 0 || !protocolReady) return;
@@ -169,6 +194,8 @@ export function LabApp() {
         quality: record.quality,
         fingerprint: record.fingerprint,
       })),
+      gateBReviews,
+      gateCReviews,
       rawMicrophoneSamplesIncluded: false,
     };
     downloadJson(`everything-rings-${objectLabel.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}.json`, report);
@@ -186,7 +213,7 @@ export function LabApp() {
       <header>
         <p className="eyebrow">EVERYTHING RINGS / VALIDATION LAB</p>
         <h1>Acoustic analysis lab</h1>
-        <p className="lede">Measure repeatability, compare reconstruction, and test playable identity from one captured object.</p>
+        <p className="lede">Measure repeatability, run blinded reconstruction review, and test playable identity from one captured object.</p>
       </header>
 
       <section className="protocol-panel" aria-label="Fixed setup protocol">
@@ -220,8 +247,6 @@ export function LabApp() {
         <div className="actions">
           {session.state === "idle" ? <button onClick={startSession}>ARM MICROPHONE</button> : null}
           {session.state !== "idle" ? <button onClick={session.reset}>NEW STRIKE</button> : null}
-          {session.capture !== undefined ? <button onClick={playOriginal}>PLAY ORIGINAL</button> : null}
-          {fingerprint !== undefined ? <button onClick={playModel}>PLAY MODEL</button> : null}
           {session.records.length > 0 ? <button disabled={!protocolReady} onClick={exportEvidence}>EXPORT EVIDENCE</button> : null}
           {session.state !== "idle" ? <button className="secondary" onClick={session.stop}>STOP</button> : null}
         </div>
@@ -258,8 +283,18 @@ export function LabApp() {
         <div className="result-head"><div><p className="eyebrow">er-dsp-1</p><h2>Estimated acoustic modes</h2></div><strong>{fingerprint.modes.length}</strong></div>
         <AcousticDnaView fingerprint={fingerprint} />
         <ModeTable modes={fingerprint.modes} />
-        <div className="listening-lab"><div><p className="eyebrow">GATE B</p><h3>Original / modal reconstruction</h3><p className="small">The model contains no recorded audio.</p></div><div className="actions"><button onClick={playOriginal}>ORIGINAL</button><button onClick={playModel}>MODEL</button></div></div>
         <div className="instrument-lab"><p className="eyebrow">GATE C</p><h3>Realtime playable object</h3><p className="small">{session.instrumentReady ? "Modal voices are rendered continuously in the audio thread. Scheduling delay excludes the browser-reported output path." : session.instrumentFailure !== undefined ? "Realtime playback is unavailable in this browser session." : "Preparing the audio thread…"}</p><div className="keyboard">{KEYBOARD_NOTES.map((note) => <button key={note.midi} disabled={!session.instrumentReady} onPointerDown={() => session.noteOn(note.midi)}>{note.label}</button>)}</div></div>
+        <GateReviewPanel
+          objectLabel={objectLabel}
+          canListen={session.capture !== undefined && fingerprint !== undefined}
+          instrumentReady={session.instrumentReady}
+          playOriginal={playOriginal}
+          playModel={playModel}
+          gateBReviews={gateBReviews}
+          gateCReviews={gateCReviews}
+          onGateBReview={addGateBReview}
+          onGateCReview={addGateCReview}
+        />
       </section> : null}
     </main>
   );
