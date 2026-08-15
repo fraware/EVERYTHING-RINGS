@@ -101,6 +101,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
   const requestId = useRef(0);
   const attemptLedger = useRef<QualifiedAttemptLedger>(createQualifiedAttemptLedger());
   const instrumentPreparation = useRef<Promise<void> | undefined>(undefined);
+  const instrumentGeneration = useRef(0);
   const nextInstrumentEventId = useRef(1);
   const pendingInstrumentEvents = useRef(new Map<number, number>());
   const maximumQualifiedAttempts = options.maximumQualifiedAttempts;
@@ -176,24 +177,27 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
   }
 
   async function prepareInstrument(nextFingerprint: AcousticFingerprintV1): Promise<void> {
+  const generation = instrumentGeneration.current;
+  setInstrumentReady(false);
+  setInstrumentFailure(undefined);
+  try {
+    const node = await ensureInstrument();
+    if (node === undefined || generation !== instrumentGeneration.current) return;
+    const message: ModalInstrumentWorkletMessage = {
+      type: "SET_FINGERPRINT",
+      fingerprint: nextFingerprint,
+    };
+    node.port.postMessage(message);
+    setInstrumentReady(true);
+  } catch (error) {
+    if (generation !== instrumentGeneration.current) return;
+    setInstrumentFailure(error instanceof Error ? error.message : String(error));
     setInstrumentReady(false);
-    setInstrumentFailure(undefined);
-    try {
-      const node = await ensureInstrument();
-      if (node === undefined) return;
-      const message: ModalInstrumentWorkletMessage = {
-        type: "SET_FINGERPRINT",
-        fingerprint: nextFingerprint,
-      };
-      node.port.postMessage(message);
-      setInstrumentReady(true);
-    } catch (error) {
-      setInstrumentFailure(error instanceof Error ? error.message : String(error));
-      setInstrumentReady(false);
-    }
   }
+}
 
   function disposeResources(): void {
+    instrumentGeneration.current += 1;
     const current = resources.current;
     if (current === undefined) return;
     current.instrument?.disconnect();
@@ -329,6 +333,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
   }
 
   function reset(): void {
+    instrumentGeneration.current += 1;
     retainInterruptedQualifiedAttempt();
     requestId.current += 1;
     setFailureReason(undefined);
