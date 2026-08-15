@@ -207,12 +207,13 @@ export function App() {
           setLabState("failure");
           return;
         }
-        setFingerprint(event.data.fingerprint);
+        const nextFingerprint = event.data.fingerprint;
+        setFingerprint(nextFingerprint);
         setRecords((current) => [
           ...current,
           {
             id: current.length + 1,
-            fingerprint: event.data.fingerprint,
+            fingerprint: nextFingerprint,
             quality: pendingQuality.current ?? {
               score: 0,
               snrDb: 0,
@@ -244,7 +245,9 @@ export function App() {
     const current = resources.current;
     if (capture === undefined || current === undefined) return;
     const buffer = current.context.createBuffer(1, capture.samples.length, capture.sampleRate);
-    buffer.copyToChannel(capture.samples, 0);
+    const playbackSamples = new Float32Array(capture.samples.length);
+    playbackSamples.set(capture.samples);
+    buffer.copyToChannel(playbackSamples, 0);
     const source = current.context.createBufferSource();
     source.buffer = buffer;
     source.connect(current.context.destination);
