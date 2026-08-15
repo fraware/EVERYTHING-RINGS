@@ -15,37 +15,19 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: release-validation
-      - name: Apply exact Gate C coverage edit
+      - name: Apply bounded Gate C coverage edit
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
           path = Path('packages/validation/src/evaluate.ts')
           text = path.read_text()
-          old = '''  const selectedTargetsByLabel = new Map(
-            eligibleObjects.map((object) => [normalizedLabel(object.objectLabel), object.selectedTarget] as const),
-          );
-          const consideredReviews = dedupeGateCReviews(reviews.filter((review) => {
-            const selectedTarget = selectedTargetsByLabel.get(normalizedLabel(review.objectLabel));
-            return selectedTarget !== undefined
-              && selectedTarget !== null
-              && targetKey(review) === targetKey(selectedTarget);
-          }));
-          const deviceClassById = new Map<string, GateCReview["deviceClass"]>();
-          const conflictingDeviceIds = new Set<string>();
-          for (const review of consideredReviews) {
-            const deviceId = normalizedIdentifier(review.deviceId);
-            if (deviceId.length === 0) continue;
-            const previousClass = deviceClassById.get(deviceId);
-            if (previousClass !== undefined && previousClass !== review.deviceClass) conflictingDeviceIds.add(deviceId);
-            else deviceClassById.set(deviceId, review.deviceClass);
-          }
-          const distinctDeviceCount = deviceClassById.size;
-          const hasMobileDevice = [...deviceClassById.values()].includes("mobile");
-          const passing = objects.filter((object) => object.passed);
-          const reviewedObjectCount = objects.filter((object) => object.reviewCount > 0).length;
-          '''
-          new = '''  const selectedTargetsByLabel = new Map(
+          start_marker = '  const selectedTargetsByLabel = new Map(\n'
+          end_marker = '  const reasons: string[] = [];\n'
+          assert text.count(start_marker) == 1, text.count(start_marker)
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          replacement = '''  const selectedTargetsByLabel = new Map(
             eligibleObjects.map((object) => [normalizedLabel(object.objectLabel), object.selectedTarget] as const),
           );
           const eligibleReviews = dedupeGateCReviews(reviews.filter((review) => {
@@ -78,8 +60,7 @@ jobs:
           const hasMobileDevice = [...passingDeviceClassById.values()].includes("mobile");
           const reviewedObjectCount = objects.filter((object) => object.reviewCount > 0).length;
           '''
-          assert text.count(old) == 1, text.count(old)
-          path.write_text(text.replace(old, new))
+          path.write_text(text[:start] + replacement + text[end:])
           PY
           git diff --check
           git rm .github/workflows/gate-c-coverage-edit.yml
