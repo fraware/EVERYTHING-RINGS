@@ -104,7 +104,7 @@ function ModeTable({ modes }: { readonly modes: readonly AcousticMode[] }) {
 }
 
 export function LabApp() {
-  const session = useStrikeSession();
+  const session = useStrikeSession({ maximumQualifiedAttempts: 5 });
   const fingerprint = session.fingerprint;
   const [sessionId, setSessionId] = useState(createSessionId);
   const [objectLabel, setObjectLabel] = useState("");
