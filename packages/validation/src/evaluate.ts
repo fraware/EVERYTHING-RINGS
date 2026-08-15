@@ -1,3 +1,4 @@
+import { deriveEvidenceRecurrence, medianFinite } from "./derive";
 import type {
   GateAReleaseVerdict,
   GateASessionVerdict,
@@ -51,22 +52,20 @@ export const DEFAULT_GATE_C_THRESHOLDS: GateCThresholds = {
   requireMobileDevice: true,
 };
 
-function median(values: readonly number[]): number | null {
-  const finite = values.filter(Number.isFinite).sort((left, right) => left - right);
-  if (finite.length === 0) return null;
-  const middle = Math.floor(finite.length / 2);
-  const upper = finite[middle];
-  if (upper === undefined) return null;
-  if (finite.length % 2 === 1) return upper;
-  return ((finite[middle - 1] ?? upper) + upper) / 2;
-}
-
 function normalizedLabel(label: string): string {
   return label.trim().toLocaleLowerCase("en-US");
 }
 
+function normalizedIdentifier(identifier: string): string {
+  return identifier.trim().toLocaleLowerCase("en-US");
+}
+
 function targetKey(target: ReviewTarget): string {
   return `${target.sessionId}\u0000${target.recordId}`;
+}
+
+function recordsAreSequential(evidence: ValidationEvidenceV3): boolean {
+  return evidence.records.every((record, index) => record.id === index + 1);
 }
 
 export function evaluateGateASession(
@@ -75,20 +74,22 @@ export function evaluateGateASession(
 ): GateASessionVerdict {
   const reasons: string[] = [];
   const acceptedStrikes = evidence.records.length;
+  const sequentialRecords = recordsAreSequential(evidence);
   const strikesWithStableModes = evidence.records.filter(
     (record) => record.fingerprint.modes.length >= thresholds.minimumStableModes,
   ).length;
-  const recurrenceComparisons = evidence.recurrence.length;
-  const comparisonsWithEnoughMatches = evidence.recurrence.filter(
+  const recurrence = deriveEvidenceRecurrence(evidence.records);
+  const recurrenceComparisons = recurrence.length;
+  const comparisonsWithEnoughMatches = recurrence.filter(
     (comparison) => comparison.matchedCount >= thresholds.minimumMatchedModesPerComparison,
   ).length;
-  const recurrenceMedians = evidence.recurrence.map((comparison) => comparison.medianCents);
+  const recurrenceMedians = recurrence.map((comparison) => comparison.medianCents);
   const finiteRecurrenceMedians = recurrenceMedians.filter(Number.isFinite);
-  const sessionMedianDriftCents = median(recurrenceMedians);
+  const sessionMedianDriftCents = medianFinite(recurrenceMedians);
   const worstComparisonMedianDriftCents = finiteRecurrenceMedians.length === 0
     ? null
     : Math.max(...finiteRecurrenceMedians);
-  const reviewRecordId = acceptedStrikes === thresholds.acceptedStrikesPerObject
+  const reviewRecordId = acceptedStrikes === thresholds.acceptedStrikesPerObject && sequentialRecords
     ? evidence.records[acceptedStrikes - 1]?.id ?? null
     : null;
 
@@ -100,6 +101,7 @@ export function evaluateGateASession(
   if (evidence.protocol.supportCondition.trim().length === 0) reasons.push("support condition is missing");
   if (evidence.rawMicrophoneSamplesIncluded !== false) reasons.push("raw microphone samples invariant failed");
   if (evidence.recordCount !== acceptedStrikes) reasons.push("record count does not match evidence records");
+  if (!sequentialRecords) reasons.push("measurement record IDs must be sequential from 1");
   if (acceptedStrikes !== thresholds.acceptedStrikesPerObject) {
     reasons.push(`requires exactly ${thresholds.acceptedStrikesPerObject} accepted strikes`);
   }
@@ -186,10 +188,19 @@ export function evaluateGateARelease(
 function dedupeReviewsByReviewer<T extends { readonly reviewerId: string }>(reviews: readonly T[]): readonly T[] {
   const byReviewer = new Map<string, T>();
   for (const review of reviews) {
-    const key = review.reviewerId.trim();
+    const key = normalizedIdentifier(review.reviewerId);
     if (key.length > 0 && !byReviewer.has(key)) byReviewer.set(key, review);
   }
   return [...byReviewer.values()];
+}
+
+function dedupeGateCReviews(reviews: readonly GateCReview[]): readonly GateCReview[] {
+  const unique = new Map<string, GateCReview>();
+  for (const review of reviews) {
+    const key = `${normalizedIdentifier(review.reviewerId)}\u0000${normalizedIdentifier(review.deviceId)}\u0000${targetKey(review)}`;
+    if (!unique.has(key)) unique.set(key, review);
+  }
+  return [...unique.values()];
 }
 
 function gateAMaterialMap(gateA: GateAReleaseVerdict): ReadonlyMap<string, MaterialClass> {
@@ -224,10 +235,10 @@ export function evaluateGateBRelease(
       )),
     );
     const reasons: string[] = [];
-    const identityMedian = median(objectReviews.map((review) => review.identity));
-    const brightnessMedian = median(objectReviews.map((review) => review.brightness));
-    const decayMedian = median(objectReviews.map((review) => review.decayCharacter));
-    const artifactMedian = median(objectReviews.map((review) => review.artifactSeverity));
+    const identityMedian = medianFinite(objectReviews.map((review) => review.identity));
+    const brightnessMedian = medianFinite(objectReviews.map((review) => review.brightness));
+    const decayMedian = medianFinite(objectReviews.map((review) => review.decayCharacter));
+    const artifactMedian = medianFinite(objectReviews.map((review) => review.artifactSeverity));
 
     if (objectReviews.length < thresholds.minimumReviewersPerObject) {
       reasons.push(`requires ${thresholds.minimumReviewersPerObject} blinded reviewers on passing-session targets`);
@@ -294,14 +305,14 @@ export function evaluateGateCRelease(
   const objects: GateCObjectVerdict[] = eligibleObjects.map((eligibleObject) => {
     const labelKey = normalizedLabel(eligibleObject.objectLabel);
     const eligibleKeys = new Set(eligibleObject.eligibleTargets.map(targetKey));
-    const objectReviews = reviews.filter((review) => (
+    const objectReviews = dedupeGateCReviews(reviews.filter((review) => (
       normalizedLabel(review.objectLabel) === labelKey
       && eligibleKeys.has(targetKey(review))
-    ));
+    )));
     const reasons: string[] = [];
-    const identityMedian = median(objectReviews.map((review) => review.identityAcrossRange));
-    const continuityMedian = median(objectReviews.map((review) => review.timbreContinuity));
-    const usefulSemitoneSpanMedian = median(objectReviews.map((review) => review.usefulSemitoneSpan));
+    const identityMedian = medianFinite(objectReviews.map((review) => review.identityAcrossRange));
+    const continuityMedian = medianFinite(objectReviews.map((review) => review.timbreContinuity));
+    const usefulSemitoneSpanMedian = medianFinite(objectReviews.map((review) => review.usefulSemitoneSpan));
     const latencyAcceptedByAll = objectReviews.length > 0 && objectReviews.every((review) => review.latencyAcceptable);
 
     if (objectReviews.length === 0) reasons.push("requires a device listening review on a passing-session target");
@@ -330,12 +341,21 @@ export function evaluateGateCRelease(
 
   const eligibleReviewKeys = new Set(eligibleObjects.flatMap((object) => object.eligibleTargets.map(targetKey)));
   const eligibleLabels = new Set(eligibleObjects.map((object) => normalizedLabel(object.objectLabel)));
-  const consideredReviews = reviews.filter((review) => (
+  const consideredReviews = dedupeGateCReviews(reviews.filter((review) => (
     eligibleLabels.has(normalizedLabel(review.objectLabel))
     && eligibleReviewKeys.has(targetKey(review))
-  ));
-  const distinctDeviceCount = new Set(consideredReviews.map((review) => review.deviceId.trim()).filter(Boolean)).size;
-  const hasMobileDevice = consideredReviews.some((review) => review.deviceClass === "mobile");
+  )));
+  const deviceClassById = new Map<string, GateCReview["deviceClass"]>();
+  const conflictingDeviceIds = new Set<string>();
+  for (const review of consideredReviews) {
+    const deviceId = normalizedIdentifier(review.deviceId);
+    if (deviceId.length === 0) continue;
+    const previousClass = deviceClassById.get(deviceId);
+    if (previousClass !== undefined && previousClass !== review.deviceClass) conflictingDeviceIds.add(deviceId);
+    else deviceClassById.set(deviceId, review.deviceClass);
+  }
+  const distinctDeviceCount = deviceClassById.size;
+  const hasMobileDevice = [...deviceClassById.values()].includes("mobile");
   const passing = objects.filter((object) => object.passed);
   const reviewedObjectCount = objects.filter((object) => object.reviewCount > 0).length;
   const reasons: string[] = [];
@@ -343,6 +363,9 @@ export function evaluateGateCRelease(
   if (!gateB.passed) reasons.push("Gate B has not passed");
   if (reviewedObjectCount < thresholds.minimumObjects) reasons.push(`requires device reviews for ${thresholds.minimumObjects} objects`);
   if (passing.length < thresholds.minimumPassingObjects) reasons.push(`requires ${thresholds.minimumPassingObjects} passing objects`);
+  if (conflictingDeviceIds.size > 0) {
+    reasons.push(`conflicting device classes for: ${[...conflictingDeviceIds].join(", ")}`);
+  }
   if (distinctDeviceCount < thresholds.minimumDeviceCount) reasons.push(`requires ${thresholds.minimumDeviceCount} distinct devices`);
   if (thresholds.requireMobileDevice && !hasMobileDevice) reasons.push("requires at least one mobile-device review");
 
