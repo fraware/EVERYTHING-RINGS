@@ -19,10 +19,12 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
       - name: Install
-        run: pnpm install --frozen-lockfile=false
+        run: pnpm install --frozen-lockfile
       - name: Typecheck
         run: pnpm typecheck
       - name: Test
         run: pnpm test
       - name: Build
         run: pnpm build
+      - name: Browser smoke
+        run: bash scripts/browser-smoke.sh

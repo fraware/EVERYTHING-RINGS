@@ -58,7 +58,7 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
       - name: Install
-        run: pnpm install --frozen-lockfile=false
+        run: pnpm install --frozen-lockfile
       - name: Build static site
         run: pnpm --filter @everything-rings/web exec vite build --base=/EVERYTHING-RINGS/
       - uses: actions/configure-pages@v5
