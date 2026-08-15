@@ -247,6 +247,7 @@ describe("evidence parsing", () => {
     const { softwareRevision: _softwareRevision, ...withoutRevision } = bundle;
     expect(parseValidationEvidence(withoutRevision).ok).toBe(false);
     expect(parseValidationEvidence({ ...bundle, softwareRevision: "deadbeef" }).ok).toBe(false);
+    expect(parseValidationEvidence({ schemaVersion: 4, evidenceContractVersion: "validation-evidence-4" }).ok).toBe(false);
     expect(parseValidationEvidence({ schemaVersion: 5, evidenceContractVersion: "validation-evidence-4" }).ok).toBe(false);
     expect(parseValidationEvidence({ schemaVersion: 3, evidenceContractVersion: "validation-evidence-3" }).ok).toBe(false);
   });
