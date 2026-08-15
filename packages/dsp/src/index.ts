@@ -1,3 +1,17 @@
+export {
+  DEFAULT_DECAY_FIT_CONFIG,
+  type DecayEstimate,
+  type DecayFitConfig,
+  type DecayFitFailureReason,
+  type DecayFitResult,
+  estimateTrackDecay,
+} from "./decay/estimate";
+export {
+  DEFAULT_ROBUST_LINE_CONFIG,
+  fitRobustLine,
+  type RobustLineConfig,
+  type RobustLineFit,
+} from "./decay/robust-line";
 export type { FFTBackend } from "./fft/backend";
 export { FFTJsBackend } from "./fft/fft-js-backend";
 export {
@@ -13,11 +27,7 @@ export {
   createMagnitudeSpectrumWorkspace,
   type MagnitudeSpectrumWorkspace,
 } from "./spectrum/magnitude";
-export {
-  DEFAULT_STFT_CONFIG,
-  type STFTConfig,
-  validateSTFTConfig,
-} from "./stft/config";
+export { DEFAULT_STFT_CONFIG, type STFTConfig, validateSTFTConfig } from "./stft/config";
 export {
   forEachSpectrumFrame,
   type SpectrumFrameConsumer,
