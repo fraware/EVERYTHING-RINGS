@@ -1,0 +1,157 @@
+name: final-specimen-migration
+
+on:
+  push:
+    branches: [release-validation]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: release-validation
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Apply bounded migration
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path_str: str, old: str, new: str) -> None:
+              path = Path(path_str)
+              text = path.read_text()
+              count = text.count(old)
+              assert count == 1, f"{path_str}: expected one match, found {count}: {old[:80]!r}"
+              path.write_text(text.replace(old, new))
+
+          replace_once(
+              'apps/web/src/LabApp.tsx',
+              '  const [sessionId, setSessionId] = useState(createSessionId);\n  const [objectLabel, setObjectLabel] = useState("");',
+              '  const [sessionId, setSessionId] = useState(createSessionId);\n  const [specimenId, setSpecimenId] = useState("");\n  const [objectLabel, setObjectLabel] = useState("");',
+          )
+          replace_once(
+              'apps/web/src/LabApp.tsx',
+              '  const protocolReady = objectLabel.trim().length > 0\n    && striker.trim().length > 0',
+              '  const protocolReady = specimenId.trim().length > 0\n    && objectLabel.trim().length > 0\n    && striker.trim().length > 0',
+          )
+          replace_once(
+              'apps/web/src/LabApp.tsx',
+              '  const terminalState = session.state === "success" || session.state === "failure" || session.state === "error";\n  const canStartNextAttempt = terminalState && !attemptLimitReached;',
+              '  const recoverableTerminalState = session.state === "success" || session.state === "failure";\n  const canStartNextAttempt = recoverableTerminalState && !attemptLimitReached;',
+          )
+          replace_once(
+              'apps/web/src/LabApp.tsx',
+              '    setActiveObject({ label: objectLabel.trim(), material });',
+              '    setActiveObject({ specimenId: specimenId.trim(), label: objectLabel.trim(), material });',
+          )
+          replace_once(
+              'apps/web/src/LabApp.tsx',
+              '        <div className="protocol-grid">\n          <label><span>object</span><input disabled={protocolLocked} value={objectLabel} onChange={(event) => setObjectLabel(event.target.value)} placeholder="ceramic mug" /></label>',
+              '        <div className="protocol-grid">\n          <label><span>specimen ID</span><input disabled={protocolLocked} value={specimenId} onChange={(event) => setSpecimenId(event.target.value)} placeholder="lab-mug-01" /></label>\n          <label><span>object</span><input disabled={protocolLocked} value={objectLabel} onChange={(event) => setObjectLabel(event.target.value)} placeholder="ceramic mug" /></label>',
+          )
+          replace_once(
+              'apps/web/src/LabApp.tsx',
+              '          <p className="small">{protocolLocked ? `Locked for ${activeObject.label}. The first five acquisition-quality-passing attempts are final; analytical failures cannot be replaced.` : "Set these fields before arming. They remain locked for all five qualified attempts."}</p>',
+              '          <p className="small">{protocolLocked ? `Locked specimen ${activeObject.specimenId} (${activeObject.label}). The first five acquisition-quality-passing attempts are final; analytical failures cannot be replaced.` : "Assign one stable physical specimen ID and set the fixed setup before arming. All fields remain locked for the five qualified attempts."}</p>',
+          )
+          replace_once(
+              'apps/web/src/LabApp.tsx',
+              '      {attemptLimitReached && !gateAPassed ? <p className="validation-note">The five-attempt experiment is closed. Failed analyses remain part of the evidence and cannot be replaced.</p> : null}',
+              '      {attemptLimitReached && !gateAPassed ? <p className="validation-note">The five-attempt experiment is closed. Failed analyses remain part of the evidence and cannot be replaced.</p> : null}\n      {session.state === "error" ? <p className="validation-note">This session encountered an internal error. Export retained evidence, stop, and start a new session with the same specimen ID; do not continue this physical session.</p> : null}',
+          )
+
+          replace_once(
+              'apps/web/src/ReleaseApp.tsx',
+              '{verdict.gateA.distinctPassingObjectCount} / 5 distinct passing objects',
+              '{verdict.gateA.distinctPassingSpecimenCount} / 5 distinct passing specimens',
+          )
+          replace_once(
+              'apps/web/src/ReleaseApp.tsx',
+              '<div className="release-row release-row-head" role="row"><span>object</span><span>material</span><span>attempts</span><span>drift</span><span>B</span><span>C</span><span>A2</span></div>',
+              '<div className="release-row release-row-head" role="row"><span>specimen</span><span>object</span><span>material</span><span>attempts</span><span>drift</span><span>B</span><span>C</span><span>A2</span></div>',
+          )
+          replace_once(
+              'apps/web/src/ReleaseApp.tsx',
+              '          return <div className="release-row" role="row" key={bundle.sessionId}>\n            <span>{bundle.object.label}</span>\n            <span>{bundle.object.material}</span>',
+              '          return <div className="release-row" role="row" key={bundle.sessionId}>\n            <span>{bundle.object.specimenId}</span>\n            <span>{bundle.object.label}</span>\n            <span>{bundle.object.material}</span>',
+          )
+          replace_once(
+              'apps/web/src/ReleaseApp.tsx',
+              '        <div className="release-card-head"><h3>{session.objectLabel}</h3><Verdict passed={session.passed} /></div>\n        <dl>',
+              '        <div className="release-card-head"><h3>{session.objectLabel}</h3><Verdict passed={session.passed} /></div>\n        <dl>\n          <div><dt>specimen ID</dt><dd>{session.specimenId}</dd></div>',
+          )
+          replace_once(
+              'apps/web/src/styles.css',
+              '.release-row { display: grid; grid-template-columns: 2fr 1fr .7fr .8fr .5fr .5fr .6fr; gap: 12px;',
+              '.release-row { display: grid; grid-template-columns: 1.25fr 1.5fr 1fr .7fr .8fr .5fr .5fr .6fr; gap: 12px;',
+          )
+          replace_once(
+              'apps/web/src/styles.css',
+              '  .release-row { grid-template-columns: 2fr .8fr .8fr .6fr; }\n  .release-row span:nth-child(2), .release-row span:nth-child(5), .release-row span:nth-child(6) { display: none; }',
+              '  .release-row { grid-template-columns: 1.2fr 2fr .7fr .6fr; }\n  .release-row span:nth-child(3), .release-row span:nth-child(5), .release-row span:nth-child(6), .release-row span:nth-child(7) { display: none; }',
+          )
+
+          replace_once(
+              'packages/validation/src/parse.ts',
+              '  const object = record(evidence.object);\n  if (object === undefined || !nonEmptyString(object.label)) return { ok: false, error: "object label is missing" };\n  const objectLabel = object.label;',
+              '  const object = record(evidence.object);\n  if (object === undefined || !nonEmptyString(object.specimenId)) return { ok: false, error: "specimen ID is missing" };\n  if (!nonEmptyString(object.label)) return { ok: false, error: "object label is missing" };\n  const objectLabel = object.label;',
+          )
+
+          replace_once(
+              'packages/validation/test/evaluate.test.ts',
+              '  it("requires five distinct passing objects with metal, glass, and ceramic coverage", () => {\n    expect(evaluateGateARelease(fiveObjects()).passed).toBe(true);\n    const duplicate = [...fiveObjects().slice(0, 4), evidence("bell", "metal", { sessionId: "session-bell-2" })];\n    expect(evaluateGateARelease(duplicate).passed).toBe(false);\n  });',
+              '  it("requires five distinct passing physical specimens with metal, glass, and ceramic coverage", () => {\n    expect(evaluateGateARelease(fiveObjects()).passed).toBe(true);\n    const alias = [...fiveObjects().slice(0, 4), evidence("desk bell", "metal", { specimenId: "specimen-bell", sessionId: "session-bell-2" })];\n    const verdict = evaluateGateARelease(alias);\n    expect(verdict.passed).toBe(false);\n    expect(verdict.distinctPassingSpecimenCount).toBe(4);\n  });',
+          )
+          replace_once(
+              'packages/validation/test/evaluate.test.ts',
+              '    const conflictingMaterial = [...fiveObjects(), evidence("Bell", "ceramic", { sessionId: "session-bell-conflict" })];\n    const verdict = evaluateGateARelease(conflictingMaterial);\n    expect(verdict.passed).toBe(false);\n    expect(verdict.reasons.some((reason) => reason.includes("conflicting material labels"))).toBe(true);',
+              '    const conflictingMaterial = [...fiveObjects(), evidence("Bell", "ceramic", { specimenId: "specimen-bell", sessionId: "session-bell-conflict" })];\n    const verdict = evaluateGateARelease(conflictingMaterial);\n    expect(verdict.passed).toBe(false);\n    expect(verdict.reasons.some((reason) => reason.includes("conflicting material classes for specimen IDs"))).toBe(true);',
+          )
+          replace_once(
+              'packages/validation/test/evaluate.test.ts',
+              '  it("accepts schema v4 and rejects the superseded record-only schema", () => {\n    expect(parseValidationEvidence(evidence("bell", "metal")).ok).toBe(true);\n    expect(parseValidationEvidence({ schemaVersion: 3, evidenceContractVersion: "validation-evidence-3" }).ok).toBe(false);\n  });',
+              '  it("accepts schema v4, requires specimen identity, and rejects the superseded record-only schema", () => {\n    const bundle = evidence("bell", "metal");\n    expect(parseValidationEvidence(bundle).ok).toBe(true);\n    expect(parseValidationEvidence({ ...bundle, object: { label: bundle.object.label, material: bundle.object.material } }).ok).toBe(false);\n    expect(parseValidationEvidence({ schemaVersion: 3, evidenceContractVersion: "validation-evidence-3" }).ok).toBe(false);\n  });',
+          )
+
+          replace_once(
+              'packages/validation/test/targeting.test.ts',
+              '    expect(verdict.reasons.some((reason) => reason.includes("conflicting material labels"))).toBe(true);',
+              '    expect(verdict.reasons.some((reason) => reason.includes("conflicting material classes for specimen IDs"))).toBe(true);',
+          )
+          replace_once(
+              'packages/validation/test/targeting.test.ts',
+              '    const failingConflict = evidence("Bell", "ceramic", {\n      sessionId: "bell-conflict",',
+              '    const failingConflict = evidence("Bell", "ceramic", {\n      specimenId: "bell",\n      sessionId: "bell-conflict",',
+          )
+
+          PY
+          git diff --check
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Test
+        run: pnpm test
+      - name: Build
+        run: pnpm build
+      - name: Browser smoke
+        run: bash scripts/browser-smoke.sh
+      - name: Commit verified migration
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/final-specimen-migration.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Complete specimen identity migration'
+          git push origin HEAD:release-validation
