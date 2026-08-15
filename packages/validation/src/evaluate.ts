@@ -15,11 +15,16 @@ import type {
   ReleaseVerdict,
   ReviewTarget,
   ValidationEvidenceV3,
+  ValidationEvidenceRecord,
 } from "./types";
 
 export const DEFAULT_GATE_A_THRESHOLDS: GateAThresholds = {
   contractVersion: "gate-a-1",
   acceptedStrikesPerObject: 5,
+  minimumPeakAmplitude: 0.02,
+  minimumSnrDb: 12,
+  maximumClippedFraction: 0.001,
+  maximumSecondaryTransientRatio: 0.65,
   minimumStableModes: 3,
   minimumStrikesWithStableModes: 4,
   minimumMatchedModesPerComparison: 3,
@@ -68,6 +73,14 @@ function recordsAreSequential(evidence: ValidationEvidenceV3): boolean {
   return evidence.records.every((record, index) => record.id === index + 1);
 }
 
+function captureQualityPasses(record: ValidationEvidenceRecord, thresholds: GateAThresholds): boolean {
+  const quality = record.quality;
+  return quality.peakAmplitude >= thresholds.minimumPeakAmplitude
+    && quality.snrDb >= thresholds.minimumSnrDb
+    && quality.clippedFraction <= thresholds.maximumClippedFraction
+    && quality.secondaryTransientRatio <= thresholds.maximumSecondaryTransientRatio;
+}
+
 export function evaluateGateASession(
   evidence: ValidationEvidenceV3,
   thresholds: GateAThresholds = DEFAULT_GATE_A_THRESHOLDS,
@@ -75,6 +88,7 @@ export function evaluateGateASession(
   const reasons: string[] = [];
   const acceptedStrikes = evidence.records.length;
   const sequentialRecords = recordsAreSequential(evidence);
+  const qualityPassingStrikes = evidence.records.filter((record) => captureQualityPasses(record, thresholds)).length;
   const strikesWithStableModes = evidence.records.filter(
     (record) => record.fingerprint.modes.length >= thresholds.minimumStableModes,
   ).length;
@@ -105,6 +119,9 @@ export function evaluateGateASession(
   if (acceptedStrikes !== thresholds.acceptedStrikesPerObject) {
     reasons.push(`requires exactly ${thresholds.acceptedStrikesPerObject} accepted strikes`);
   }
+  if (qualityPassingStrikes !== acceptedStrikes || qualityPassingStrikes !== thresholds.acceptedStrikesPerObject) {
+    reasons.push(`all ${thresholds.acceptedStrikesPerObject} strikes must satisfy the frozen acquisition-quality bounds`);
+  }
   if (strikesWithStableModes < thresholds.minimumStrikesWithStableModes) {
     reasons.push(`requires ${thresholds.minimumStrikesWithStableModes} strikes with at least ${thresholds.minimumStableModes} stable modes`);
   }
@@ -133,6 +150,7 @@ export function evaluateGateASession(
     passed: reasons.length === 0,
     metrics: {
       acceptedStrikes,
+      qualityPassingStrikes,
       strikesWithStableModes,
       recurrenceComparisons,
       comparisonsWithEnoughMatches,
