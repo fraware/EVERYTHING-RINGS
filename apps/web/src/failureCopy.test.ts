@@ -9,6 +9,7 @@ const cases = [
   ["MICROPHONE_UNAVAILABLE", "The microphone is unavailable or already in use. Close other audio apps and try again."],
   ["MICROPHONE_CONSTRAINTS_UNSATISFIED", "This microphone could not provide a compatible capture stream. Try another input or browser."],
   ["MICROPHONE_OPEN_FAILED", "The microphone could not be opened. Check the input and try again."],
+  ["MICROPHONE_DISCONNECTED", "The microphone disconnected. Reconnect or reselect the input, then start again."],
 ] as const;
 
 describe("microphone failure copy", () => {
