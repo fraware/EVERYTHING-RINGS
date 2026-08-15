@@ -139,6 +139,7 @@ export function LabApp() {
     && microphoneDistanceCm > 0;
   const protocolLocked = activeObject !== undefined && activeProtocol !== undefined;
   const strikeLimitReached = session.records.length >= 5;
+  const reviewRecordId = strikeLimitReached ? session.records[4]?.id : undefined;
 
   function startSession(): void {
     if (!protocolReady) return;
@@ -306,9 +307,11 @@ export function LabApp() {
         <ModeTable modes={fingerprint.modes} />
         <div className="instrument-lab"><p className="eyebrow">GATE C</p><h3>Realtime playable object</h3><p className="small">{session.instrumentReady ? "Modal voices are rendered continuously in the audio thread. Scheduling delay excludes the browser-reported output path." : session.instrumentFailure !== undefined ? "Realtime playback is unavailable in this browser session." : "Preparing the audio thread…"}</p><div className="keyboard">{KEYBOARD_NOTES.map((note) => <button key={note.midi} disabled={!session.instrumentReady} onPointerDown={() => session.noteOn(note.midi)}>{note.label}</button>)}</div></div>
         <GateReviewPanel
+          sessionId={sessionId}
+          recordId={reviewRecordId}
           objectLabel={activeObject?.label ?? ""}
-          canListen={session.capture !== undefined && fingerprint !== undefined}
-          instrumentReady={session.instrumentReady}
+          canListen={strikeLimitReached && session.capture !== undefined && fingerprint !== undefined}
+          instrumentReady={strikeLimitReached && session.instrumentReady}
           playOriginal={playOriginal}
           playModel={playModel}
           gateBReviews={gateBReviews}
