@@ -96,9 +96,18 @@ jobs:
           });
           const page = await browser.newPage();
           const errors = [];
+          const httpErrors = [];
           page.on('pageerror', error => errors.push(`pageerror: ${error.message}`));
           page.on('console', message => {
-            if (message.type() === 'error') errors.push(`console: ${message.text()}`);
+            if (message.type() !== 'error') return;
+            const text = message.text();
+            if (text === 'Failed to load resource: the server responded with a status of 404 (Not Found)') return;
+            errors.push(`console: ${text}`);
+          });
+          page.on('response', response => {
+            const status = response.status();
+            const url = response.url();
+            if (status >= 400 && !url.endsWith('/favicon.ico')) httpErrors.push(`${status} ${url}`);
           });
           try {
             await page.goto('http://127.0.0.1:4173/?lab=1', { waitUntil: 'networkidle0', timeout: 30_000 });
@@ -132,17 +141,34 @@ jobs:
             const result = await page.evaluate(() => {
               const state = document.querySelector('.status')?.textContent?.trim() ?? '';
               const text = document.body.innerText;
-              const modeRows = document.querySelectorAll('.mode-row:not(.mode-head)').length;
               const waveform = document.querySelector('canvas.waveform') !== null;
-              return { state, text, modeRows, waveform };
+              const modes = [...document.querySelectorAll('.mode-row:not(.mode-head)')].map(row => {
+                const cells = [...row.querySelectorAll('span')].map(cell => cell.textContent?.trim() ?? '');
+                return { frequencyHz: Number(cells[0]), decaySeconds: Number((cells[1] ?? '').replace(' s', '')) };
+              });
+              return { state, text, modes, waveform };
             });
-            console.log(JSON.stringify({ ...result, errors }, null, 2));
+            console.log(JSON.stringify({ ...result, errors, httpErrors }, null, 2));
             if (result.state !== 'success') throw new Error(`lab ended in ${result.state}`);
             if (!result.waveform) throw new Error('captured waveform was not rendered');
-            if (result.modeRows < 3) throw new Error(`expected >=3 modes, got ${result.modeRows}`);
+            if (result.modes.length < 3) throw new Error(`expected >=3 modes, got ${result.modes.length}`);
             if (!result.text.includes('1 / 5')) throw new Error('qualified attempt was not retained');
+            if (!result.text.includes('realtime engine\nready')) throw new Error('realtime instrument did not become ready');
+
+            const expected = [
+              { frequencyHz: 440, decaySeconds: 1.20 },
+              { frequencyHz: 997, decaySeconds: 0.70 },
+              { frequencyHz: 2413, decaySeconds: 0.38 },
+            ];
+            for (const target of expected) {
+              const mode = result.modes.find(candidate => Math.abs(candidate.frequencyHz - target.frequencyHz) <= Math.max(3, target.frequencyHz * 0.005));
+              if (mode === undefined) throw new Error(`missing expected mode near ${target.frequencyHz} Hz`);
+              const relativeDecayError = Math.abs(mode.decaySeconds - target.decaySeconds) / target.decaySeconds;
+              if (relativeDecayError > 0.15) throw new Error(`decay error for ${target.frequencyHz} Hz is ${relativeDecayError}`);
+            }
             if (errors.length > 0) throw new Error(errors.join('\n'));
-            fs.writeFileSync(`${process.env.RUNNER_TEMP}/browser-e2e-result.json`, JSON.stringify({ ...result, errors }, null, 2));
+            if (httpErrors.length > 0) throw new Error(`unexpected HTTP errors:\n${httpErrors.join('\n')}`);
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/browser-e2e-result.json`, JSON.stringify({ ...result, errors, httpErrors }, null, 2));
           } finally {
             await browser.close();
           }
