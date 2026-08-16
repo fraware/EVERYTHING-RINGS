@@ -2,8 +2,10 @@ name: apply-microphone-errors
 
 on:
   push:
-    branches: [post-freeze-permission-errors]
-    paths: [.github/workflows/apply-microphone-errors.yml]
+    branches:
+      - post-freeze-permission-errors
+    paths:
+      - ".github/workflows/apply-microphone-errors.yml"
 
 permissions:
   contents: write
