@@ -1,0 +1,108 @@
+name: apply-performance-observability
+
+on:
+  push:
+    branches: [post-freeze-performance-observability]
+    paths: [.github/workflows/apply-performance-observability.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: post-freeze-performance-observability
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Apply bounded observability patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          hook = Path('apps/web/src/useStrikeSession.ts')
+          text = hook.read_text()
+          replacements = [
+            (
+              'import { ensureAudioContextRunning } from "./audioContext";\n',
+              'import { ensureAudioContextRunning } from "./audioContext";\nimport type { AnalysisResponse, AnalysisWorkerTiming } from "./analysisProtocol";\n',
+            ),
+            (
+              'type AnalysisResponse =\n  | { readonly type: "SUCCESS"; readonly requestId: string; readonly fingerprint: AcousticFingerprintV1 }\n  | { readonly type: "FAILURE"; readonly requestId: string; readonly reason: AnalysisFailureReasonEvidence };\n\n',
+              '',
+            ),
+            (
+              '  const [playbackFailure, setPlaybackFailure] = useState<string>();\n  const [audioTiming, setAudioTiming] = useState<RealtimeAudioTiming>();\n',
+              '  const [playbackFailure, setPlaybackFailure] = useState<string>();\n  const [analysisTiming, setAnalysisTiming] = useState<AnalysisWorkerTiming>();\n  const [audioTiming, setAudioTiming] = useState<RealtimeAudioTiming>();\n',
+            ),
+            (
+              '      setPlaybackFailure(undefined);\n      setAudioTiming(undefined);\n',
+              '      setPlaybackFailure(undefined);\n      setAnalysisTiming(undefined);\n      setAudioTiming(undefined);\n',
+            ),
+            (
+              '        setState("analyzing");\n        const samples = nextCapture.samples.slice();\n',
+              '        setAnalysisTiming(undefined);\n        setState("analyzing");\n        const samples = nextCapture.samples.slice();\n',
+            ),
+            (
+              '          if (!settleCurrentAttempt(event.data.requestId, { status: "failure", reason: event.data.reason })) return;\n          setFingerprint(undefined);\n',
+              '          if (!settleCurrentAttempt(event.data.requestId, { status: "failure", reason: event.data.reason })) return;\n          setAnalysisTiming(event.data.timing);\n          setFingerprint(undefined);\n',
+            ),
+            (
+              '        if (!settleCurrentAttempt(event.data.requestId, { status: "success", fingerprint: nextFingerprint })) return;\n        setFingerprint(nextFingerprint);\n',
+              '        if (!settleCurrentAttempt(event.data.requestId, { status: "success", fingerprint: nextFingerprint })) return;\n        setAnalysisTiming(event.data.timing);\n        setFingerprint(nextFingerprint);\n',
+            ),
+            (
+              '        setFingerprint(undefined);\n        setFailureReason(event.message || "Analysis worker failed");\n',
+              '        setAnalysisTiming(undefined);\n        setFingerprint(undefined);\n        setFailureReason(event.message || "Analysis worker failed");\n',
+            ),
+            (
+              '    setPlaybackFailure(undefined);\n    pendingInstrumentEvents.current.clear();\n',
+              '    setPlaybackFailure(undefined);\n    setAnalysisTiming(undefined);\n    pendingInstrumentEvents.current.clear();\n',
+            ),
+            (
+              '    setPlaybackFailure(undefined);\n    if (alreadyIdle) {\n',
+              '    setPlaybackFailure(undefined);\n    setAnalysisTiming(undefined);\n    if (alreadyIdle) {\n',
+            ),
+            (
+              '    playbackFailure,\n    audioTiming,\n',
+              '    playbackFailure,\n    analysisTiming,\n    audioTiming,\n',
+            ),
+          ]
+          for old, new in replacements:
+            count = text.count(old)
+            if count != 1:
+              raise SystemExit(f'useStrikeSession replacement count {count} for {old[:80]!r}')
+            text = text.replace(old, new)
+          hook.write_text(text)
+
+          lab = Path('apps/web/src/LabApp.tsx')
+          text = lab.read_text()
+          old = '  const schedulingLatency = session.audioTiming?.lastSchedulingMs;\n'
+          new = old + '  const ringdownTiming = session.analysisTiming?.ringdownMs;\n  const modalAnalysisTiming = session.analysisTiming?.modalAnalysisMs;\n  const totalAnalysisTiming = session.analysisTiming?.totalMs;\n'
+          if text.count(old) != 1:
+            raise SystemExit(f'Lab timing anchor count {text.count(old)}')
+          text = text.replace(old, new)
+          old = '          <div><dt>note scheduling</dt><dd>{schedulingLatency === undefined ? "—" : `${schedulingLatency.toFixed(1)} ms`}</dd></div>\n'
+          new = old + '          <div><dt>ringdown prep</dt><dd>{ringdownTiming === undefined ? "—" : `${ringdownTiming.toFixed(1)} ms`}</dd></div>\n          <div><dt>modal analysis</dt><dd>{modalAnalysisTiming === undefined ? "—" : `${modalAnalysisTiming.toFixed(1)} ms`}</dd></div>\n          <div><dt>worker total</dt><dd>{totalAnalysisTiming === undefined ? "—" : `${totalAnalysisTiming.toFixed(1)} ms`}</dd></div>\n'
+          if text.count(old) != 1:
+            raise SystemExit(f'Lab timing row anchor count {text.count(old)}')
+          lab.write_text(text.replace(old, new))
+          PY
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: bash scripts/browser-smoke.sh
+      - name: Commit verified observability changes
+        run: |
+          rm .github/workflows/apply-performance-observability.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "repository-maintenance"
+          git config user.email "repository-maintenance@users.noreply.github.com"
+          git commit -m "Expose analysis worker timings"
+          git push origin HEAD:post-freeze-performance-observability
