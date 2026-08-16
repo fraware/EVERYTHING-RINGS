@@ -1,0 +1,72 @@
+name: microphone-errors-e2e
+
+on:
+  push:
+    branches: [validation/microphone-errors-e2e]
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: post-freeze-permission-errors
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Install browser harness
+        run: |
+          mkdir -p /tmp/er-browser
+          cd /tmp/er-browser
+          npm init -y >/dev/null
+          npm install playwright@1.62.0 >/dev/null
+          npx playwright install chromium
+      - name: Validate public microphone failures
+        run: |
+          pnpm --filter @everything-rings/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort >/tmp/er-preview.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do curl -fsS http://127.0.0.1:4173 >/dev/null && break; sleep .25; done
+          cat >/tmp/er-browser/test.mjs <<'JS'
+          import { chromium } from 'playwright';
+
+          const cases = [
+            ['NotAllowedError', 'Microphone access is blocked. Allow microphone access for this site, then try again.'],
+            ['NotFoundError', 'No microphone is available on this device.'],
+            ['NotReadableError', 'The microphone could not be opened. Close other apps using it, then try again.'],
+          ];
+          const browser = await chromium.launch({ headless: true });
+          try {
+            for (const [name, expected] of cases) {
+              const context = await browser.newContext();
+              const page = await context.newPage();
+              const pageErrors = [];
+              page.on('pageerror', (error) => pageErrors.push(String(error)));
+              await page.addInitScript((errorName) => {
+                const getUserMedia = async () => { throw new DOMException('synthetic microphone failure', errorName); };
+                Object.defineProperty(navigator, 'mediaDevices', {
+                  configurable: true,
+                  value: { getUserMedia },
+                });
+              }, name);
+              await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' });
+              await page.getByRole('button', { name: 'START LISTENING' }).click();
+              await page.getByRole('alert').waitFor({ state: 'visible' });
+              const body = await page.locator('body').innerText();
+              if (!body.includes(expected)) throw new Error(`${name}: expected recovery copy not found: ${body}`);
+              if (body.includes(name)) throw new Error(`${name}: raw browser exception leaked into UI`);
+              if (pageErrors.length !== 0) throw new Error(`${name}: page errors: ${pageErrors.join('; ')}`);
+              await context.close();
+            }
+          } finally {
+            await browser.close();
+          }
+          console.log('Microphone startup error E2E passed.');
+          JS
+          node /tmp/er-browser/test.mjs
