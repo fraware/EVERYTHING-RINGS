@@ -1,0 +1,24 @@
+name: audio-recovery-e2e
+
+on:
+  push:
+    branches: [validation/audio-recovery-e2e]
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: post-freeze-audio-recovery
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @everything-rings/web exec vitest run src/audioContext.test.ts
+      - run: pnpm typecheck
+      - run: pnpm build
