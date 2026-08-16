@@ -1,7 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizeMicrophoneStartupFailure } from "./microphoneError";
 
 describe("normalizeMicrophoneStartupFailure", () => {
+  beforeEach(() => {
+    vi.stubGlobal("window", { isSecureContext: true });
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn() } });
+    vi.stubGlobal("AudioContext", class {});
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it.each([
     ["NotAllowedError", "MIC_PERMISSION_DENIED"],
     ["PermissionDeniedError", "MIC_PERMISSION_DENIED"],
@@ -19,13 +29,20 @@ describe("normalizeMicrophoneStartupFailure", () => {
   it("prefers insecure-context detection", () => {
     vi.stubGlobal("window", { isSecureContext: false });
     expect(normalizeMicrophoneStartupFailure({ name: "NotAllowedError" })).toBe("MIC_INSECURE_CONTEXT");
-    vi.unstubAllGlobals();
   });
 
   it("detects missing mediaDevices", () => {
-    vi.stubGlobal("window", { isSecureContext: true });
     vi.stubGlobal("navigator", {});
     expect(normalizeMicrophoneStartupFailure(new Error("missing"))).toBe("MIC_UNSUPPORTED");
-    vi.unstubAllGlobals();
+  });
+
+  it("detects missing getUserMedia", () => {
+    vi.stubGlobal("navigator", { mediaDevices: {} });
+    expect(normalizeMicrophoneStartupFailure(new Error("missing"))).toBe("MIC_UNSUPPORTED");
+  });
+
+  it("detects missing AudioContext", () => {
+    vi.stubGlobal("AudioContext", undefined);
+    expect(normalizeMicrophoneStartupFailure(new Error("missing"))).toBe("MIC_UNSUPPORTED");
   });
 });
