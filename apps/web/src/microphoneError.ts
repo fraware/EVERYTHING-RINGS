@@ -13,7 +13,14 @@ interface ErrorLike {
 
 export function normalizeMicrophoneStartupFailure(error: unknown): MicrophoneStartupFailure {
   if (typeof window !== "undefined" && !window.isSecureContext) return "MIC_INSECURE_CONTEXT";
-  if (typeof navigator !== "undefined" && navigator.mediaDevices === undefined) return "MIC_UNSUPPORTED";
+  if (
+    typeof navigator === "undefined"
+    || navigator.mediaDevices === undefined
+    || typeof navigator.mediaDevices.getUserMedia !== "function"
+    || typeof AudioContext === "undefined"
+  ) {
+    return "MIC_UNSUPPORTED";
+  }
   const candidate = error as ErrorLike | null | undefined;
   switch (candidate?.name) {
     case "NotAllowedError":
