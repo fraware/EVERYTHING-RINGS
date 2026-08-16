@@ -66,16 +66,11 @@ jobs:
 
           consumer = Path('apps/web/src/ConsumerApp.tsx')
           text = consumer.read_text()
-          replacements = [
-            ('onPointerDown={() => session.noteOn(note.midi)} onClick={() => session.noteOn(note.midi)}', 'onPointerDown={() => void session.noteOn(note.midi)} onClick={() => void session.noteOn(note.midi)}'),
-            ('    {showKeyboard && session.instrumentReady ? <section', '    {session.playbackFailure !== undefined ? <p className="consumer-audio-error" role="alert">{session.playbackFailure}</p> : null}\n    {showKeyboard && session.instrumentReady ? <section'),
-          ]
-          for old, new in replacements:
-            count = text.count(old)
-            if count != 1:
-              raise SystemExit(f'ConsumerApp replacement count {count} for {old[:60]!r}')
-            text = text.replace(old, new)
-          consumer.write_text(text)
+          old = '    {showKeyboard && session.instrumentReady ? <section'
+          new = '    {session.playbackFailure !== undefined ? <p className="consumer-audio-error" role="alert">{session.playbackFailure}</p> : null}\n    {showKeyboard && session.instrumentReady ? <section'
+          if text.count(old) != 1:
+            raise SystemExit(f'ConsumerApp playback alert anchor count {text.count(old)}')
+          consumer.write_text(text.replace(old, new))
           PY
       - run: pnpm typecheck
       - run: pnpm test
