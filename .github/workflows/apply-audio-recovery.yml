@@ -67,8 +67,6 @@ jobs:
           consumer = Path('apps/web/src/ConsumerApp.tsx')
           text = consumer.read_text()
           replacements = [
-            ('    session.play(session.capture.samples, session.capture.sampleRate);', '    void session.play(session.capture.samples, session.capture.sampleRate);'),
-            ('    session.play(renderAcousticFingerprint(fingerprint, sampleRate), sampleRate);', '    void session.play(renderAcousticFingerprint(fingerprint, sampleRate), sampleRate);'),
             ('onPointerDown={() => session.noteOn(note.midi)} onClick={() => session.noteOn(note.midi)}', 'onPointerDown={() => void session.noteOn(note.midi)} onClick={() => void session.noteOn(note.midi)}'),
             ('    {showKeyboard && session.instrumentReady ? <section', '    {session.playbackFailure !== undefined ? <p className="consumer-audio-error" role="alert">{session.playbackFailure}</p> : null}\n    {showKeyboard && session.instrumentReady ? <section'),
           ]
