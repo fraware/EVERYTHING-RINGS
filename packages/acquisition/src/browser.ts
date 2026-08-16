@@ -1,4 +1,5 @@
 import type { CaptureConfig } from "./config";
+import { MicrophoneStartupError, normalizeMicrophoneStartupFailure } from "./microphone-error";
 import type { CaptureSettingsSnapshot } from "./types";
 import type { CaptureWorkletMessage } from "./worklet-protocol";
 
@@ -43,11 +44,29 @@ function settingsSnapshot(settings: MediaTrackSettings): CaptureSettingsSnapshot
 }
 
 export async function openMicrophone(): Promise<OpenedMicrophone> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: PREFERRED_AUDIO_CONSTRAINTS });
+  if (typeof window !== "undefined" && !window.isSecureContext) {
+    throw new MicrophoneStartupError("MIC_INSECURE_CONTEXT");
+  }
+  if (
+    typeof navigator === "undefined"
+    || navigator.mediaDevices === undefined
+    || typeof navigator.mediaDevices.getUserMedia !== "function"
+    || typeof AudioContext === "undefined"
+  ) {
+    throw new MicrophoneStartupError("MIC_UNSUPPORTED");
+  }
+
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: PREFERRED_AUDIO_CONSTRAINTS });
+  } catch (error) {
+    throw new MicrophoneStartupError(normalizeMicrophoneStartupFailure(error));
+  }
+
   const track = stream.getAudioTracks()[0];
   if (track === undefined) {
     stream.getTracks().forEach((candidate) => candidate.stop());
-    throw new Error("Microphone stream contained no audio track");
+    throw new MicrophoneStartupError("MIC_NOT_FOUND");
   }
   try {
     track.contentHint = "music";
