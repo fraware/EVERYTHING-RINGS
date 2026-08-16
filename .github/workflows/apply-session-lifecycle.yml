@@ -1,0 +1,95 @@
+name: apply-session-lifecycle
+
+on:
+  push:
+    branches: [post-freeze-session-lifecycle]
+    paths: [.github/workflows/apply-session-lifecycle.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: post-freeze-session-lifecycle
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Apply bounded lifecycle patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          hook = Path('apps/web/src/useStrikeSession.ts')
+          text = hook.read_text()
+          replacements = [
+            (
+              'function playSamples(context: AudioContext, samples: Float32Array, sampleRate: number): void {\n',
+              'function playSamples(context: AudioContext, samples: Float32Array, sampleRate: number): AudioBufferSourceNode {\n',
+            ),
+            (
+              '  source.connect(context.destination);\n  source.start();\n}\n',
+              '  source.connect(context.destination);\n  source.start();\n  return source;\n}\n',
+            ),
+            (
+              '  const pendingInstrumentEvents = useRef(new Map<number, number>());\n  const maximumQualifiedAttempts = options.maximumQualifiedAttempts;\n',
+              '  const pendingInstrumentEvents = useRef(new Map<number, number>());\n  const activeSampleSource = useRef<AudioBufferSourceNode | undefined>(undefined);\n  const maximumQualifiedAttempts = options.maximumQualifiedAttempts;\n',
+            ),
+            (
+              '  function postInstrument(message: ModalInstrumentWorkletMessage): boolean {\n',
+              '  function stopSamplePlayback(): void {\n    const source = activeSampleSource.current;\n    if (source === undefined) return;\n    activeSampleSource.current = undefined;\n    try { source.stop(); } catch { /* already ended */ }\n    source.disconnect();\n  }\n\n  function postInstrument(message: ModalInstrumentWorkletMessage): boolean {\n',
+            ),
+            (
+              '  function disposeResources(): void {\n    instrumentGeneration.current += 1;\n',
+              '  function disposeResources(): void {\n    instrumentGeneration.current += 1;\n    stopSamplePlayback();\n',
+            ),
+            (
+              '      resources.current = { context, microphone, graph, worker };\n      setSettings(microphone.settings);\n',
+              '      resources.current = { context, microphone, graph, worker };\n      const microphoneTrack = microphone.track;\n      microphoneTrack.addEventListener("ended", () => {\n        if (resources.current?.microphone.track !== microphoneTrack) return;\n        retainInterruptedQualifiedAttempt();\n        requestId.current += 1;\n        disposeResources();\n        setCapture(undefined);\n        setQuality(undefined);\n        setFingerprint(undefined);\n        setFailureReason("MIC_DISCONNECTED");\n        setState("error");\n      });\n      setSettings(microphone.settings);\n',
+            ),
+            (
+              '    pendingInstrumentEvents.current.clear();\n    postInstrument({ type: "ALL_NOTES_OFF" });\n',
+              '    pendingInstrumentEvents.current.clear();\n    stopSamplePlayback();\n    postInstrument({ type: "ALL_NOTES_OFF" });\n',
+            ),
+            (
+              '    setPlaybackFailure(undefined);\n    playSamples(context, samples, sampleRate);\n    return true;\n',
+              '    setPlaybackFailure(undefined);\n    postInstrument({ type: "ALL_NOTES_OFF" });\n    stopSamplePlayback();\n    const source = playSamples(context, samples, sampleRate);\n    activeSampleSource.current = source;\n    source.onended = () => {\n      if (activeSampleSource.current === source) activeSampleSource.current = undefined;\n      source.disconnect();\n    };\n    return true;\n',
+            ),
+            (
+              '    setPlaybackFailure(undefined);\n    const eventId = nextInstrumentEventId.current;\n',
+              '    setPlaybackFailure(undefined);\n    stopSamplePlayback();\n    const eventId = nextInstrumentEventId.current;\n',
+            ),
+          ]
+          for old, new in replacements:
+            count = text.count(old)
+            if count != 1:
+              raise SystemExit(f'useStrikeSession replacement count {count} for {old[:70]!r}')
+            text = text.replace(old, new)
+          hook.write_text(text)
+
+          copy = Path('apps/web/src/failureCopy.ts')
+          text = copy.read_text()
+          old = '    case "MIC_START_FAILED":\n      return "The microphone could not be started. Check the device and browser permissions, then try again.";\n'
+          new = old + '    case "MIC_DISCONNECTED":\n      return "The microphone disconnected. Reconnect or reselect the input, then start again.";\n'
+          if text.count(old) != 1:
+            raise SystemExit(f'failureCopy anchor count {text.count(old)}')
+          copy.write_text(text.replace(old, new))
+          PY
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: bash scripts/browser-smoke.sh
+      - name: Commit verified lifecycle changes
+        run: |
+          rm .github/workflows/apply-session-lifecycle.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "repository-maintenance"
+          git config user.email "repository-maintenance@users.noreply.github.com"
+          git commit -m "Harden session audio lifecycle"
+          git push origin HEAD:post-freeze-session-lifecycle
