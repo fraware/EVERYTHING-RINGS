@@ -73,6 +73,28 @@ function modalWeight(mode: AcousticMode, exponent: number): number {
   return Math.max(0, mode.relativeAmplitude) ** exponent;
 }
 
+function remainingVoiceEnergy(voice: VoiceState): number {
+  return voice.modes.reduce(
+    (sum, mode) => sum + Math.abs(mode.amplitude * mode.envelope),
+    0,
+  );
+}
+
+function quietestVoiceIndex(voices: readonly VoiceState[]): number {
+  let quietestIndex = 0;
+  let quietestEnergy = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < voices.length; index += 1) {
+    const voice = voices[index];
+    if (voice === undefined) continue;
+    const energy = remainingVoiceEnergy(voice);
+    if (energy < quietestEnergy) {
+      quietestEnergy = energy;
+      quietestIndex = index;
+    }
+  }
+  return quietestIndex;
+}
+
 export class ModalInstrumentEngine {
   private fingerprint: AcousticFingerprintV1;
   private readonly config: RealtimeInstrumentConfig;
@@ -137,7 +159,9 @@ export class ModalInstrumentEngine {
     const id = this.nextVoiceId;
     this.nextVoiceId += 1;
     if (modes.length === 0 || velocity === 0) return id;
-    if (this.voices.length >= this.config.maximumVoices) this.voices.shift();
+    if (this.voices.length >= this.config.maximumVoices) {
+      this.voices.splice(quietestVoiceIndex(this.voices), 1);
+    }
     this.voices.push({ id, ageSamples: 0, modes });
     return id;
   }
