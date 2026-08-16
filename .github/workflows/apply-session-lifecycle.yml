@@ -53,8 +53,8 @@ jobs:
               '      resources.current = { context, microphone, graph, worker };\n      const microphoneTrack = microphone.track;\n      microphoneTrack.addEventListener("ended", () => {\n        if (resources.current?.microphone.track !== microphoneTrack) return;\n        retainInterruptedQualifiedAttempt();\n        requestId.current += 1;\n        disposeResources();\n        setCapture(undefined);\n        setQuality(undefined);\n        setFingerprint(undefined);\n        setFailureReason("MIC_DISCONNECTED");\n        setState("error");\n      });\n      setSettings(microphone.settings);\n',
             ),
             (
-              '    pendingInstrumentEvents.current.clear();\n    postInstrument({ type: "ALL_NOTES_OFF" });\n',
-              '    pendingInstrumentEvents.current.clear();\n    stopSamplePlayback();\n    postInstrument({ type: "ALL_NOTES_OFF" });\n',
+              '    setInstrumentFailure(undefined);\n    setPlaybackFailure(undefined);\n    pendingInstrumentEvents.current.clear();\n    postInstrument({ type: "ALL_NOTES_OFF" });\n',
+              '    setInstrumentFailure(undefined);\n    setPlaybackFailure(undefined);\n    pendingInstrumentEvents.current.clear();\n    stopSamplePlayback();\n    postInstrument({ type: "ALL_NOTES_OFF" });\n',
             ),
             (
               '    setPlaybackFailure(undefined);\n    playSamples(context, samples, sampleRate);\n    return true;\n',
