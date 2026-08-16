@@ -1,0 +1,110 @@
+name: mobile-ergonomics-e2e
+
+on:
+  push:
+    branches: [validation/mobile-ergonomics-e2e]
+
+permissions:
+  contents: read
+
+jobs:
+  mobile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TARGET_REVISION: e54394f08ff1fb95305619cea473677f712637af
+      VITE_SOFTWARE_REVISION: e54394f08ff1fb95305619cea473677f712637af
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: e54394f08ff1fb95305619cea473677f712637af
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: test "$(git rev-parse HEAD)" = "${TARGET_REVISION}"
+      - name: Generate deterministic strike
+        run: |
+          python - <<'PY'
+          import math, os, random, wave
+          sr = 48_000; duration = 6.0; onset = 1.0
+          random.seed(375)
+          path = os.path.join(os.environ['RUNNER_TEMP'], 'mobile.wav')
+          with wave.open(path, 'wb') as wav:
+              wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(sr)
+              frames = bytearray()
+              for i in range(round(sr * duration)):
+                  t = i / sr; value = random.uniform(-0.00012, 0.00012)
+                  if t >= onset:
+                      dt = t - onset
+                      value += 0.45 * math.exp(-dt / 1.20) * math.cos(2 * math.pi * 440 * dt)
+                      value += 0.24 * math.exp(-dt / 0.70) * math.cos(2 * math.pi * 997 * dt)
+                      value += 0.12 * math.exp(-dt / 0.38) * math.cos(2 * math.pi * 2413 * dt)
+                  frames += int(round(max(-0.9, min(0.9, value)) * 32767)).to_bytes(2, 'little', signed=True)
+              wav.writeframes(frames)
+          PY
+      - run: pnpm build
+      - name: Install browser driver
+        run: |
+          mkdir -p "${RUNNER_TEMP}/mobile-e2e"
+          cd "${RUNNER_TEMP}/mobile-e2e"
+          npm init -y >/dev/null
+          npm install --no-save --package-lock=false puppeteer-core@24.31.0 >/dev/null
+      - name: Validate mobile geometry
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "${CHROME}"
+          pnpm --filter @everything-rings/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort >/tmp/mobile-vite.log 2>&1 &
+          SERVER_PID=$!; trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do curl -fsS http://127.0.0.1:4173/ >/dev/null && break; sleep .25; done
+          cat >"${RUNNER_TEMP}/mobile-e2e/test.mjs" <<'JS'
+          import puppeteer from 'puppeteer-core';
+          const widths = [320, 375, 430];
+          const browser = await puppeteer.launch({ executablePath: process.env.CHROME, headless: true, args: [
+            '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--use-fake-device-for-media-stream',
+            '--use-fake-ui-for-media-stream', `--use-file-for-fake-audio-capture=${process.env.RUNNER_TEMP}/mobile.wav`,
+            '--autoplay-policy=no-user-gesture-required',
+          ]});
+          async function click(page, label) {
+            await page.evaluate(text => {
+              const button = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === text);
+              if (!(button instanceof HTMLButtonElement) || button.disabled) throw new Error(`${text} unavailable`);
+              button.click();
+            }, label);
+          }
+          try {
+            for (const width of widths) {
+              const page = await browser.newPage();
+              await page.setViewport({ width, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+              const errors = []; page.on('pageerror', error => errors.push(error.message));
+              await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle0', timeout: 30_000 });
+              const initial = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
+              if (initial.scroll > initial.client) throw new Error(`${width}px initial overflow ${JSON.stringify(initial)}`);
+              await click(page, 'START LISTENING');
+              await page.waitForFunction(() => document.body.innerText.includes('We estimated 3 audible resonances.'), { timeout: 15_000 });
+              await page.waitForFunction(() => [...document.querySelectorAll('button')].some(node => node.textContent?.trim() === 'PLAY IT' && !node.disabled), { timeout: 5_000 });
+              await click(page, 'PLAY IT');
+              const geometry = await page.evaluate(() => {
+                const interactive = [...document.querySelectorAll('.consumer-actions button, .consumer-keyboard button, .lab-link')];
+                return {
+                  scrollWidth: document.documentElement.scrollWidth,
+                  clientWidth: document.documentElement.clientWidth,
+                  keyboardScrollWidth: document.querySelector('.consumer-keyboard')?.scrollWidth ?? 0,
+                  keyboardClientWidth: document.querySelector('.consumer-keyboard')?.clientWidth ?? 0,
+                  minimumTargetHeight: Math.min(...interactive.map(node => node.getBoundingClientRect().height)),
+                  keyCount: document.querySelectorAll('.consumer-keyboard button').length,
+                };
+              });
+              if (geometry.scrollWidth > geometry.clientWidth) throw new Error(`${width}px reveal overflow ${JSON.stringify(geometry)}`);
+              if (geometry.keyboardScrollWidth > geometry.keyboardClientWidth + 1) throw new Error(`${width}px keyboard overflow ${JSON.stringify(geometry)}`);
+              if (geometry.minimumTargetHeight < 43.5) throw new Error(`${width}px small target ${JSON.stringify(geometry)}`);
+              if (geometry.keyCount !== 13) throw new Error(`${width}px expected 13 keys`);
+              if (errors.length) throw new Error(`${width}px page errors: ${errors.join('; ')}`);
+              await page.close();
+            }
+            console.log(JSON.stringify({ targetRevision: process.env.TARGET_REVISION, widths, horizontalOverflow: false, minimumTargetPx: 44, keyCount: 13, pageErrors: 0 }, null, 2));
+          } finally { await browser.close(); }
+          JS
+          CHROME="${CHROME}" RUNNER_TEMP="${RUNNER_TEMP}" TARGET_REVISION="${TARGET_REVISION}" node "${RUNNER_TEMP}/mobile-e2e/test.mjs"
