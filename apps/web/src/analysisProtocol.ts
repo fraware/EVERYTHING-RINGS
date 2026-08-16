@@ -1,4 +1,5 @@
 import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
+import type { AnalysisFailureReasonEvidence } from "@everything-rings/validation";
 
 export interface AnalysisWorkerTiming {
   readonly ringdownMs: number;
@@ -23,6 +24,6 @@ export type AnalysisResponse =
   | {
       readonly type: "FAILURE";
       readonly requestId: string;
-      readonly reason: string;
+      readonly reason: AnalysisFailureReasonEvidence;
       readonly timing: AnalysisWorkerTiming;
     };
