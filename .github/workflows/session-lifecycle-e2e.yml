@@ -1,0 +1,139 @@
+name: session-lifecycle-e2e
+
+on:
+  push:
+    branches: [validation/session-lifecycle-e2e]
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TARGET_REVISION: cd8732c66846cab9b57b7c6083e7c281bd21d0f9
+      VITE_SOFTWARE_REVISION: cd8732c66846cab9b57b7c6083e7c281bd21d0f9
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: cd8732c66846cab9b57b7c6083e7c281bd21d0f9
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: test "$(git rev-parse HEAD)" = "${TARGET_REVISION}"
+      - name: Generate deterministic strike
+        run: |
+          python - <<'PY'
+          import math, os, random, wave
+          sr = 48_000
+          duration = 6.0
+          onset = 1.0
+          random.seed(20260817)
+          path = os.path.join(os.environ['RUNNER_TEMP'], 'lifecycle.wav')
+          with wave.open(path, 'wb') as wav:
+              wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(sr)
+              frames = bytearray()
+              for i in range(round(sr * duration)):
+                  t = i / sr
+                  value = random.uniform(-0.00012, 0.00012)
+                  if t >= onset:
+                      dt = t - onset
+                      value += 0.45 * math.exp(-dt / 1.20) * math.cos(2 * math.pi * 440 * dt)
+                      value += 0.24 * math.exp(-dt / 0.70) * math.cos(2 * math.pi * 997 * dt)
+                      value += 0.12 * math.exp(-dt / 0.38) * math.cos(2 * math.pi * 2413 * dt)
+                  value = max(-0.90, min(0.90, value))
+                  frames += int(round(value * 32767)).to_bytes(2, 'little', signed=True)
+              wav.writeframes(frames)
+          PY
+      - run: pnpm build
+      - name: Install browser driver
+        run: |
+          mkdir -p "${RUNNER_TEMP}/lifecycle-e2e"
+          cd "${RUNNER_TEMP}/lifecycle-e2e"
+          npm init -y >/dev/null
+          npm install --no-save --package-lock=false puppeteer-core@24.31.0 >/dev/null
+      - name: Exercise lifecycle
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "${CHROME}"
+          pnpm --filter @everything-rings/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort >"${RUNNER_TEMP}/lifecycle-vite.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "${SERVER_PID}" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do curl -fsS http://127.0.0.1:4173/ >/dev/null && break; sleep .25; done
+          cat >"${RUNNER_TEMP}/lifecycle-e2e/test.mjs" <<'JS'
+          import puppeteer from 'puppeteer-core';
+          const browser = await puppeteer.launch({ executablePath: process.env.CHROME, headless: true, args: [
+            '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+            '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
+            `--use-file-for-fake-audio-capture=${process.env.RUNNER_TEMP}/lifecycle.wav`,
+            '--autoplay-policy=no-user-gesture-required',
+          ]});
+          const page = await browser.newPage();
+          const errors = [];
+          page.on('pageerror', error => errors.push(error.message));
+          await page.evaluateOnNewDocument(() => {
+            window.__contexts = [];
+            window.__stream = undefined;
+            window.__starts = 0;
+            window.__stops = 0;
+            const NativeContext = window.AudioContext;
+            window.AudioContext = new Proxy(NativeContext, {
+              construct(target, args, newTarget) {
+                const instance = Reflect.construct(target, args, newTarget);
+                window.__contexts.push(instance);
+                return instance;
+              },
+            });
+            const nativeGum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+            navigator.mediaDevices.getUserMedia = async (...args) => {
+              const stream = await nativeGum(...args);
+              window.__stream = stream;
+              return stream;
+            };
+            const nativeStart = AudioBufferSourceNode.prototype.start;
+            const nativeStop = AudioBufferSourceNode.prototype.stop;
+            AudioBufferSourceNode.prototype.start = function (...args) { window.__starts += 1; return nativeStart.apply(this, args); };
+            AudioBufferSourceNode.prototype.stop = function (...args) { window.__stops += 1; return nativeStop.apply(this, args); };
+          });
+          async function click(label) {
+            await page.evaluate(text => {
+              const button = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === text);
+              if (!(button instanceof HTMLButtonElement) || button.disabled) throw new Error(`${text} unavailable`);
+              button.click();
+            }, label);
+          }
+          try {
+            await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle0', timeout: 30_000 });
+            await click('START LISTENING');
+            await page.waitForFunction(() => document.body.innerText.includes('We estimated 3 audible resonances.'), { timeout: 15_000 });
+            await page.evaluate(async () => window.__contexts[0].suspend());
+            await click('HEAR ORIGINAL');
+            await page.waitForFunction(() => window.__contexts[0]?.state === 'running' && window.__starts >= 1, { timeout: 3_000 });
+            await click('HEAR RECONSTRUCTION');
+            await page.waitForFunction(() => window.__starts >= 2 && window.__stops >= 1, { timeout: 3_000 });
+            await page.waitForFunction(() => [...document.querySelectorAll('button')].some(node => node.textContent?.trim() === 'PLAY IT' && !node.disabled), { timeout: 5_000 });
+            await click('PLAY IT');
+            await page.evaluate(async () => window.__contexts[0].suspend());
+            await page.$eval('.consumer-keyboard button[aria-label="C4"]', node => node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' })));
+            await page.waitForFunction(() => window.__contexts[0]?.state === 'running', { timeout: 3_000 });
+            await page.evaluate(() => {
+              const track = window.__stream?.getAudioTracks()[0];
+              if (!track) throw new Error('microphone track missing');
+              track.dispatchEvent(new Event('ended'));
+            });
+            const expected = 'The microphone disconnected. Reconnect or reselect the input, then start again.';
+            await page.waitForFunction(text => document.body.innerText.includes(text), { timeout: 3_000 }, expected);
+            const terminal = await page.evaluate(() => ({ contextState: window.__contexts[0]?.state, body: document.body.innerText }));
+            if (terminal.contextState !== 'closed') throw new Error(`context not closed: ${terminal.contextState}`);
+            if (!terminal.body.includes('TRY AGAIN') || !terminal.body.includes('START OVER')) throw new Error('recovery actions missing');
+            if (errors.length) throw new Error(errors.join('\n'));
+            console.log(JSON.stringify({ targetRevision: process.env.TARGET_REVISION, samplePlaybackResumed: true, replacementStoppedPrevious: true, instrumentResumed: true, microphoneDisconnectRecovered: true, contextClosed: true, pageErrors: 0 }, null, 2));
+          } finally {
+            await browser.close();
+          }
+          JS
+          CHROME="${CHROME}" RUNNER_TEMP="${RUNNER_TEMP}" TARGET_REVISION="${TARGET_REVISION}" node "${RUNNER_TEMP}/lifecycle-e2e/test.mjs"
