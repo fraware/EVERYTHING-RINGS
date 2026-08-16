@@ -1,0 +1,98 @@
+button,
+a,
+input,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+.file-button,
+.lab-link {
+  touch-action: manipulation;
+}
+
+.lab-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 0;
+}
+
+.consumer-shell {
+  padding-top: max(34px, env(safe-area-inset-top));
+  padding-bottom: max(44px, env(safe-area-inset-bottom));
+}
+
+.consumer-keyboard button,
+.keyboard button {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+@media (pointer: coarse) {
+  button,
+  .file-button {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 760px) {
+  .consumer-shell {
+    width: min(100% - 28px - env(safe-area-inset-left) - env(safe-area-inset-right), 1180px);
+    padding-top: max(22px, env(safe-area-inset-top));
+    padding-bottom: max(32px, env(safe-area-inset-bottom));
+  }
+
+  .consumer-reveal {
+    gap: 20px;
+  }
+
+  .reveal-copy {
+    margin-top: 4vh;
+  }
+
+  .consumer-reveal .dna-view {
+    padding: 14px;
+  }
+
+  .consumer-keyboard {
+    gap: 4px;
+  }
+
+  .consumer-keyboard button {
+    min-width: 0;
+    min-height: 64px;
+    padding-inline: 4px;
+  }
+}
+
+@media (max-width: 360px) {
+  .consumer-shell {
+    width: min(100% - 20px - env(safe-area-inset-left) - env(safe-area-inset-right), 1180px);
+  }
+
+  .consumer-hero h1,
+  .consumer-stage h1 {
+    font-size: clamp(42px, 14vw, 62px);
+  }
+
+  .reveal-copy h1 {
+    font-size: clamp(38px, 12vw, 54px);
+  }
+
+  .consumer-keyboard button {
+    min-height: 58px;
+    font-size: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
