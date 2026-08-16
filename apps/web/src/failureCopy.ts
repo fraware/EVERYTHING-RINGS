@@ -24,6 +24,8 @@ export function failureCopy(reason: string | undefined): string {
       return "This browser does not provide the microphone features needed here.";
     case "MIC_START_FAILED":
       return "The microphone could not be started. Check the device and browser permissions, then try again.";
+    case "MIC_DISCONNECTED":
+      return "The microphone disconnected. Reconnect or reselect the input, then start again.";
     case undefined:
       return "The capture could not be analyzed.";
     default:

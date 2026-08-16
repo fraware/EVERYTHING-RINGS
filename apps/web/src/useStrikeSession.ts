@@ -64,7 +64,7 @@ type AnalysisResponse =
   | { readonly type: "SUCCESS"; readonly requestId: string; readonly fingerprint: AcousticFingerprintV1 }
   | { readonly type: "FAILURE"; readonly requestId: string; readonly reason: AnalysisFailureReasonEvidence };
 
-function playSamples(context: AudioContext, samples: Float32Array, sampleRate: number): void {
+function playSamples(context: AudioContext, samples: Float32Array, sampleRate: number): AudioBufferSourceNode {
   const buffer = context.createBuffer(1, samples.length, sampleRate);
   const copy = new Float32Array(samples.length);
   copy.set(samples);
@@ -73,6 +73,7 @@ function playSamples(context: AudioContext, samples: Float32Array, sampleRate: n
   source.buffer = buffer;
   source.connect(context.destination);
   source.start();
+  return source;
 }
 
 function initialAudioTiming(context: AudioContext): RealtimeAudioTiming {
@@ -106,6 +107,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
   const instrumentGeneration = useRef(0);
   const nextInstrumentEventId = useRef(1);
   const pendingInstrumentEvents = useRef(new Map<number, number>());
+  const activeSampleSource = useRef<AudioBufferSourceNode | undefined>(undefined);
   const maximumQualifiedAttempts = options.maximumQualifiedAttempts;
 
   function syncLedger(next: QualifiedAttemptLedger): void {
@@ -129,6 +131,14 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     syncLedger(settlement.ledger);
     requestId.current += 1;
     return true;
+  }
+
+  function stopSamplePlayback(): void {
+    const source = activeSampleSource.current;
+    if (source === undefined) return;
+    activeSampleSource.current = undefined;
+    try { source.stop(); } catch { /* already ended */ }
+    source.disconnect();
   }
 
   function postInstrument(message: ModalInstrumentWorkletMessage): boolean {
@@ -200,6 +210,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
 
   function disposeResources(): void {
     instrumentGeneration.current += 1;
+    stopSamplePlayback();
     const current = resources.current;
     if (current === undefined) return;
     current.instrument?.disconnect();
@@ -245,6 +256,18 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
       const graph = openingGraph;
       const worker = openingWorker;
       resources.current = { context, microphone, graph, worker };
+      const microphoneTrack = microphone.track;
+      microphoneTrack.addEventListener("ended", () => {
+        if (resources.current?.microphone.track !== microphoneTrack) return;
+        retainInterruptedQualifiedAttempt();
+        requestId.current += 1;
+        disposeResources();
+        setCapture(undefined);
+        setQuality(undefined);
+        setFingerprint(undefined);
+        setFailureReason("MIC_DISCONNECTED");
+        setState("error");
+      });
       setSettings(microphone.settings);
       setAudioTiming(initialAudioTiming(context));
 
@@ -347,6 +370,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     setInstrumentFailure(undefined);
     setPlaybackFailure(undefined);
     pendingInstrumentEvents.current.clear();
+    stopSamplePlayback();
     postInstrument({ type: "ALL_NOTES_OFF" });
     const node = resources.current?.graph.node;
     if (node === undefined) {
@@ -391,7 +415,14 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
       return false;
     }
     setPlaybackFailure(undefined);
-    playSamples(context, samples, sampleRate);
+    postInstrument({ type: "ALL_NOTES_OFF" });
+    stopSamplePlayback();
+    const source = playSamples(context, samples, sampleRate);
+    activeSampleSource.current = source;
+    source.onended = () => {
+      if (activeSampleSource.current === source) activeSampleSource.current = undefined;
+      source.disconnect();
+    };
     return true;
   }
 
@@ -403,6 +434,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
       return false;
     }
     setPlaybackFailure(undefined);
+    stopSamplePlayback();
     const eventId = nextInstrumentEventId.current;
     nextInstrumentEventId.current += 1;
     pendingInstrumentEvents.current.set(eventId, current.context.currentTime);
