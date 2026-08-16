@@ -11,5 +11,6 @@ export async function ensureAudioContextRunning(context: ResumableAudioContext):
   } catch {
     return false;
   }
-  return context.state === "running";
+  const stateAfterResume = context.state as AudioContextState;
+  return stateAfterResume === "running";
 }
