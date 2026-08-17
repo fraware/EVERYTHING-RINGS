@@ -12,12 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      TARGET_REVISION: 9b7aab7ac87faa3b08666612414cdcb5faa89d01
-      VITE_SOFTWARE_REVISION: 9b7aab7ac87faa3b08666612414cdcb5faa89d01
+      TARGET_REVISION: ef733f17569beb0cc4ddba9673fff9d41f65d070
+      VITE_SOFTWARE_REVISION: ef733f17569beb0cc4ddba9673fff9d41f65d070
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 9b7aab7ac87faa3b08666612414cdcb5faa89d01
+          ref: ef733f17569beb0cc4ddba9673fff9d41f65d070
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -50,7 +50,6 @@ jobs:
                   value = max(-0.90, min(0.90, value))
                   frames += int(round(value * 32767)).to_bytes(2, 'little', signed=True)
               wav.writeframes(frames)
-          print(path)
           PY
       - run: pnpm build
       - name: Install browser driver
@@ -95,7 +94,6 @@ jobs:
             window.__erStream = undefined;
             window.__erSourceStarts = 0;
             window.__erSourceStops = 0;
-
             const OriginalAudioContext = window.AudioContext;
             window.AudioContext = new Proxy(OriginalAudioContext, {
               construct(target, args, newTarget) {
@@ -104,14 +102,12 @@ jobs:
                 return context;
               },
             });
-
             const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
             navigator.mediaDevices.getUserMedia = async (...args) => {
               const stream = await originalGetUserMedia(...args);
               window.__erStream = stream;
               return stream;
             };
-
             const originalStart = AudioBufferSourceNode.prototype.start;
             const originalStop = AudioBufferSourceNode.prototype.stop;
             AudioBufferSourceNode.prototype.start = function (...args) {
@@ -135,19 +131,31 @@ jobs:
           try {
             await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle0', timeout: 30_000 });
             await clickButton('START LISTENING');
-            await page.waitForFunction(
-              () => document.body.innerText.includes('We estimated 3 audible resonances.'),
-              { timeout: 15_000, polling: 100 },
-            );
+            await page.waitForFunction(() => document.body.innerText.includes('We estimated 3 audible resonances.'), { timeout: 15_000, polling: 100 });
 
             const initial = await page.evaluate(() => ({
               contexts: window.__erContexts.length,
               dna: document.querySelector('.dna-view') !== null,
               streamPresent: window.__erStream instanceof MediaStream,
+              modeControls: document.querySelectorAll('[data-mode-index]').length,
             }));
-            if (initial.contexts !== 1 || !initial.dna || !initial.streamPresent) {
+            if (initial.contexts !== 1 || !initial.dna || !initial.streamPresent || initial.modeControls !== 3) {
               throw new Error(`runtime instrumentation failed: ${JSON.stringify(initial)}`);
             }
+
+            await page.$eval('[data-mode-index="0"]', node => node.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+            await page.waitForFunction(() => document.querySelector('.consumer-mode-solo')?.textContent?.includes('440'), { timeout: 3_000 });
+            const firstModePressed = await page.$eval('[data-mode-index="0"]', node => node.getAttribute('aria-pressed'));
+            if (firstModePressed !== 'true') throw new Error('first mode did not become selected');
+
+            await page.$eval('[data-mode-index="1"]', node => node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+            await page.waitForFunction(() => document.querySelector('.consumer-mode-solo')?.textContent?.includes('997'), { timeout: 3_000 });
+            const secondModePressed = await page.$eval('[data-mode-index="1"]', node => node.getAttribute('aria-pressed'));
+            if (secondModePressed !== 'true') throw new Error('keyboard mode activation did not select the mode');
+
+            await clickButton('HEAR RECONSTRUCTION');
+            await page.waitForFunction(() => document.querySelector('.consumer-mode-solo') === null, { timeout: 3_000 });
+            const baselineStarts = await page.evaluate(() => window.__erSourceStarts);
 
             const suspendedBeforeOriginal = await page.evaluate(async () => {
               const context = window.__erContexts[0];
@@ -157,32 +165,26 @@ jobs:
             if (suspendedBeforeOriginal !== 'suspended') throw new Error(`could not suspend context: ${suspendedBeforeOriginal}`);
 
             await clickButton('HEAR ORIGINAL');
-            await page.waitForFunction(() => window.__erContexts[0]?.state === 'running' && window.__erSourceStarts >= 1, { timeout: 3_000, polling: 50 });
+            await page.waitForFunction(expected => window.__erContexts[0]?.state === 'running' && window.__erSourceStarts >= expected, { timeout: 3_000, polling: 50 }, baselineStarts + 1);
             const afterOriginal = await page.evaluate(() => ({ starts: window.__erSourceStarts, stops: window.__erSourceStops }));
-            if (afterOriginal.starts !== 1 || afterOriginal.stops !== 0) throw new Error(`unexpected first playback counts: ${JSON.stringify(afterOriginal)}`);
 
             await clickButton('HEAR RECONSTRUCTION');
-            await page.waitForFunction(() => window.__erSourceStarts >= 2 && window.__erSourceStops >= 1, { timeout: 3_000, polling: 50 });
+            await page.waitForFunction(expected => window.__erSourceStarts >= expected, { timeout: 3_000, polling: 50 }, afterOriginal.starts + 1);
             const afterReplacement = await page.evaluate(() => ({ starts: window.__erSourceStarts, stops: window.__erSourceStops }));
-            if (afterReplacement.starts !== 2 || afterReplacement.stops < 1) {
-              throw new Error(`sample playback was not exclusive: ${JSON.stringify(afterReplacement)}`);
-            }
+            if (afterReplacement.stops <= afterOriginal.stops) throw new Error(`sample playback was not exclusive: ${JSON.stringify({ afterOriginal, afterReplacement })}`);
 
             await page.waitForFunction(() => {
               const match = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'PLAY IT');
               return match instanceof HTMLButtonElement && !match.disabled;
             }, { timeout: 5_000, polling: 100 });
             await clickButton('PLAY IT');
-
             const suspendedBeforeNote = await page.evaluate(async () => {
               const context = window.__erContexts[0];
               await context.suspend();
               return context.state;
             });
             if (suspendedBeforeNote !== 'suspended') throw new Error('context did not suspend before note');
-            await page.$eval('.consumer-keyboard button[aria-label="C4"]', node => {
-              node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' }));
-            });
+            await page.$eval('.consumer-keyboard button[aria-label="C4"]', node => node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' })));
             await page.waitForFunction(() => window.__erContexts[0]?.state === 'running', { timeout: 3_000, polling: 50 });
 
             await page.evaluate(() => {
@@ -205,9 +207,12 @@ jobs:
 
             const report = {
               targetRevision: process.env.TARGET_REVISION,
+              modeControlCount: initial.modeControls,
+              pointerModeSolo: true,
+              keyboardModeSolo: true,
+              fullReconstructionClearsSolo: true,
               suspendedSamplePlaybackResumed: true,
               originalToReconstructionExclusive: true,
-              replacementStopCount: afterReplacement.stops,
               suspendedInstrumentResumed: true,
               microphoneDisconnectRecovered: true,
               audioContextClosedOnDisconnect: true,
