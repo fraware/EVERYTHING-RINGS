@@ -1,6 +1,7 @@
 import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
 import { encodeAcousticDna } from "@everything-rings/visual";
 import type { KeyboardEvent } from "react";
+import "./modeSolo.css";
 
 export interface AcousticDnaViewProps {
   readonly fingerprint: AcousticFingerprintV1;
