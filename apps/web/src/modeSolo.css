@@ -1,0 +1,26 @@
+.dna-ring-interactive {
+  cursor: pointer;
+  transition: opacity 120ms ease, stroke-width 120ms ease;
+}
+
+.dna-ring-interactive:hover,
+.dna-ring-interactive:focus-visible,
+.dna-ring-selected {
+  opacity: 1;
+}
+
+.dna-ring-interactive:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 4px currentColor);
+}
+
+.consumer-mode-solo {
+  margin: 0;
+  color: #a8a8a1;
+  font-size: 11px;
+  letter-spacing: .12em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dna-ring-interactive { transition: none; }
+}

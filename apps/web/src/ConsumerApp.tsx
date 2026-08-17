@@ -2,6 +2,7 @@ import { renderAcousticFingerprint } from "@everything-rings/synth";
 import { useState, type KeyboardEvent } from "react";
 import { AcousticDnaView } from "./AcousticDnaView";
 import { failureCopy } from "./failureCopy";
+import { fingerprintForMode } from "./modeSolo";
 import { useStrikeSession } from "./useStrikeSession";
 
 const PLAY_NOTES = [
@@ -19,14 +20,21 @@ function noteName(midi: number, label: string): string {
 export function ConsumerApp() {
   const session = useStrikeSession();
   const [showKeyboard, setShowKeyboard] = useState(false);
+  const [soloModeIndex, setSoloModeIndex] = useState<number>();
+
+  function clearInteractionState(): void {
+    setShowKeyboard(false);
+    setSoloModeIndex(undefined);
+  }
 
   function strikeAgain(): void {
-    setShowKeyboard(false);
+    clearInteractionState();
+    session.allNotesOff();
     session.reset();
   }
 
   function retry(): void {
-    setShowKeyboard(false);
+    clearInteractionState();
     if (session.state === "error") {
       void session.start();
       return;
@@ -37,14 +45,26 @@ export function ConsumerApp() {
   function hearOriginal(): void {
     const capture = session.capture;
     if (capture === undefined) return;
+    setSoloModeIndex(undefined);
     void session.play(capture.samples, capture.sampleRate);
   }
 
   function hearModel(): void {
     const fingerprint = session.fingerprint;
     if (fingerprint === undefined) return;
+    setSoloModeIndex(undefined);
     const sampleRate = session.playbackSampleRate() ?? fingerprint.sampleRate;
     void session.play(renderAcousticFingerprint(fingerprint, sampleRate), sampleRate);
+  }
+
+  function hearMode(modeIndex: number): void {
+    const fingerprint = session.fingerprint;
+    if (fingerprint === undefined) return;
+    const soloFingerprint = fingerprintForMode(fingerprint, modeIndex);
+    if (soloFingerprint === undefined) return;
+    setSoloModeIndex(modeIndex);
+    const sampleRate = session.playbackSampleRate() ?? fingerprint.sampleRate;
+    void session.play(renderAcousticFingerprint(soloFingerprint, sampleRate), sampleRate);
   }
 
   function toggleKeyboard(): void {
@@ -81,6 +101,7 @@ export function ConsumerApp() {
 
   const fingerprint = session.fingerprint;
   if (fingerprint === undefined) return null;
+  const selectedMode = soloModeIndex === undefined ? undefined : fingerprint.modes[soloModeIndex];
   const playLabel = session.instrumentFailure !== undefined
     ? "PLAY UNAVAILABLE"
     : session.instrumentReady ? (showKeyboard ? "HIDE KEYS" : "PLAY IT") : "PREPARING PLAY…";
@@ -88,7 +109,8 @@ export function ConsumerApp() {
   return <main className="consumer-shell consumer-reveal">
     <p className="consumer-mark">EVERYTHING RINGS</p>
     <section className="reveal-copy"><p className="consumer-kicker">REVEAL</p><h1>We estimated {fingerprint.modes.length} audible resonances.</h1><p>Each arc encodes one stable resonance supported by this recording.</p></section>
-    <AcousticDnaView fingerprint={fingerprint} />
+    <AcousticDnaView fingerprint={fingerprint} onModeActivate={hearMode} selectedModeIndex={soloModeIndex} />
+    {selectedMode !== undefined ? <p className="consumer-mode-solo" role="status" aria-live="polite">SOLO {selectedMode.frequencyHz.toFixed(1)} HZ · {selectedMode.decaySeconds.toFixed(3)} S DECAY</p> : null}
     <div className="consumer-actions">
       <button type="button" className="consumer-primary" disabled={session.capture === undefined} onClick={hearOriginal}>HEAR ORIGINAL</button>
       <button type="button" className="consumer-primary" onClick={hearModel}>HEAR RECONSTRUCTION</button>
