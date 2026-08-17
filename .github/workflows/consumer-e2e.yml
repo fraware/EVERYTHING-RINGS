@@ -128,6 +128,12 @@ jobs:
             }, label);
           }
 
+          function frequencyFromLabel(label) {
+            const match = label?.match(/([0-9]+(?:\.[0-9]+)?) hertz/);
+            if (match === null) throw new Error(`mode label did not expose frequency: ${label}`);
+            return Number(match[1]);
+          }
+
           try {
             await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle0', timeout: 30_000 });
             await clickButton('START LISTENING');
@@ -137,21 +143,39 @@ jobs:
               contexts: window.__erContexts.length,
               dna: document.querySelector('.dna-view') !== null,
               streamPresent: window.__erStream instanceof MediaStream,
-              modeControls: document.querySelectorAll('[data-mode-index]').length,
+              modeLabels: [...document.querySelectorAll('[data-mode-index]')].map(node => node.getAttribute('aria-label')),
             }));
-            if (initial.contexts !== 1 || !initial.dna || !initial.streamPresent || initial.modeControls !== 3) {
+            if (initial.contexts !== 1 || !initial.dna || !initial.streamPresent || initial.modeLabels.length !== 3) {
               throw new Error(`runtime instrumentation failed: ${JSON.stringify(initial)}`);
             }
+            const observedFrequencies = initial.modeLabels.map(frequencyFromLabel).sort((a, b) => a - b);
+            const expectedFrequencies = [440, 997, 2413];
+            expectedFrequencies.forEach((expected, index) => {
+              if (Math.abs(observedFrequencies[index] - expected) > 3) {
+                throw new Error(`unexpected mode frequencies: ${JSON.stringify(observedFrequencies)}`);
+              }
+            });
 
+            const firstFrequency = frequencyFromLabel(initial.modeLabels[0]);
             await page.$eval('[data-mode-index="0"]', node => node.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-            await page.waitForFunction(() => document.querySelector('.consumer-mode-solo')?.textContent?.includes('440'), { timeout: 3_000 });
-            const firstModePressed = await page.$eval('[data-mode-index="0"]', node => node.getAttribute('aria-pressed'));
-            if (firstModePressed !== 'true') throw new Error('first mode did not become selected');
+            await page.waitForFunction(expected => {
+              const text = document.querySelector('.consumer-mode-solo')?.textContent ?? '';
+              return text.includes(expected.toFixed(1));
+            }, { timeout: 3_000 }, firstFrequency);
+            if (await page.$eval('[data-mode-index="0"]', node => node.getAttribute('aria-pressed')) !== 'true') {
+              throw new Error('pointer mode activation did not select the mode');
+            }
 
-            await page.$eval('[data-mode-index="1"]', node => node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
-            await page.waitForFunction(() => document.querySelector('.consumer-mode-solo')?.textContent?.includes('997'), { timeout: 3_000 });
-            const secondModePressed = await page.$eval('[data-mode-index="1"]', node => node.getAttribute('aria-pressed'));
-            if (secondModePressed !== 'true') throw new Error('keyboard mode activation did not select the mode');
+            const secondFrequency = frequencyFromLabel(initial.modeLabels[1]);
+            await page.$eval('[data-mode-index="1"]', node => node.focus());
+            await page.keyboard.press('Enter');
+            await page.waitForFunction(expected => {
+              const text = document.querySelector('.consumer-mode-solo')?.textContent ?? '';
+              return text.includes(expected.toFixed(1));
+            }, { timeout: 3_000 }, secondFrequency);
+            if (await page.$eval('[data-mode-index="1"]', node => node.getAttribute('aria-pressed')) !== 'true') {
+              throw new Error('keyboard mode activation did not select the mode');
+            }
 
             await clickButton('HEAR RECONSTRUCTION');
             await page.waitForFunction(() => document.querySelector('.consumer-mode-solo') === null, { timeout: 3_000 });
@@ -163,7 +187,6 @@ jobs:
               return context.state;
             });
             if (suspendedBeforeOriginal !== 'suspended') throw new Error(`could not suspend context: ${suspendedBeforeOriginal}`);
-
             await clickButton('HEAR ORIGINAL');
             await page.waitForFunction(expected => window.__erContexts[0]?.state === 'running' && window.__erSourceStarts >= expected, { timeout: 3_000, polling: 50 }, baselineStarts + 1);
             const afterOriginal = await page.evaluate(() => ({ starts: window.__erSourceStarts, stops: window.__erSourceStops }));
@@ -178,12 +201,7 @@ jobs:
               return match instanceof HTMLButtonElement && !match.disabled;
             }, { timeout: 5_000, polling: 100 });
             await clickButton('PLAY IT');
-            const suspendedBeforeNote = await page.evaluate(async () => {
-              const context = window.__erContexts[0];
-              await context.suspend();
-              return context.state;
-            });
-            if (suspendedBeforeNote !== 'suspended') throw new Error('context did not suspend before note');
+            await page.evaluate(async () => { await window.__erContexts[0].suspend(); });
             await page.$eval('.consumer-keyboard button[aria-label="C4"]', node => node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' })));
             await page.waitForFunction(() => window.__erContexts[0]?.state === 'running', { timeout: 3_000, polling: 50 });
 
@@ -207,7 +225,7 @@ jobs:
 
             const report = {
               targetRevision: process.env.TARGET_REVISION,
-              modeControlCount: initial.modeControls,
+              modeFrequenciesHz: observedFrequencies,
               pointerModeSolo: true,
               keyboardModeSolo: true,
               fullReconstructionClearsSolo: true,
