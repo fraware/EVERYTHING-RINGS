@@ -19,6 +19,12 @@ import { useEffect, useRef, useState } from "react";
 import captureWorkletUrl from "../../../packages/acquisition/src/worklet/capture-processor.ts?worker&url";
 import instrumentWorkletUrl from "./instrument-processor.ts?worker&url";
 import {
+  playExclusiveSamples,
+  resumeAudioContext,
+  stopActivePlayback,
+  type ActivePlayback,
+} from "./audioRuntime";
+import {
   beginQualifiedAttempt,
   clearQualifiedAttemptLedger,
   createQualifiedAttemptLedger,
@@ -56,23 +62,14 @@ interface SessionResources {
   microphone: OpenedMicrophone;
   graph: CaptureGraph;
   worker: Worker;
+  playback: ActivePlayback;
   instrument?: AudioWorkletNode;
+  microphoneEnded?: () => void;
 }
 
 type AnalysisResponse =
   | { readonly type: "SUCCESS"; readonly requestId: string; readonly fingerprint: AcousticFingerprintV1 }
   | { readonly type: "FAILURE"; readonly requestId: string; readonly reason: AnalysisFailureReasonEvidence };
-
-function playSamples(context: AudioContext, samples: Float32Array, sampleRate: number): void {
-  const buffer = context.createBuffer(1, samples.length, sampleRate);
-  const copy = new Float32Array(samples.length);
-  copy.set(samples);
-  buffer.copyToChannel(copy, 0);
-  const source = context.createBufferSource();
-  source.buffer = buffer;
-  source.connect(context.destination);
-  source.start();
-}
 
 function initialAudioTiming(context: AudioContext): RealtimeAudioTiming {
   const outputLatency = (context as AudioContext & { readonly outputLatency?: number }).outputLatency;
@@ -96,6 +93,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
   const [attempts, setAttempts] = useState<QualifiedAttempt[]>([]);
   const [instrumentReady, setInstrumentReady] = useState(false);
   const [instrumentFailure, setInstrumentFailure] = useState<string>();
+  const [playbackFailure, setPlaybackFailure] = useState<string>();
   const [audioTiming, setAudioTiming] = useState<RealtimeAudioTiming>();
   const resources = useRef<SessionResources | undefined>(undefined);
   const requestId = useRef(0);
@@ -134,6 +132,13 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     if (node === undefined) return false;
     node.port.postMessage(message);
     return true;
+  }
+
+  function silencePlayback(): void {
+    const current = resources.current;
+    if (current !== undefined) stopActivePlayback(current.playback);
+    pendingInstrumentEvents.current.clear();
+    postInstrument({ type: "ALL_NOTES_OFF" });
   }
 
   async function ensureInstrument(): Promise<AudioWorkletNode | undefined> {
@@ -200,15 +205,28 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     instrumentGeneration.current += 1;
     const current = resources.current;
     if (current === undefined) return;
+    resources.current = undefined;
+    if (current.microphoneEnded !== undefined) {
+      current.microphone.track.removeEventListener("ended", current.microphoneEnded);
+    }
+    stopActivePlayback(current.playback);
+    pendingInstrumentEvents.current.clear();
     current.instrument?.disconnect();
     current.graph.disconnect();
     current.microphone.stream.getTracks().forEach((track) => track.stop());
     current.worker.terminate();
     void current.context.close();
-    resources.current = undefined;
     instrumentPreparation.current = undefined;
-    pendingInstrumentEvents.current.clear();
     setInstrumentReady(false);
+  }
+
+  function terminateForMicrophoneLoss(current: SessionResources): void {
+    if (resources.current !== current) return;
+    const retained = retainInterruptedQualifiedAttempt();
+    if (!retained) requestId.current += 1;
+    setFailureReason("MICROPHONE_DISCONNECTED");
+    setState("error");
+    disposeResources();
   }
 
   async function start(): Promise<void> {
@@ -228,12 +246,15 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
       setCapture(undefined);
       setQuality(undefined);
       setInstrumentFailure(undefined);
+      setPlaybackFailure(undefined);
       setAudioTiming(undefined);
       setState("warming");
 
       openingMicrophone = await openMicrophone();
       openingContext = new AudioContext();
-      await openingContext.resume();
+      if (!(await resumeAudioContext(openingContext))) {
+        throw new Error("AUDIO_CONTEXT_UNAVAILABLE");
+      }
       openingGraph = await createCaptureGraph(openingContext, openingMicrophone.stream, captureWorkletUrl);
       openingWorker = new Worker(new URL("./analysis.worker.ts", import.meta.url), { type: "module" });
 
@@ -241,7 +262,14 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
       const context = openingContext;
       const graph = openingGraph;
       const worker = openingWorker;
-      resources.current = { context, microphone, graph, worker };
+      const current: SessionResources = { context, microphone, graph, worker, playback: {} };
+      current.microphoneEnded = () => terminateForMicrophoneLoss(current);
+      microphone.track.addEventListener("ended", current.microphoneEnded, { once: true });
+      resources.current = current;
+      if (microphone.track.readyState === "ended") {
+        terminateForMicrophoneLoss(current);
+        return;
+      }
       setSettings(microphone.settings);
       setAudioTiming(initialAudioTiming(context));
 
@@ -342,8 +370,8 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     setQuality(undefined);
     setInstrumentReady(false);
     setInstrumentFailure(undefined);
-    pendingInstrumentEvents.current.clear();
-    postInstrument({ type: "ALL_NOTES_OFF" });
+    setPlaybackFailure(undefined);
+    silencePlayback();
     const node = resources.current?.graph.node;
     if (node === undefined) {
       setState("idle");
@@ -368,6 +396,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     setFingerprint(undefined);
     setFailureReason(undefined);
     setInstrumentFailure(undefined);
+    setPlaybackFailure(undefined);
     if (alreadyIdle) {
       const clearedLedger = clearQualifiedAttemptLedger();
       attemptLedger.current = clearedLedger;
@@ -378,15 +407,41 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     setState("idle");
   }
 
-  function play(samples: Float32Array, sampleRate: number): void {
-    const context = resources.current?.context;
-    if (context === undefined) return;
-    playSamples(context, samples, sampleRate);
+  async function play(samples: Float32Array, sampleRate: number): Promise<boolean> {
+    const current = resources.current;
+    if (current === undefined) return false;
+    if (!(await resumeAudioContext(current.context)) || resources.current !== current) {
+      setPlaybackFailure("Audio is paused by the browser. Tap again to resume playback.");
+      return false;
+    }
+
+    pendingInstrumentEvents.current.clear();
+    postInstrument({ type: "ALL_NOTES_OFF" });
+    const played = await playExclusiveSamples(current.context, current.playback, samples, sampleRate);
+    if (!played || resources.current !== current) {
+      setPlaybackFailure("Audio is paused by the browser. Tap again to resume playback.");
+      return false;
+    }
+    setPlaybackFailure(undefined);
+    return true;
   }
 
-  function noteOn(midiNote: number, velocity = 1): boolean {
+  async function noteOn(midiNote: number, velocity = 1): Promise<boolean> {
     const current = resources.current;
     if (!instrumentReady || current?.instrument === undefined) return false;
+    const generation = instrumentGeneration.current;
+    if (!(await resumeAudioContext(current.context))) {
+      setPlaybackFailure("Audio is paused by the browser. Tap a key again to resume playback.");
+      return false;
+    }
+    if (
+      resources.current !== current
+      || current.instrument === undefined
+      || generation !== instrumentGeneration.current
+    ) return false;
+
+    stopActivePlayback(current.playback);
+    setPlaybackFailure(undefined);
     const eventId = nextInstrumentEventId.current;
     nextInstrumentEventId.current += 1;
     pendingInstrumentEvents.current.set(eventId, current.context.currentTime);
@@ -396,15 +451,24 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
   }
 
   function allNotesOff(): void {
-    pendingInstrumentEvents.current.clear();
-    postInstrument({ type: "ALL_NOTES_OFF" });
+    silencePlayback();
   }
 
   function playbackSampleRate(): number | undefined {
     return resources.current?.context.sampleRate;
   }
 
-  useEffect(() => () => disposeResources(), []);
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") silencePlayback();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      silencePlayback();
+      disposeResources();
+    };
+  }, []);
 
   return {
     state,
@@ -416,6 +480,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     attempts,
     instrumentReady,
     instrumentFailure,
+    playbackFailure,
     audioTiming,
     start,
     reset,

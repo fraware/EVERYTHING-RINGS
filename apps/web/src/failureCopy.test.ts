@@ -9,9 +9,11 @@ const cases = [
   ["MICROPHONE_UNAVAILABLE", "The microphone is unavailable or already in use. Close other audio apps and try again."],
   ["MICROPHONE_CONSTRAINTS_UNSATISFIED", "This microphone could not provide a compatible capture stream. Try another input or browser."],
   ["MICROPHONE_OPEN_FAILED", "The microphone could not be opened. Check the input and try again."],
+  ["MICROPHONE_DISCONNECTED", "The microphone disconnected. Reconnect or reselect the input, then start again."],
+  ["AUDIO_CONTEXT_UNAVAILABLE", "Audio could not start. Return to this tab, allow audio playback, then try again."],
 ] as const;
 
-describe("microphone failure copy", () => {
+describe("microphone and audio failure copy", () => {
   for (const [reason, expected] of cases) {
     it(`renders recovery guidance for ${reason}`, () => {
       expect(failureCopy(reason)).toBe(expected);

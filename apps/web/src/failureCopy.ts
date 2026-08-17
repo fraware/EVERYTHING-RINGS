@@ -26,6 +26,10 @@ export function failureCopy(reason: string | undefined): string {
       return "This microphone could not provide a compatible capture stream. Try another input or browser.";
     case "MICROPHONE_OPEN_FAILED":
       return "The microphone could not be opened. Check the input and try again.";
+    case "MICROPHONE_DISCONNECTED":
+      return "The microphone disconnected. Reconnect or reselect the input, then start again.";
+    case "AUDIO_CONTEXT_UNAVAILABLE":
+      return "Audio could not start. Return to this tab, allow audio playback, then try again.";
     case undefined:
       return "The capture could not be analyzed.";
     default:
