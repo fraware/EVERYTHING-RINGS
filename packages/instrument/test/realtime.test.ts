@@ -58,6 +58,17 @@ function rms(samples: Float32Array, start: number, end: number): number {
   return count === 0 ? 0 : Math.sqrt(sum / count);
 }
 
+const TWO_VOICE_CONFIG = {
+  attackSeconds: 0.003,
+  amplitudeExponent: 0.8,
+  outputPeak: 0.9,
+  maximumVoices: 2,
+  maximumModesPerVoice: 16,
+  nyquistMargin: 0.98,
+  silenceThreshold: 1e-4,
+  maximumVoiceSeconds: 8,
+} as const;
+
 describe("ModalInstrumentEngine", () => {
   it("renders deterministically across block boundaries", () => {
     const source = fingerprint([mode(440), mode(997, 0.4, 0.4)]);
@@ -91,17 +102,37 @@ describe("ModalInstrumentEngine", () => {
     expect(estimated).toBeLessThan(0.53);
   });
 
+  it("steals the quietest voice instead of the oldest voice", () => {
+    const source = fingerprint([mode(440, 2)]);
+    const actual = new ModalInstrumentEngine(48_000, source, TWO_VOICE_CONFIG);
+    actual.noteOn(60, 1);
+    actual.noteOn(64, 0.05);
+    actual.noteOn(67, 1);
+
+    const expected = new ModalInstrumentEngine(48_000, source, TWO_VOICE_CONFIG);
+    expected.noteOn(60, 1);
+    expected.noteOn(67, 1);
+
+    expect(actual.activeVoiceCount).toBe(2);
+    expect(Array.from(renderBlocks(actual, 4096))).toEqual(Array.from(renderBlocks(expected, 4096)));
+  });
+
+  it("uses stable oldest-first tie breaking when voices have equal remaining energy", () => {
+    const source = fingerprint([mode(440, 2)]);
+    const actual = new ModalInstrumentEngine(48_000, source, TWO_VOICE_CONFIG);
+    actual.noteOn(60, 1);
+    actual.noteOn(64, 1);
+    actual.noteOn(67, 1);
+
+    const expected = new ModalInstrumentEngine(48_000, source, TWO_VOICE_CONFIG);
+    expected.noteOn(64, 1);
+    expected.noteOn(67, 1);
+
+    expect(Array.from(renderBlocks(actual, 4096))).toEqual(Array.from(renderBlocks(expected, 4096)));
+  });
+
   it("enforces the configured voice cap and supports immediate silence", () => {
-    const engine = new ModalInstrumentEngine(48_000, fingerprint([mode(440)]), {
-      attackSeconds: 0.003,
-      amplitudeExponent: 0.8,
-      outputPeak: 0.9,
-      maximumVoices: 2,
-      maximumModesPerVoice: 16,
-      nyquistMargin: 0.98,
-      silenceThreshold: 1e-4,
-      maximumVoiceSeconds: 8,
-    });
+    const engine = new ModalInstrumentEngine(48_000, fingerprint([mode(440)]), TWO_VOICE_CONFIG);
     engine.noteOn(60);
     engine.noteOn(64);
     engine.noteOn(67);
