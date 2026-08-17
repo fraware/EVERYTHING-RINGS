@@ -38,14 +38,30 @@ interface VoiceState {
 }
 
 function validateConfig(config: RealtimeInstrumentConfig): void {
-  if (!(config.attackSeconds >= 0) || !Number.isFinite(config.attackSeconds)) throw new RangeError("attackSeconds must be finite and non-negative");
-  if (!(config.amplitudeExponent > 0) || !Number.isFinite(config.amplitudeExponent)) throw new RangeError("amplitudeExponent must be finite and positive");
-  if (!(config.outputPeak > 0 && config.outputPeak <= 1) || !Number.isFinite(config.outputPeak)) throw new RangeError("outputPeak must be finite and in (0, 1]");
-  if (!Number.isInteger(config.maximumVoices) || config.maximumVoices <= 0) throw new RangeError("maximumVoices must be a positive integer");
-  if (!Number.isInteger(config.maximumModesPerVoice) || config.maximumModesPerVoice <= 0) throw new RangeError("maximumModesPerVoice must be a positive integer");
-  if (!(config.nyquistMargin > 0 && config.nyquistMargin < 1) || !Number.isFinite(config.nyquistMargin)) throw new RangeError("nyquistMargin must be finite and in (0, 1)");
-  if (!(config.silenceThreshold > 0 && config.silenceThreshold < 1) || !Number.isFinite(config.silenceThreshold)) throw new RangeError("silenceThreshold must be finite and in (0, 1)");
-  if (!(config.maximumVoiceSeconds > 0) || !Number.isFinite(config.maximumVoiceSeconds)) throw new RangeError("maximumVoiceSeconds must be finite and positive");
+  if (!(config.attackSeconds >= 0) || !Number.isFinite(config.attackSeconds)) {
+    throw new RangeError("attackSeconds must be finite and non-negative");
+  }
+  if (!(config.amplitudeExponent > 0) || !Number.isFinite(config.amplitudeExponent)) {
+    throw new RangeError("amplitudeExponent must be finite and positive");
+  }
+  if (!(config.outputPeak > 0 && config.outputPeak <= 1) || !Number.isFinite(config.outputPeak)) {
+    throw new RangeError("outputPeak must be finite and in (0, 1]");
+  }
+  if (!Number.isInteger(config.maximumVoices) || config.maximumVoices <= 0) {
+    throw new RangeError("maximumVoices must be a positive integer");
+  }
+  if (!Number.isInteger(config.maximumModesPerVoice) || config.maximumModesPerVoice <= 0) {
+    throw new RangeError("maximumModesPerVoice must be a positive integer");
+  }
+  if (!(config.nyquistMargin > 0 && config.nyquistMargin < 1) || !Number.isFinite(config.nyquistMargin)) {
+    throw new RangeError("nyquistMargin must be finite and in (0, 1)");
+  }
+  if (!(config.silenceThreshold > 0 && config.silenceThreshold < 1) || !Number.isFinite(config.silenceThreshold)) {
+    throw new RangeError("silenceThreshold must be finite and in (0, 1)");
+  }
+  if (!(config.maximumVoiceSeconds > 0) || !Number.isFinite(config.maximumVoiceSeconds)) {
+    throw new RangeError("maximumVoiceSeconds must be finite and positive");
+  }
 }
 
 function attackGain(ageSamples: number, attackSamples: number): number {
@@ -58,7 +74,10 @@ function modalWeight(mode: AcousticMode, exponent: number): number {
 }
 
 function remainingVoiceEnergy(voice: VoiceState): number {
-  return voice.modes.reduce((sum, mode) => sum + Math.abs(mode.amplitude * mode.envelope), 0);
+  return voice.modes.reduce(
+    (sum, mode) => sum + Math.abs(mode.amplitude * mode.envelope),
+    0,
+  );
 }
 
 function quietestVoiceIndex(voices: readonly VoiceState[]): number {
@@ -84,8 +103,14 @@ export class ModalInstrumentEngine {
   private voices: VoiceState[] = [];
   private nextVoiceId = 1;
 
-  constructor(readonly sampleRate: number, fingerprint: AcousticFingerprintV1, config: RealtimeInstrumentConfig = DEFAULT_REALTIME_INSTRUMENT_CONFIG) {
-    if (!(sampleRate > 0) || !Number.isFinite(sampleRate)) throw new RangeError("sampleRate must be finite and positive");
+  constructor(
+    readonly sampleRate: number,
+    fingerprint: AcousticFingerprintV1,
+    config: RealtimeInstrumentConfig = DEFAULT_REALTIME_INSTRUMENT_CONFIG,
+  ) {
+    if (!(sampleRate > 0) || !Number.isFinite(sampleRate)) {
+      throw new RangeError("sampleRate must be finite and positive");
+    }
     validateConfig(config);
     this.fingerprint = fingerprint;
     this.config = config;
@@ -93,7 +118,9 @@ export class ModalInstrumentEngine {
     this.maximumVoiceSamples = Math.round(config.maximumVoiceSeconds * sampleRate);
   }
 
-  get activeVoiceCount(): number { return this.voices.length; }
+  get activeVoiceCount(): number {
+    return this.voices.length;
+  }
 
   setFingerprint(fingerprint: AcousticFingerprintV1): void {
     this.fingerprint = fingerprint;
@@ -101,7 +128,9 @@ export class ModalInstrumentEngine {
   }
 
   noteOn(midiNote: number, velocity = 1): number {
-    if (!(velocity >= 0 && velocity <= 1) || !Number.isFinite(velocity)) throw new RangeError("velocity must be finite and in [0, 1]");
+    if (!(velocity >= 0 && velocity <= 1) || !Number.isFinite(velocity)) {
+      throw new RangeError("velocity must be finite and in [0, 1]");
+    }
     const anchor = chooseAnchorMode(this.fingerprint);
     if (anchor === undefined) throw new Error("Cannot play a fingerprint with no positive-frequency modes");
     const frequencyScale = midiNoteFrequency(midiNote) / anchor.frequencyHz;
@@ -110,7 +139,11 @@ export class ModalInstrumentEngine {
       .filter((mode) => mode.frequencyHz > 0 && mode.decaySeconds > 0 && mode.relativeAmplitude > 0)
       .filter((mode) => mode.frequencyHz * frequencyScale < maximumFrequencyHz)
       .slice(0, this.config.maximumModesPerVoice);
-    const weightSum = candidates.reduce((sum, mode) => sum + modalWeight(mode, this.config.amplitudeExponent), 0);
+
+    const weightSum = candidates.reduce(
+      (sum, mode) => sum + modalWeight(mode, this.config.amplitudeExponent),
+      0,
+    );
     const normalization = weightSum > 0 ? this.config.outputPeak / weightSum : 0;
     const modes = candidates.map((mode): VoiceModeState => {
       const frequencyHz = mode.frequencyHz * frequencyScale;
@@ -122,21 +155,27 @@ export class ModalInstrumentEngine {
         amplitude: velocity * normalization * modalWeight(mode, this.config.amplitudeExponent),
       };
     });
+
     const id = this.nextVoiceId;
     this.nextVoiceId += 1;
     if (modes.length === 0 || velocity === 0) return id;
-    if (this.voices.length >= this.config.maximumVoices) this.voices.splice(quietestVoiceIndex(this.voices), 1);
+    if (this.voices.length >= this.config.maximumVoices) {
+      this.voices.splice(quietestVoiceIndex(this.voices), 1);
+    }
     this.voices.push({ id, ageSamples: 0, modes });
     return id;
   }
 
-  allNotesOff(): void { this.voices = []; }
+  allNotesOff(): void {
+    this.voices = [];
+  }
 
   process(output: Float32Array): void {
     output.fill(0);
     const voiceCount = this.voices.length;
     if (voiceCount === 0) return;
     const polyphonyGain = 1 / voiceCount;
+
     for (let sampleIndex = 0; sampleIndex < output.length; sampleIndex += 1) {
       let mixed = 0;
       for (const voice of this.voices) {
@@ -153,9 +192,12 @@ export class ModalInstrumentEngine {
       }
       output[sampleIndex] = mixed * polyphonyGain;
     }
+
     this.voices = this.voices.filter((voice) => {
       if (voice.ageSamples >= this.maximumVoiceSamples) return false;
-      return voice.modes.some((mode) => mode.amplitude * mode.envelope >= this.config.silenceThreshold);
+      return voice.modes.some(
+        (mode) => mode.amplitude * mode.envelope >= this.config.silenceThreshold,
+      );
     });
   }
 }
