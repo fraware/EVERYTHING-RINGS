@@ -53,7 +53,7 @@ describe("ringdown presentation", () => {
   });
 
   it("auditions the retained capture with a bounded lead-in before the trigger", () => {
-    const samples = Float32Array.from({ length: 100 }, (_, index) => index);
+    const samples = Float32Array.from(Array.from({ length: 100 }, (_, index) => index));
     const capture: AudioCapture = { samples, sampleRate: 1000, triggerSample: 50 };
     const audition = captureAuditionSamples(capture, 0.01);
     expect(audition).toHaveLength(60);
