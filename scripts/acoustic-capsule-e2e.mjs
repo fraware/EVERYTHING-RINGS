@@ -310,7 +310,11 @@ try {
 
   const secondFingerprint = {
     ...fingerprint,
-    modes: fingerprint.modes.map((mode, index) => index === 0 ? { ...mode, frequencyHz: 466.16 } : mode),
+    modes: fingerprint.modes.map((mode, index) => index === 0 ? {
+      ...mode,
+      frequencyHz: 466.16,
+      q: Math.PI * 466.16 * mode.decaySeconds,
+    } : mode),
   };
   const secondSignature = signatureFor(secondFingerprint);
   const secondUrl = new URL(sharedUrl);

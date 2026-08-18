@@ -2,6 +2,7 @@ import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
 import { describe, expect, it } from "vitest";
 import {
   ACOUSTIC_CAPSULE_FRAGMENT_PREFIX,
+  MAX_ACOUSTIC_CAPSULE_DURATION_SECONDS,
   MAX_ACOUSTIC_CAPSULE_FRAGMENT_LENGTH,
   createAcousticCapsuleFragment,
   createAcousticCapsuleUrl,
@@ -18,7 +19,7 @@ const fingerprint: AcousticFingerprintV1 = {
       frequencyHz: 440.25,
       relativeAmplitude: 1,
       decaySeconds: 1.21,
-      q: 1673,
+      q: Math.PI * 440.25 * 1.21,
       confidence: 0.94,
       diagnostics: {
         prominenceDb: 19.4,
@@ -32,7 +33,7 @@ const fingerprint: AcousticFingerprintV1 = {
       frequencyHz: 997.4,
       relativeAmplitude: 0.61,
       decaySeconds: 0.72,
-      q: 2256,
+      q: Math.PI * 997.4 * 0.72,
       confidence: 0.88,
       diagnostics: {
         prominenceDb: 14.2,
@@ -46,7 +47,7 @@ const fingerprint: AcousticFingerprintV1 = {
       frequencyHz: 2413.2,
       relativeAmplitude: 0.34,
       decaySeconds: 0.39,
-      q: 2956,
+      q: Math.PI * 2413.2 * 0.39,
       confidence: 0.81,
       diagnostics: {
         prominenceDb: 10.8,
@@ -101,11 +102,40 @@ describe("Acoustic Capsule transport", () => {
 
   it("refuses empty or over-capacity mode sets at creation and parsing", () => {
     expect(() => createAcousticCapsuleFragment({ ...fingerprint, modes: [] })).toThrow(/shape/);
-    const modes = Array.from({ length: 17 }, (_, index) => ({
-      ...fingerprint.modes[0]!,
-      frequencyHz: 200 + index * 100,
-    }));
+    const modes = Array.from({ length: 17 }, (_, index) => {
+      const frequencyHz = 200 + index * 100;
+      const decaySeconds = fingerprint.modes[0]!.decaySeconds;
+      return {
+        ...fingerprint.modes[0]!,
+        frequencyHz,
+        q: Math.PI * frequencyHz * decaySeconds,
+      };
+    });
     expect(() => createAcousticCapsuleFragment({ ...fingerprint, modes })).toThrow(/shape/);
+  });
+
+  it("rejects consumer payloads that exceed the bounded render duration", () => {
+    expect(() => createAcousticCapsuleFragment({
+      ...fingerprint,
+      durationSeconds: MAX_ACOUSTIC_CAPSULE_DURATION_SECONDS + 0.001,
+    })).toThrow(/shape/);
+  });
+
+  it("rejects internally contradictory canonical mode quantities", () => {
+    const inconsistentQ = {
+      ...fingerprint,
+      modes: [{ ...fingerprint.modes[0]!, q: fingerprint.modes[0]!.q * 1.01 }, ...fingerprint.modes.slice(1)],
+    };
+    expect(() => createAcousticCapsuleFragment(inconsistentQ)).toThrow(/shape/);
+
+    const unstableTrack = {
+      ...fingerprint,
+      modes: [{
+        ...fingerprint.modes[0]!,
+        diagnostics: { ...fingerprint.modes[0]!.diagnostics, observationCount: 7 },
+      }, ...fingerprint.modes.slice(1)],
+    };
+    expect(() => createAcousticCapsuleFragment(unstableTrack)).toThrow(/shape/);
   });
 
   it("never reconstructs a microphone-sample field", () => {

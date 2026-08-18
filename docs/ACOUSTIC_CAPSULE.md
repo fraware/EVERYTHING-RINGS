@@ -29,9 +29,9 @@ No microphone sample array, account identifier, specimen identifier, label, mate
 
 The URL constructor removes query state before adding the fragment. A shared consumer link therefore cannot accidentally preserve `?lab=1`, campaign, or release-console routing.
 
-## Validation and bounds
+## Frozen v1 validation envelope
 
-The recipient parser fails closed.
+The recipient parser fails closed. Its limits are part of the v1 transport semantics rather than UI hints.
 
 It requires:
 
@@ -39,17 +39,34 @@ It requires:
 - transport version `1`;
 - a fingerprint algorithm version known to the running application;
 - integer sample rate from 8 kHz through 384 kHz;
-- positive duration no greater than 30 seconds;
+- positive analyzed duration no greater than **8 seconds**;
 - one through sixteen modes;
-- finite, physically admissible mode quantities;
-- frequencies strictly below Nyquist;
-- bounded diagnostics;
+- mode frequency from **80 Hz** up to the smaller of 12 kHz and Nyquist;
+- relative amplitude in `[0.001, 1]`;
+- confidence in `[0.55, 1]`;
+- positive fitted decay no greater than 60 seconds;
+- Q consistent with `π × frequency × decay` to within 0.1% relative tolerance;
+- peak prominence of at least 8 dB;
+- track persistence from 0.08 seconds through the analyzed duration;
+- frequency standard deviation from 0 through 18 cents;
+- decay-fit score in `[0, 1]`;
+- integer observation count of at least 8;
 - a valid `er1-*` signature;
-- exact equality between the transported signature and the signature recomputed from the reconstructed fingerprint.
+- exact equality between the transported signature and the signature recomputed under the existing Acoustic DNA signature function.
 
-The complete fragment is limited to 8,192 characters. Oversized, malformed, signature-inconsistent, unknown-version, and unsupported-algorithm capsules are rejected to a recoverable consumer landing surface.
+These bounds mirror broad invariants already imposed by the frozen canonical analysis/selection path and add a conservative resource envelope for a public share transport. The standard acquisition path records 2.8 seconds after trigger; an 8-second capsule ceiling leaves substantial headroom without accepting arbitrary long render requests.
+
+The complete fragment is limited to 8,192 characters. Oversized, malformed, structurally contradictory, unknown-version, unsupported-algorithm, and signature-inconsistent capsules are rejected to a recoverable consumer landing surface.
 
 Creation uses the same parser as consumption. The application therefore refuses to emit a capsule that it would later reject.
+
+## Signature semantics
+
+The `er1-*` Acoustic DNA signature is preserved because it is the existing human-visible fingerprint shorthand. It is **not a full-content checksum**.
+
+Its canonicalization covers the fields defined by the Acoustic DNA signature function, including modal frequency, fitted decay, relative amplitude, and confidence. Other carried diagnostics and Q are checked independently by the capsule parser but are not authenticated by the `er1-*` value.
+
+Consequently, `signature matched` means only that the reconstructed fingerprint agrees with the existing signature semantics. It must never be described as cryptographic integrity, source authentication, or complete-byte identity.
 
 ## Privacy boundary
 
@@ -66,8 +83,9 @@ A structurally valid capsule is not authenticated provenance.
 The parser can establish that:
 
 - the payload satisfies the declared v1 format;
-- its fingerprint quantities satisfy the transport bounds;
-- its deterministic signature matches its reconstructed fingerprint.
+- its quantities satisfy the frozen v1 structural/resource envelope;
+- the modal Q value is internally consistent with frequency and decay;
+- its existing Acoustic DNA signature matches the subset of fingerprint fields that signature canonicalizes.
 
 It cannot establish:
 
@@ -76,6 +94,7 @@ It cannot establish:
 - whether the payload came from a real physical strike;
 - whether two capsules describe the same physical object;
 - whether the data passed Gate A2/B/C;
+- whether every transported field originated from the canonical estimator;
 - whether the link is an immutable or permanent record.
 
 The `er1-*` signature remains descriptive fingerprint shorthand. It is not a collision-resistant physical-object identifier and must never be used for object deduplication.
@@ -88,19 +107,22 @@ The shared surface is consumer-first:
 2. expose one dominant `HEAR THIS RING` action;
 3. reveal the chromatic instrument through `PLAY IT`;
 4. show compact resonance count, frequency range, algorithm revision, and signature;
-5. state the fingerprint/original-recording and identity boundary;
+5. state the fingerprint/original-recording, provenance, and identity boundaries;
 6. hand the recipient directly into local acquisition with `TRY YOUR OWN`;
 7. allow `SHARE AGAIN` without changing the capsule semantics.
 
 The recipient surface deliberately avoids validation-lab controls, capture provenance claims, similarity scores, and identity language.
 
-## Audio lifecycle
+## Audio lifecycle and resource boundary
 
 Shared playback reuses the output-only fingerprint player used by saved captures.
 
 - no `getUserMedia` call occurs to open or play a capsule;
 - the audio context is created lazily on direct playback interaction;
+- model playback renders at the recipient browser's output sample rate, not an attacker-selected output rate from the payload;
+- v1 caps analyzed duration at 8 seconds and mode count at 16 before rendering;
 - the realtime worklet is needed only for chromatic note playback;
+- realtime synthesis independently caps voices and modes and filters modes against the actual output Nyquist limit;
 - page hide, backgrounding, payload replacement, and unmount silence/dispose playback resources;
 - changing from one valid capsule fragment to another cannot leave the prior fingerprint bound to the audio controller.
 
@@ -136,16 +158,17 @@ The dedicated browser journey must prove:
 
 - a real history card creates a capsule through the product UI;
 - payload state exists only in the fragment;
-- recipient rendering retains the exact signature;
+- recipient rendering retains the expected signature and trust-boundary copy;
 - recipient model and chromatic playback request the microphone zero times;
 - phone layout and key geometry remain usable;
 - reshare preserves capsule semantics;
+- a second valid capsule opened in the same tab replaces the prior signature and playback binding;
 - `TRY YOUR OWN` clears the fragment and requests the microphone exactly once;
-- malformed and oversized fragments recover to the consumer landing;
+- malformed and oversized fragments recover to the consumer landing only after the new fragment state has actually committed;
 - no capsule path mutates local capture history implicitly.
 
 ## Versioning
 
-Any incompatible wire change creates another transport version. A future implementation may continue reading v1 while emitting a newer version, but it must never reinterpret an existing v1 field with different semantics.
+Any incompatible wire or validation-envelope change creates another transport version. A future implementation may continue reading v1 while emitting a newer version, but it must never reinterpret an existing v1 field or silently loosen v1 structural semantics in place.
 
 Acoustic Capsule versioning is independent of fingerprint algorithm versioning, renderer versioning, future canonical measurement records, and future identity/similarity models.

@@ -9,6 +9,17 @@ export const ACOUSTIC_CAPSULE_VERSION = 1;
 export const ACOUSTIC_CAPSULE_FRAGMENT_PREFIX = "#ring=";
 export const MAX_ACOUSTIC_CAPSULE_FRAGMENT_LENGTH = 8_192;
 export const MAX_ACOUSTIC_CAPSULE_MODES = 16;
+export const MAX_ACOUSTIC_CAPSULE_DURATION_SECONDS = 8;
+
+const MINIMUM_MODE_FREQUENCY_HZ = 80;
+const MAXIMUM_MODE_FREQUENCY_HZ = 12_000;
+const MINIMUM_RELATIVE_AMPLITUDE = 0.001;
+const MINIMUM_MODE_CONFIDENCE = 0.55;
+const MINIMUM_TRACK_PERSISTENCE_SECONDS = 0.08;
+const MAXIMUM_FREQUENCY_STD_CENTS = 18;
+const MINIMUM_TRACK_OBSERVATIONS = 8;
+const MINIMUM_PROMINENCE_DB = 8;
+const Q_RELATIVE_TOLERANCE = 1e-3;
 
 export type AcousticCapsuleFailureReason =
   | "missing"
@@ -67,6 +78,11 @@ function exactKeys(value: Record<string, unknown>, expected: readonly string[]):
   const sortedExpected = [...expected].sort();
   return actual.length === sortedExpected.length
     && actual.every((key, index) => key === sortedExpected[index]);
+}
+
+function approximatelyEqual(left: number, right: number, relativeTolerance: number): boolean {
+  const scale = Math.max(Math.abs(left), Math.abs(right), Number.MIN_VALUE);
+  return Math.abs(left - right) / scale <= relativeTolerance;
 }
 
 function encodeAsciiBase64Url(value: string): string {
@@ -143,16 +159,19 @@ function parseWireMode(value: unknown, sampleRate: number, durationSeconds: numb
     observationCount,
   ] = value;
 
-  if (!finite(frequencyHz) || !(frequencyHz > 0) || !(frequencyHz < sampleRate / 2)) return undefined;
-  if (!finite(relativeAmplitude) || relativeAmplitude < 0 || relativeAmplitude > 4) return undefined;
+  const maximumFrequencyHz = Math.min(MAXIMUM_MODE_FREQUENCY_HZ, sampleRate / 2);
+  if (!finite(frequencyHz) || frequencyHz < MINIMUM_MODE_FREQUENCY_HZ || !(frequencyHz < maximumFrequencyHz)) return undefined;
+  if (!finite(relativeAmplitude) || relativeAmplitude < MINIMUM_RELATIVE_AMPLITUDE || relativeAmplitude > 1) return undefined;
   if (!finite(decaySeconds) || !(decaySeconds > 0) || decaySeconds > 60) return undefined;
-  if (!finite(q) || !(q > 0) || q > 1_000_000_000) return undefined;
-  if (!finite(confidence) || confidence < 0 || confidence > 1) return undefined;
-  if (!finite(prominenceDb) || Math.abs(prominenceDb) > 1_000) return undefined;
-  if (!finite(persistenceSeconds) || persistenceSeconds < 0 || persistenceSeconds > Math.max(60, durationSeconds * 2)) return undefined;
-  if (!finite(frequencyStdCents) || frequencyStdCents < 0 || frequencyStdCents > 24_000) return undefined;
-  if (!finite(decayFitScore) || Math.abs(decayFitScore) > 100) return undefined;
-  if (!finite(observationCount) || !Number.isInteger(observationCount) || observationCount < 1 || observationCount > 1_000_000) return undefined;
+  if (!finite(q) || !(q > 0)) return undefined;
+  const expectedQ = Math.PI * frequencyHz * decaySeconds;
+  if (!approximatelyEqual(q, expectedQ, Q_RELATIVE_TOLERANCE)) return undefined;
+  if (!finite(confidence) || confidence < MINIMUM_MODE_CONFIDENCE || confidence > 1) return undefined;
+  if (!finite(prominenceDb) || prominenceDb < MINIMUM_PROMINENCE_DB || prominenceDb > 1_000) return undefined;
+  if (!finite(persistenceSeconds) || persistenceSeconds < MINIMUM_TRACK_PERSISTENCE_SECONDS || persistenceSeconds > durationSeconds) return undefined;
+  if (!finite(frequencyStdCents) || frequencyStdCents < 0 || frequencyStdCents > MAXIMUM_FREQUENCY_STD_CENTS) return undefined;
+  if (!finite(decayFitScore) || decayFitScore < 0 || decayFitScore > 1) return undefined;
+  if (!finite(observationCount) || !Number.isInteger(observationCount) || observationCount < MINIMUM_TRACK_OBSERVATIONS || observationCount > 1_000_000) return undefined;
 
   return {
     frequencyHz,
@@ -225,7 +244,9 @@ export function parseAcousticCapsuleHash(hash: string): AcousticCapsuleParseResu
   if (!finite(parsed.r) || !Number.isInteger(parsed.r) || parsed.r < 8_000 || parsed.r > 384_000) {
     return { ok: false, reason: "shape" };
   }
-  if (!finite(parsed.d) || !(parsed.d > 0) || parsed.d > 30) return { ok: false, reason: "shape" };
+  if (!finite(parsed.d) || !(parsed.d > 0) || parsed.d > MAX_ACOUSTIC_CAPSULE_DURATION_SECONDS) {
+    return { ok: false, reason: "shape" };
+  }
   if (typeof parsed.s !== "string" || !/^er1-[0-9a-f]{16}$/.test(parsed.s)) {
     return { ok: false, reason: "signature" };
   }
