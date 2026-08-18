@@ -30,8 +30,36 @@ export interface AcousticDna {
   readonly modes: readonly AcousticDnaMode[];
 }
 
+interface OrderedMode {
+  readonly mode: AcousticMode;
+  readonly sourceModeIndex: number;
+}
+
 function clampUnit(value: number): number {
   return Math.max(0, Math.min(1, value));
+}
+
+function validateConfig(config: AcousticDnaConfig): void {
+  if (!(config.minimumFrequencyHz > 0) || !(config.maximumFrequencyHz > config.minimumFrequencyHz)) {
+    throw new RangeError("Acoustic DNA frequency range is invalid");
+  }
+  if (!(config.decayReferenceSeconds > 0) || !Number.isFinite(config.decayReferenceSeconds)) {
+    throw new RangeError("decayReferenceSeconds must be finite and positive");
+  }
+  if (!Number.isInteger(config.maximumModes) || config.maximumModes <= 0) {
+    throw new RangeError("maximumModes must be a positive integer");
+  }
+}
+
+function orderedModes(
+  fingerprint: AcousticFingerprintV1,
+  config: AcousticDnaConfig,
+): readonly OrderedMode[] {
+  return fingerprint.modes
+    .map((mode, sourceModeIndex) => ({ mode, sourceModeIndex }))
+    .filter(({ mode }) => mode.frequencyHz > 0 && Number.isFinite(mode.frequencyHz))
+    .sort((left, right) => left.mode.frequencyHz - right.mode.frequencyHz)
+    .slice(0, config.maximumModes);
 }
 
 function canonicalMode(mode: AcousticMode): string {
@@ -58,27 +86,24 @@ export function fingerprintSignature(fingerprint: AcousticFingerprintV1): string
   return `er1-${hash.toString(16).padStart(16, "0")}`;
 }
 
+export function acousticDnaSourceModeIndices(
+  fingerprint: AcousticFingerprintV1,
+  config: AcousticDnaConfig = DEFAULT_ACOUSTIC_DNA_CONFIG,
+): readonly number[] {
+  validateConfig(config);
+  return orderedModes(fingerprint, config).map(({ sourceModeIndex }) => sourceModeIndex);
+}
+
 export function encodeAcousticDna(
   fingerprint: AcousticFingerprintV1,
   config: AcousticDnaConfig = DEFAULT_ACOUSTIC_DNA_CONFIG,
 ): AcousticDna {
-  if (!(config.minimumFrequencyHz > 0) || !(config.maximumFrequencyHz > config.minimumFrequencyHz)) {
-    throw new RangeError("Acoustic DNA frequency range is invalid");
-  }
-  if (!(config.decayReferenceSeconds > 0) || !Number.isFinite(config.decayReferenceSeconds)) {
-    throw new RangeError("decayReferenceSeconds must be finite and positive");
-  }
-  if (!Number.isInteger(config.maximumModes) || config.maximumModes <= 0) {
-    throw new RangeError("maximumModes must be a positive integer");
-  }
+  validateConfig(config);
 
   const logMinimum = Math.log(config.minimumFrequencyHz);
   const logMaximum = Math.log(config.maximumFrequencyHz);
-  const modes = [...fingerprint.modes]
-    .filter((mode) => mode.frequencyHz > 0 && Number.isFinite(mode.frequencyHz))
-    .sort((left, right) => left.frequencyHz - right.frequencyHz)
-    .slice(0, config.maximumModes)
-    .map((mode): AcousticDnaMode => {
+  const modes = orderedModes(fingerprint, config)
+    .map(({ mode }): AcousticDnaMode => {
       const logFrequency = Math.log(mode.frequencyHz);
       const radius = clampUnit((logFrequency - logMinimum) / (logMaximum - logMinimum));
       const octavePosition = Math.log2(mode.frequencyHz / 55);
