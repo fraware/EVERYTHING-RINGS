@@ -1,0 +1,69 @@
+button, .file-button, input, select {
+  min-height: 44px;
+}
+
+.consumer-tip {
+  max-width: 620px;
+  margin: 12px 0 0;
+  color: #777771;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.consumer-playback-error {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid #5a4b48;
+  color: #d6b8b1;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.lab-link {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.consumer-actions button,
+.consumer-keyboard button,
+.mode-chip,
+.mode-audition-actions button,
+.listening-compare button {
+  touch-action: manipulation;
+}
+
+.consumer-keyboard button {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid #d8d8d1;
+  outline-offset: 3px;
+}
+
+@media (max-width: 760px) {
+  .consumer-shell {
+    padding-bottom: max(36px, env(safe-area-inset-bottom));
+  }
+
+  .consumer-actions button {
+    width: 100%;
+  }
+
+  .consumer-tip {
+    margin-top: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse,
+  .pulse-armed,
+  .pulse-capturing {
+    box-shadow: none;
+  }
+}
