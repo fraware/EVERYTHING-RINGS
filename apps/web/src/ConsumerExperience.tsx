@@ -1,5 +1,6 @@
 import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
 import { useState } from "react";
+import type { ConsumerCaptureRecord } from "./consumerHistory";
 import { ResonanceMicroscope } from "./ResonanceMicroscope";
 import "./consumerUx.css";
 
@@ -11,7 +12,34 @@ const PLAY_NOTES = [
   { midi: 72, label: "C" },
 ] as const;
 
-export function ConsumerLanding({ onStart }: { readonly onStart: () => void }) {
+function strongestMode(fingerprint: AcousticFingerprintV1) {
+  return fingerprint.modes.reduce((strongest, mode) => (
+    strongest === undefined || mode.relativeAmplitude > strongest.relativeAmplitude ? mode : strongest
+  ), undefined as AcousticFingerprintV1["modes"][number] | undefined);
+}
+
+function captureDate(capturedAt: string): string {
+  const date = new Date(capturedAt);
+  return Number.isFinite(date.getTime())
+    ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date)
+    : "local capture";
+}
+
+export function ConsumerLanding({
+  onStart,
+  recentCaptures = [],
+  historyStatus,
+  onShareCapture,
+  onRemoveCapture,
+  onClearCaptures,
+}: {
+  readonly onStart: () => void;
+  readonly recentCaptures?: readonly ConsumerCaptureRecord[];
+  readonly historyStatus?: string | undefined;
+  readonly onShareCapture?: ((record: ConsumerCaptureRecord) => void) | undefined;
+  readonly onRemoveCapture?: ((id: string) => void) | undefined;
+  readonly onClearCaptures?: (() => void) | undefined;
+}) {
   return <main className="consumer-shell consumer-hero">
     <p className="consumer-mark">EVERYTHING RINGS</p>
     <div className="consumer-hero-copy">
@@ -20,6 +48,35 @@ export function ConsumerLanding({ onStart }: { readonly onStart: () => void }) {
     </div>
     <button className="consumer-primary" onClick={onStart}>START LISTENING</button>
     <p className="consumer-tip">Best first try: a glass, bowl, mug, railing, or other object with a clear ring.</p>
+    {historyStatus !== undefined ? <p className="consumer-history-status" role="status">{historyStatus}</p> : null}
+    {recentCaptures.length > 0 ? <section className="consumer-history" aria-label="Recent local captures">
+      <div className="consumer-history-head">
+        <div>
+          <p className="consumer-kicker">RECENT DISCOVERIES</p>
+          <h2>Rings kept on this device.</h2>
+        </div>
+        {onClearCaptures !== undefined ? <button className="consumer-ghost consumer-history-clear" onClick={onClearCaptures}>CLEAR ALL</button> : null}
+      </div>
+      <div className="consumer-history-grid">
+        {recentCaptures.slice(0, 8).map((record, index) => {
+          const strongest = strongestMode(record.fingerprint);
+          return <article className="consumer-history-card" key={record.id}>
+            <div className="consumer-history-meta">
+              <span>CAPTURE {String(index + 1).padStart(2, "0")}</span>
+              <span>{captureDate(record.capturedAt)}</span>
+            </div>
+            <strong>{record.fingerprint.modes.length} resonances</strong>
+            <span>{strongest === undefined ? "measured ring" : `${strongest.frequencyHz.toFixed(0)} Hz strongest mode`}</span>
+            <code>{record.signature}</code>
+            <div className="consumer-history-actions">
+              {onShareCapture !== undefined ? <button className="consumer-ghost" onClick={() => onShareCapture(record)}>SHARE DNA</button> : null}
+              {onRemoveCapture !== undefined ? <button className="consumer-ghost" onClick={() => onRemoveCapture(record.id)} aria-label={`Remove ${record.signature}`}>REMOVE</button> : null}
+            </div>
+          </article>;
+        })}
+      </div>
+      <p className="consumer-tip">Fingerprint history only. Microphone audio is never written to this history.</p>
+    </section> : null}
     <a className="lab-link" href="?lab=1">validation lab</a>
   </main>;
 }
@@ -66,6 +123,7 @@ export interface ConsumerRevealProps {
   readonly instrumentReady: boolean;
   readonly instrumentFailure?: string | undefined;
   readonly playbackFailure?: string | undefined;
+  readonly historyStatus?: string | undefined;
   readonly onHearMode: (modeIndex: number) => void;
   readonly onHearModel: () => void;
   readonly onHearCapture: () => void;
@@ -80,6 +138,7 @@ export function ConsumerReveal({
   instrumentReady,
   instrumentFailure,
   playbackFailure,
+  historyStatus,
   onHearMode,
   onHearModel,
   onHearCapture,
@@ -101,6 +160,7 @@ export function ConsumerReveal({
       <p>Hear the analyzed ringdown, compare its measured-mode reconstruction, inspect each resonance, then play the object as an instrument.</p>
     </section>
     {playbackFailure !== undefined ? <p className="consumer-playback-error" role="alert">{playbackFailure}</p> : null}
+    {historyStatus !== undefined ? <p className="consumer-history-status" role="status">{historyStatus}</p> : null}
     <ResonanceMicroscope
       fingerprint={fingerprint}
       onHearMode={onHearMode}
