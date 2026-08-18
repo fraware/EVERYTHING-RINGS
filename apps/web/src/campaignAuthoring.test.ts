@@ -57,12 +57,31 @@ describe("campaign authoring", () => {
     if (!result.ok) expect(result.errors.some((error) => error.includes("duplicate specimen ID"))).toBe(true);
   });
 
+  it("does not allow the frozen release-core material allocation or slot design to drift", () => {
+    const complete = completedDraft();
+    const changedMaterial = {
+      ...complete,
+      specimens: complete.specimens.map((specimen, index) => index === 0 ? { ...specimen, material: "wood" as const } : specimen),
+    };
+    const materialResult = buildEmpiricalCampaignFromDraft(changedMaterial, "2026-08-18T09:00:00.000Z");
+    expect(materialResult.ok).toBe(false);
+    if (!materialResult.ok) expect(materialResult.errors).toContain("slot 1 (core-metal-1): release-core material must remain metal");
+
+    const missingSlot = { ...complete, specimens: complete.specimens.slice(0, -1) };
+    const slotResult = buildEmpiricalCampaignFromDraft(missingSlot, "2026-08-18T09:00:00.000Z");
+    expect(slotResult.ok).toBe(false);
+    if (!slotResult.ok) expect(slotResult.errors).toContain("recommended campaign must contain exactly 12 frozen slots");
+  });
+
   it("builds a parser-valid manifest only after every physical field is specified", () => {
     const result = buildEmpiricalCampaignFromDraft(completedDraft(), "2026-08-18T09:00:00.000Z");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.campaign.specimens).toHaveLength(12);
     expect(result.campaign.authorizedSoftwareRevision).toBe(REVISION);
+    expect(result.campaign.specimens.slice(0, 6).map((specimen) => specimen.material)).toEqual([
+      "metal", "metal", "glass", "glass", "ceramic", "ceramic",
+    ]);
     expect(result.campaign.specimens[0]?.protocol).toEqual({
       fixedSetup: true,
       microphoneDistanceCm: 20,
