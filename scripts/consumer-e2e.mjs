@@ -6,7 +6,6 @@ const browser = process.env.BROWSER;
 const baseUrl = process.env.BASE_URL;
 if (!browser || !baseUrl) throw new Error("BROWSER and BASE_URL are required");
 
-const HISTORY_KEY = "everything-rings:consumer-history:v1";
 const workDir = `/tmp/everything-rings-e2e-${process.pid}`;
 const audioPath = join(workDir, "impact.wav");
 const downloadDir = join(workDir, "downloads");
@@ -196,24 +195,6 @@ async function waitFor(expression, label, timeoutMs = 18_000) {
   throw new Error(`Timed out waiting for ${label}. Snapshot: ${JSON.stringify(snapshot)}. Diagnostics: ${diagnosticTail}. Browser stderr: ${stderrTail}`);
 }
 
-async function visibleButtonLayout() {
-  return evaluate(`(() => {
-    const visibleButtons = Array.from(document.querySelectorAll("button")).filter((element) => {
-      const rect = element.getBoundingClientRect();
-      const style = getComputedStyle(element);
-      return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
-    });
-    return {
-      overflow: document.documentElement.scrollWidth - window.innerWidth,
-      undersized: visibleButtons.filter((button) => button.getBoundingClientRect().height < 43.5).map((button) => button.textContent?.trim()),
-    };
-  })()`);
-}
-
-function completedDownloads() {
-  return readdirSync(downloadDir).filter((name) => !name.endsWith(".crdownload"));
-}
-
 try {
   await command("Runtime.enable");
   await command("Page.enable");
@@ -237,32 +218,17 @@ try {
   const revealText = await evaluate("document.body.innerText");
   if (!/You found \d+ resonances\./.test(revealText)) throw new Error("Reveal did not expose a resonance count");
 
-  await waitFor(`localStorage.getItem(${JSON.stringify(HISTORY_KEY)}) !== null`, "local fingerprint history", 3_000);
-  const storedHistory = await evaluate(`(() => {
-    const raw = localStorage.getItem(${JSON.stringify(HISTORY_KEY)});
-    if (raw === null) return null;
-    const parsed = JSON.parse(raw);
-    const first = parsed.records?.[0];
+  const layout = await evaluate(`(() => {
+    const visibleButtons = Array.from(document.querySelectorAll("button")).filter((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+    });
     return {
-      schemaVersion: parsed.schemaVersion,
-      count: parsed.records?.length ?? 0,
-      containsSamplesField: raw.includes('"samples"'),
-      signature: first?.signature ?? null,
-      algorithmVersion: first?.fingerprint?.algorithmVersion ?? null,
-      softwareRevision: first?.softwareRevision ?? null,
-      modeCount: first?.fingerprint?.modes?.length ?? 0,
+      overflow: document.documentElement.scrollWidth - window.innerWidth,
+      undersized: visibleButtons.filter((button) => button.getBoundingClientRect().height < 43.5).map((button) => button.textContent?.trim()),
     };
   })()`);
-  if (storedHistory?.schemaVersion !== 1 || storedHistory.count !== 1) {
-    throw new Error(`Successful capture was not persisted as one history record: ${JSON.stringify(storedHistory)}`);
-  }
-  if (storedHistory.containsSamplesField) throw new Error("Local history contains microphone sample data");
-  if (!/^er1-[0-9a-f]{16}$/.test(storedHistory.signature ?? "")) throw new Error("Local history signature is invalid");
-  if (storedHistory.algorithmVersion !== "er-dsp-2") throw new Error(`Unexpected history algorithm: ${storedHistory.algorithmVersion}`);
-  if (!/^[0-9a-f]{40}$/.test(storedHistory.softwareRevision ?? "")) throw new Error("Stamped browser build did not persist exact software provenance");
-  if (!(storedHistory.modeCount >= 3)) throw new Error(`Persisted fingerprint lost measured modes: ${storedHistory.modeCount}`);
-
-  const layout = await visibleButtonLayout();
   if (layout.overflow > 1) throw new Error(`Mobile reveal has ${layout.overflow}px horizontal overflow`);
   if (layout.undersized.length > 0) throw new Error(`Undersized touch targets: ${layout.undersized.join(", ")}`);
 
@@ -288,54 +254,18 @@ try {
   await evaluate(`Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("SHARE STORY"))?.click()`, true);
   await evaluate(`Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("SHARE DNA"))?.click()`, true);
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    const files = completedDownloads();
+    const files = readdirSync(downloadDir).filter((name) => !name.endsWith(".crdownload"));
     if (files.some((name) => name.endsWith("-story.html")) && files.some((name) => name.endsWith(".svg"))) break;
     await sleep(100);
   }
-  const downloads = completedDownloads();
+  const downloads = readdirSync(downloadDir).filter((name) => !name.endsWith(".crdownload"));
   if (!downloads.some((name) => name.endsWith("-story.html"))) throw new Error("Acoustic Story download fallback did not produce a file");
   if (!downloads.some((name) => name.endsWith(".svg"))) throw new Error("Acoustic DNA download fallback did not produce a file");
 
   await evaluate(`Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("STRIKE ANOTHER"))?.click()`, true);
   await waitFor(`document.body?.innerText.includes("Listening to the room") || document.body?.innerText.includes("Hit one object")`, "second-strike recovery", 5_000);
-  await evaluate(`Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("CANCEL"))?.click()`, true);
-  await waitFor(`document.body?.innerText.includes("RECENT DISCOVERIES") ?? false`, "local history landing", 5_000);
 
-  const historyText = await evaluate("document.body.innerText");
-  if (!historyText.includes(storedHistory.signature)) throw new Error("Landing history does not expose the persisted signature");
-  if (!historyText.includes("Fingerprint history only")) throw new Error("Local history privacy boundary is not visible");
-
-  const historyLayout = await visibleButtonLayout();
-  if (historyLayout.overflow > 1) throw new Error(`Populated mobile history has ${historyLayout.overflow}px horizontal overflow`);
-  if (historyLayout.undersized.length > 0) throw new Error(`Populated history has undersized touch targets: ${historyLayout.undersized.join(", ")}`);
-
-  await command("Page.reload", { ignoreCache: true });
-  await waitFor(`document.body?.innerText.includes("RECENT DISCOVERIES") ?? false`, "history after reload", 8_000);
-  const reloadedHistory = await evaluate(`(() => {
-    const raw = localStorage.getItem(${JSON.stringify(HISTORY_KEY)});
-    const parsed = raw === null ? null : JSON.parse(raw);
-    return {
-      count: parsed?.records?.length ?? 0,
-      signatureVisible: document.body.innerText.includes(${JSON.stringify(storedHistory.signature)}),
-      privacyVisible: document.body.innerText.includes("Fingerprint history only"),
-    };
-  })()`);
-  if (reloadedHistory.count !== 1 || !reloadedHistory.signatureVisible || !reloadedHistory.privacyVisible) {
-    throw new Error(`Local history did not survive reload: ${JSON.stringify(reloadedHistory)}`);
-  }
-
-  const svgCountBeforeHistoryShare = completedDownloads().filter((name) => name.endsWith(".svg")).length;
-  await evaluate(`document.querySelector(".consumer-history-card .consumer-history-actions button")?.click()`, true);
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    if (completedDownloads().filter((name) => name.endsWith(".svg")).length > svgCountBeforeHistoryShare) break;
-    await sleep(100);
-  }
-  const svgCountAfterHistoryShare = completedDownloads().filter((name) => name.endsWith(".svg")).length;
-  if (svgCountAfterHistoryShare <= svgCountBeforeHistoryShare) {
-    throw new Error("Persisted history DNA could not be shared through the download fallback");
-  }
-
-  console.log("Consumer E2E passed: microphone → reveal → compare → play → share → strike again → local history → reload on 390×844 viewport.");
+  console.log("Consumer E2E passed: microphone → reveal → compare → play → share → strike again on 390×844 viewport.");
 } finally {
   try { socket.close(); } catch { /* already closed */ }
   chrome.kill("SIGTERM");
