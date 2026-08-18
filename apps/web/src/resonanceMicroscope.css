@@ -1,0 +1,215 @@
+.dna-view-interactive .dna-ring-interactive {
+  cursor: pointer;
+  transition: opacity 140ms ease, stroke-width 140ms ease, filter 140ms ease;
+}
+.dna-view-interactive .dna-ring-interactive:hover,
+.dna-view-interactive .dna-ring-interactive:focus-visible {
+  opacity: 1;
+  outline: none;
+  filter: drop-shadow(0 0 3px rgba(240, 240, 233, .45));
+}
+.dna-view-interactive .dna-ring-selected {
+  opacity: 1;
+  filter: drop-shadow(0 0 5px rgba(240, 240, 233, .5));
+}
+
+.resonance-microscope {
+  margin: 8px 0 4px;
+  padding: 28px 0;
+  border-top: 1px solid #292925;
+  border-bottom: 1px solid #292925;
+}
+.microscope-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 24px;
+  margin-bottom: 18px;
+}
+.microscope-heading h2 {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 52px);
+  font-weight: 480;
+  letter-spacing: -.035em;
+}
+.microscope-span {
+  margin: 0;
+  color: #777771;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .08em;
+}
+.microscope-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, .8fr);
+  gap: 12px;
+}
+.resonance-microscope .dna-view {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+  margin: 0;
+  min-height: 100%;
+  border-color: #242421;
+}
+.resonance-microscope .dna-view svg {
+  margin: auto;
+}
+.resonance-microscope .dna-view figcaption {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.resonance-microscope .dna-view figcaption span:last-child {
+  width: 100%;
+  color: #62625d;
+  font-size: 9px;
+}
+
+.mode-inspector {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 28px;
+  border: 1px solid #242421;
+}
+.mode-inspector-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 25px;
+}
+.mode-inspector-head > p {
+  margin: 0;
+  color: #777771;
+  font-size: 10px;
+  letter-spacing: .14em;
+}
+.mode-flags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+.mode-flags span {
+  padding: 4px 6px;
+  border: 1px solid #3b3b36;
+  color: #a8a8a1;
+  font-size: 8px;
+  letter-spacing: .12em;
+}
+.mode-frequency {
+  display: block;
+  margin: 28px 0 32px;
+  font-size: clamp(54px, 7vw, 92px);
+  line-height: .9;
+  font-weight: 430;
+  letter-spacing: -.055em;
+  font-variant-numeric: tabular-nums;
+}
+.mode-primary-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: #292925;
+  border: 1px solid #292925;
+}
+.mode-primary-metrics > div {
+  display: grid;
+  gap: 8px;
+  padding: 13px;
+  background: #0b0b0b;
+}
+.mode-primary-metrics span {
+  color: #62625d;
+  font-size: 8px;
+  letter-spacing: .11em;
+}
+.mode-primary-metrics strong {
+  font-size: 18px;
+  font-weight: 450;
+  font-variant-numeric: tabular-nums;
+}
+.mode-audition-actions {
+  display: flex;
+  gap: 7px;
+  margin: 18px 0;
+}
+.mode-audition-actions button {
+  min-width: 0;
+  flex: 1;
+}
+.mode-diagnostics {
+  margin-top: auto;
+  border-bottom: 1px solid #22221f;
+}
+.mode-diagnostics div {
+  padding: 9px 0;
+}
+.mode-diagnostics dt,
+.mode-diagnostics dd {
+  font-size: 11px;
+}
+
+.mode-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 5px;
+  margin-top: 10px;
+}
+.mode-chip {
+  display: grid;
+  gap: 10px;
+  min-height: 74px;
+  padding: 11px;
+  text-align: left;
+  background: transparent;
+  color: #aaa9a3;
+  border-color: #30302c;
+}
+.mode-chip span {
+  color: #5f5f5a;
+  font-size: 8px;
+  letter-spacing: .12em;
+}
+.mode-chip strong {
+  font-size: 14px;
+  font-weight: 450;
+  font-variant-numeric: tabular-nums;
+}
+.mode-chip:hover,
+.mode-chip:focus-visible,
+.mode-chip-selected {
+  background: #f0f0e9;
+  color: #0b0b0b;
+  border-color: #f0f0e9;
+}
+.mode-chip:hover span,
+.mode-chip:focus-visible span,
+.mode-chip-selected span {
+  color: #595955;
+}
+.microscope-note {
+  max-width: 760px;
+  margin: 18px 0 0;
+  color: #62625d;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+@media (max-width: 900px) {
+  .microscope-grid { grid-template-columns: 1fr; }
+  .mode-inspector { min-height: 520px; }
+}
+
+@media (max-width: 760px) {
+  .microscope-heading { align-items: flex-start; flex-direction: column; }
+  .mode-inspector { min-height: 0; padding: 20px; }
+  .mode-frequency { margin: 24px 0; font-size: clamp(48px, 16vw, 74px); }
+  .mode-primary-metrics { grid-template-columns: 1fr 1fr 1fr; }
+  .mode-audition-actions { flex-direction: column; }
+  .mode-audition-actions button { width: 100%; }
+  .mode-diagnostics { margin-top: 4px; }
+  .mode-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .resonance-microscope .dna-view figcaption { flex-direction: column; }
+}
