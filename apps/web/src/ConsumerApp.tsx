@@ -102,6 +102,7 @@ function clearAcousticCapsuleHash(): void {
 export function ConsumerApp() {
   const session = useStrikeSession();
   const [initialCapsule] = useState(() => parseAcousticCapsuleHash(window.location.hash));
+  const [capsuleRouteActive, setCapsuleRouteActive] = useState(() => isAcousticCapsuleHash(window.location.hash));
   const [sharedCapsule, setSharedCapsule] = useState(() => initialCapsule.ok
     ? { fingerprint: initialCapsule.fingerprint, signature: initialCapsule.signature }
     : undefined);
@@ -121,6 +122,10 @@ export function ConsumerApp() {
 
   useEffect(() => {
     const applyHash = (): void => {
+      const capsuleRoute = isAcousticCapsuleHash(window.location.hash);
+      setCapsuleRouteActive(capsuleRoute);
+      if (capsuleRoute) session.stop();
+
       const parsed = parseAcousticCapsuleHash(window.location.hash);
       if (parsed.ok) {
         setSharedCapsule({ fingerprint: parsed.fingerprint, signature: parsed.signature });
@@ -176,6 +181,7 @@ export function ConsumerApp() {
 
   function startListening(): void {
     clearAcousticCapsuleHash();
+    setCapsuleRouteActive(false);
     setSharedCapsule(undefined);
     setOpenedCaptureId(undefined);
     setCompareAnchorId(undefined);
@@ -310,7 +316,22 @@ export function ConsumerApp() {
     setHistoryStatus(cleared ? "Local capture history cleared." : "Local browser storage could not be cleared.");
   }
 
-  if (session.state === "idle") {
+  function landing(): React.ReactNode {
+    return <ConsumerLanding
+      onStart={startListening}
+      recentCaptures={history}
+      historyStatus={historyStatus}
+      compareAnchorId={compareAnchorId}
+      onOpenCapture={openHistoryRecord}
+      onCompareCapture={history.length >= 2 ? compareHistoryRecord : undefined}
+      onShareCaptureLink={(record) => { void shareFingerprintLink(record.fingerprint); }}
+      onShareCapture={(record) => shareAcousticCard(record.fingerprint)}
+      onRemoveCapture={removeHistoryRecord}
+      onClearCaptures={clearHistory}
+    />;
+  }
+
+  if (capsuleRouteActive) {
     if (sharedCapsule !== undefined) {
       return <SharedCaptureView
         fingerprint={sharedCapsule.fingerprint}
@@ -320,6 +341,10 @@ export function ConsumerApp() {
         onTryOwn={startListening}
       />;
     }
+    return landing();
+  }
+
+  if (session.state === "idle") {
     if (comparisonPairIds !== undefined) {
       const left = history.find((record) => record.id === comparisonPairIds[0]);
       const right = history.find((record) => record.id === comparisonPairIds[1]);
@@ -343,18 +368,7 @@ export function ConsumerApp() {
         onShareDna={() => shareAcousticCard(openedCapture.fingerprint)}
       />;
     }
-    return <ConsumerLanding
-      onStart={startListening}
-      recentCaptures={history}
-      historyStatus={historyStatus}
-      compareAnchorId={compareAnchorId}
-      onOpenCapture={openHistoryRecord}
-      onCompareCapture={history.length >= 2 ? compareHistoryRecord : undefined}
-      onShareCaptureLink={(record) => { void shareFingerprintLink(record.fingerprint); }}
-      onShareCapture={(record) => shareAcousticCard(record.fingerprint)}
-      onRemoveCapture={removeHistoryRecord}
-      onClearCaptures={clearHistory}
-    />;
+    return landing();
   }
 
   if (session.state === "warming" || session.state === "armed" || session.state === "capturing" || session.state === "analyzing") {
