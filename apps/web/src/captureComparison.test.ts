@@ -55,10 +55,10 @@ describe("capture comparison", () => {
     expect(pairs.map((pair) => [pair.leftModeIndex, pair.rightModeIndex])).toEqual([
       [0, 0],
       [1, 1],
-      [2, 2],
     ]);
     expect(new Set(pairs.map((pair) => pair.leftModeIndex)).size).toBe(pairs.length);
     expect(new Set(pairs.map((pair) => pair.rightModeIndex)).size).toBe(pairs.length);
+    expect(pairs.some((pair) => pair.leftModeIndex === 2 || pair.rightModeIndex === 2)).toBe(false);
   });
 
   it("is symmetric when the observations are swapped", () => {

@@ -1,5 +1,4 @@
 import type { AcousticFingerprintV1, AcousticMode } from "@everything-rings/dsp";
-import { centsDistance } from "@everything-rings/fingerprint";
 
 export interface CaptureObservationSummary {
   readonly modeCount: number;
@@ -48,6 +47,13 @@ export function summarizeCaptureObservation(
   };
 }
 
+function frequencyDistanceCents(leftHz: number, rightHz: number): number {
+  if (!(leftHz > 0) || !(rightHz > 0) || !Number.isFinite(leftHz) || !Number.isFinite(rightHz)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return 1200 * Math.abs(Math.log2(leftHz) - Math.log2(rightHz));
+}
+
 function nearestModeIndex(
   source: AcousticMode,
   candidates: readonly AcousticMode[],
@@ -57,7 +63,7 @@ function nearestModeIndex(
   for (let index = 0; index < candidates.length; index += 1) {
     const candidate = candidates[index];
     if (candidate === undefined || !(candidate.frequencyHz > 0) || !Number.isFinite(candidate.frequencyHz)) continue;
-    const distance = centsDistance(source.frequencyHz, candidate.frequencyHz);
+    const distance = frequencyDistanceCents(source.frequencyHz, candidate.frequencyHz);
     if (distance < bestDistance) {
       bestDistance = distance;
       bestIndex = index;
@@ -89,7 +95,7 @@ export function mutualNearestFrequencyPairs(
       rightModeIndex,
       leftFrequencyHz: leftMode.frequencyHz,
       rightFrequencyHz: rightMode.frequencyHz,
-      distanceCents: centsDistance(leftMode.frequencyHz, rightMode.frequencyHz),
+      distanceCents: frequencyDistanceCents(leftMode.frequencyHz, rightMode.frequencyHz),
     });
   }
 
