@@ -80,8 +80,8 @@ export function ResonanceMicroscope({ fingerprint, onHearMode, onHearAll, onHear
     <section className="listening-compare" aria-label="Capture and reconstruction comparison">
       <div className="listening-source">
         <span>CAPTURE</span>
-        <strong>Recorded microphone transient</strong>
-        <p>Retained locally from this strike.</p>
+        <strong>Peak-matched microphone transient</strong>
+        <p>Recorded locally; gain-only matched to the model output peak.</p>
       </div>
       <button className="consumer-ghost" disabled={onHearCapture === undefined} onClick={onHearCapture}>HEAR CAPTURE</button>
       <div className="listening-divider" aria-hidden="true">↔</div>
