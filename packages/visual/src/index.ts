@@ -1,3 +1,4 @@
+export { createAcousticCardSvg } from "./acoustic-card";
 export {
   DEFAULT_ACOUSTIC_DNA_CONFIG,
   encodeAcousticDna,
