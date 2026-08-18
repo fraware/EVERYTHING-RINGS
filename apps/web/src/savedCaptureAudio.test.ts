@@ -42,7 +42,7 @@ function fakeDependencies() {
     state: "suspended" as AudioContextState,
     sampleRate: 48_000,
     destination: {},
-    audioWorklet: { addModule: vi.fn(async () => undefined) },
+    audioWorklet: { addModule: vi.fn(async (): Promise<void> => undefined) },
     resume: vi.fn(async () => { context.state = "running"; }),
     close: vi.fn(async () => { context.state = "closed"; }),
     createBuffer: vi.fn(() => ({ copyToChannel: vi.fn() })),
