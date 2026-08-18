@@ -92,6 +92,7 @@ export function CampaignAuthorApp() {
     <section className="campaign-author-slots" aria-label="Recommended physical specimen plan">
       {draft.specimens.map((specimen, index) => {
         const slot = RECOMMENDED_CAMPAIGN_SLOTS[index];
+        const coreMaterialLocked = slot?.cohort === "release-core";
         return <article className={`campaign-author-slot campaign-author-slot-${specimen.cohort}`} key={specimen.slotId}>
           <div className="campaign-slot-head">
             <div><span>{specimen.cohort.toUpperCase()} · {String(index + 1).padStart(2, "0")}</span><h2>{specimen.slotId}</h2></div>
@@ -101,7 +102,7 @@ export function CampaignAuthorApp() {
             <label><span>specimen ID</span><input value={specimen.specimenId} placeholder="stable physical ID" onChange={(event) => updateSpecimen(index, { specimenId: event.currentTarget.value })} /></label>
             <label><span>object label</span><input value={specimen.label} placeholder="specific physical object" onChange={(event) => updateSpecimen(index, { label: event.currentTarget.value })} /></label>
             <label><span>object family</span><input value={specimen.objectFamily} placeholder="bell, bottle, mug…" onChange={(event) => updateSpecimen(index, { objectFamily: event.currentTarget.value })} /></label>
-            <label><span>material</span><select value={specimen.material} onChange={(event) => updateSpecimen(index, { material: event.currentTarget.value as MaterialClass })}>{MATERIALS.map((material) => <option key={material} value={material}>{material}</option>)}</select></label>
+            <label><span>{coreMaterialLocked ? "material / frozen" : "material"}</span><select disabled={coreMaterialLocked} value={specimen.material} onChange={(event) => updateSpecimen(index, { material: event.currentTarget.value as MaterialClass })}>{MATERIALS.map((material) => <option key={material} value={material}>{material}</option>)}</select></label>
             <label><span>target sessions</span><input type="number" min="1" step="1" value={specimen.targetSessions} onChange={(event) => updateSpecimen(index, { targetSessions: Number(event.currentTarget.value) })} /></label>
             <label><span>mic distance</span><div className="input-unit"><input type="number" min="1" step="1" value={specimen.microphoneDistanceCm} onChange={(event) => updateSpecimen(index, { microphoneDistanceCm: Number(event.currentTarget.value) })} /><span>cm</span></div></label>
             <label><span>striker</span><input value={specimen.striker} onChange={(event) => updateSpecimen(index, { striker: event.currentTarget.value })} /></label>
@@ -114,7 +115,7 @@ export function CampaignAuthorApp() {
 
     <section className="campaign-author-validation">
       <div className="release-card-head"><div><p className="eyebrow">PRECOMMITMENT CHECK</p><h2>{result.ok ? "Manifest is structurally complete" : `${result.errors.length} fields or constraints remain`}</h2></div><span className={`gate-verdict ${result.ok && SOFTWARE_REVISION_VALID ? "gate-pass" : "gate-open"}`}>{result.ok && SOFTWARE_REVISION_VALID ? "READY" : "OPEN"}</span></div>
-      {!result.ok ? <ul className="reason-list campaign-author-errors">{result.errors.slice(0, 24).map((error) => <li key={error}>{error}</li>)}</ul> : <p className="small">Every physical identity and fixed-setup field is specified, specimen IDs are unique, and the manifest passes the same runtime parser used downstream.</p>}
+      {!result.ok ? <ul className="reason-list campaign-author-errors">{result.errors.slice(0, 24).map((error) => <li key={error}>{error}</li>)}</ul> : <p className="small">Every physical identity and fixed-setup field is specified, specimen IDs are unique, the release-core material allocation is intact, and the manifest passes the same runtime parser used downstream.</p>}
       {!result.ok && result.errors.length > 24 ? <p className="small">{result.errors.length - 24} additional incomplete fields are omitted from this summary.</p> : null}
       <div className="campaign-author-actions">
         <button disabled={!result.ok || !SOFTWARE_REVISION_VALID} onClick={exportCampaign}>FREEZE + EXPORT CAMPAIGN</button>
