@@ -86,3 +86,18 @@ export function captureAuditionSamples(
   const startSample = Math.max(0, capture.triggerSample - leadSamples);
   return capture.samples.slice(startSample);
 }
+
+export function peakMatchSamples(samples: Float32Array, outputPeak: number): Float32Array {
+  if (!(outputPeak > 0 && outputPeak <= 1) || !Number.isFinite(outputPeak)) {
+    throw new RangeError("outputPeak must be finite and in (0, 1]");
+  }
+  const output = samples.slice();
+  let peak = 0;
+  for (const sample of output) peak = Math.max(peak, Math.abs(sample));
+  if (peak === 0) return output;
+  const scale = outputPeak / peak;
+  for (let index = 0; index < output.length; index += 1) {
+    output[index] = (output[index] ?? 0) * scale;
+  }
+  return output;
+}
