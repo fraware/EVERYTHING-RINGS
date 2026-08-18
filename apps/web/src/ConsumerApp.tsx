@@ -1,5 +1,5 @@
 import { DEFAULT_MODAL_RENDER_CONFIG, renderAcousticFingerprint } from "@everything-rings/synth";
-import { createAcousticCardSvg, fingerprintSignature } from "@everything-rings/visual";
+import { createAcousticCardSvg, createAcousticStoryHtml, fingerprintSignature } from "@everything-rings/visual";
 import { useState } from "react";
 import { failureCopy } from "./failureCopy";
 import { ResonanceMicroscope } from "./ResonanceMicroscope";
@@ -14,13 +14,25 @@ const PLAY_NOTES = [
   { midi: 72, label: "C" },
 ] as const;
 
-function downloadAcousticCard(file: File): void {
+function downloadFile(file: File): void {
   const url = URL.createObjectURL(file);
   const link = document.createElement("a");
   link.href = url;
   link.download = file.name;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function shareOrDownload(file: File, title: string, text: string): void {
+  const shareData: ShareData = { files: [file], title, text };
+  if (typeof navigator.share === "function" && typeof navigator.canShare === "function" && navigator.canShare(shareData)) {
+    void navigator.share(shareData).catch((error: unknown) => {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      downloadFile(file);
+    });
+    return;
+  }
+  downloadFile(file);
 }
 
 export function ConsumerApp() {
@@ -75,20 +87,29 @@ export function ConsumerApp() {
       `everything-rings-${signature}.svg`,
       { type: "image/svg+xml" },
     );
-    const shareData: ShareData = {
-      files: [file],
-      title: "Everything Rings — Acoustic DNA",
-      text: `${fingerprint.modes.length} measured resonances · ${signature}`,
-    };
+    shareOrDownload(
+      file,
+      "Everything Rings — Acoustic DNA",
+      `${fingerprint.modes.length} measured resonances · ${signature}`,
+    );
+  }
 
-    if (typeof navigator.share === "function" && typeof navigator.canShare === "function" && navigator.canShare(shareData)) {
-      void navigator.share(shareData).catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        downloadAcousticCard(file);
-      });
-      return;
-    }
-    downloadAcousticCard(file);
+  function shareAcousticStory(): void {
+    const fingerprint = session.fingerprint;
+    if (fingerprint === undefined) return;
+    const signature = fingerprintSignature(fingerprint);
+    const sampleRate = session.playbackSampleRate() ?? fingerprint.sampleRate;
+    const model = renderAcousticFingerprint(fingerprint, sampleRate);
+    const file = new File(
+      [createAcousticStoryHtml(fingerprint, model, sampleRate)],
+      `everything-rings-${signature}-story.html`,
+      { type: "text/html" },
+    );
+    shareOrDownload(
+      file,
+      "Everything Rings — Acoustic Story",
+      `${fingerprint.modes.length} measured resonances · animated model · ${signature}`,
+    );
   }
 
   if (session.state === "idle") {
@@ -122,7 +143,7 @@ export function ConsumerApp() {
     <p className="consumer-mark">EVERYTHING RINGS</p>
     <section className="reveal-copy"><p className="consumer-kicker">REVEAL</p><h1>You found {fingerprint.modes.length} resonances.</h1><p>Compare the analyzed microphone ringdown with its reconstruction, then move through time and hear what each measured mode contributes.</p></section>
     <ResonanceMicroscope fingerprint={fingerprint} onHearMode={hearMode} onHearAll={hearModel} onHearCapture={hearCapture} />
-    <div className="consumer-actions"><button className="consumer-primary" disabled={!session.instrumentReady} onClick={() => setShowKeyboard((value) => !value)}>{playLabel}</button><button className="consumer-ghost" onClick={shareAcousticCard}>SHARE DNA</button><button className="consumer-ghost" onClick={strikeAgain}>STRIKE ANOTHER</button></div>
+    <div className="consumer-actions"><button className="consumer-primary" disabled={!session.instrumentReady} onClick={() => setShowKeyboard((value) => !value)}>{playLabel}</button><button className="consumer-ghost" onClick={shareAcousticStory}>SHARE STORY</button><button className="consumer-ghost" onClick={shareAcousticCard}>SHARE DNA</button><button className="consumer-ghost" onClick={strikeAgain}>STRIKE ANOTHER</button></div>
     {showKeyboard && session.instrumentReady ? <section className="consumer-instrument"><p className="consumer-kicker">PLAY</p><div className="consumer-keyboard">{PLAY_NOTES.map((note, index) => <button key={`${note.midi}-${index}`} onPointerDown={() => session.noteOn(note.midi)}>{note.label}</button>)}</div></section> : null}
     <a className="lab-link" href="?lab=1">open measurements</a>
   </main>;
