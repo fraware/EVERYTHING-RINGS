@@ -40,7 +40,8 @@ describe("Resonance Microscope ringdown reveal", () => {
     );
 
     expect(markup).toContain("CAPTURE");
-    expect(markup).toContain("Recorded microphone transient");
+    expect(markup).toContain("Peak-matched microphone transient");
+    expect(markup).toContain("gain-only matched to the model output peak");
     expect(markup).toContain("MODEL");
     expect(markup).toContain("Measured-mode reconstruction");
     expect(markup).toContain("WATCH + HEAR MODEL");
