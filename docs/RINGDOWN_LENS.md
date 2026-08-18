@@ -16,8 +16,10 @@ The **≥ 10% ENVELOPE** count is an explicit presentation threshold. Falling be
 
 The consumer surface may audition two separate local signals:
 
-- **CAPTURE** plays the retained microphone transient, beginning with a short bounded lead-in before the detected trigger.
+- **CAPTURE** starts with a short bounded lead-in before the detected trigger and applies gain-only peak matching to the modal renderer's fixed output peak. The waveform shape and timing are otherwise the retained microphone transient.
 - **MODEL** synthesizes the estimated modes from the fingerprint. Recorded microphone audio is never mixed into this reconstruction.
+
+Peak matching removes a gross device/input-gain difference from the consumer comparison. It is not perceptual loudness matching and does not make the two signals physically calibrated.
 
 The comparison is transparent consumer listening. It is not blinded, scored, or admissible as Gate B evidence. The frozen Gate B protocol remains the only release-evidence path for reconstruction fidelity.
 
