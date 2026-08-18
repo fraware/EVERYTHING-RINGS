@@ -55,9 +55,11 @@ if [[ -n "${VITE_SOFTWARE_REVISION:-}" ]] && ! grep -Fq "software revision ${VIT
   cat /tmp/everything-rings-lab.html >&2
   exit 1
 fi
+check_route "/?campaign-author=1" "Freeze the experiment before the first strike." "campaign-author"
 check_route "/?campaign=1" "Precommitted physical collection" "campaign"
 check_route "/?release=1" "Empirical release gates" "release"
-check_route "/?campaign=1&release=1" "Empirical release gates" "release-precedence"
+check_route "/?campaign-author=1&release=1" "Empirical release gates" "release-author-precedence"
+check_route "/?campaign-author=1&campaign=1" "Freeze the experiment before the first strike." "author-precedence"
 check_route "/?campaign=1&lab=1" "Precommitted physical collection" "campaign-precedence"
 
-echo "Browser smoke tests passed for consumer, lab, campaign collection, release, and route precedence."
+echo "Browser smoke tests passed for consumer, lab, campaign authoring, campaign collection, release, and route precedence."
