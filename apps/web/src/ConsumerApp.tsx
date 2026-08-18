@@ -1,9 +1,9 @@
-import { renderAcousticFingerprint } from "@everything-rings/synth";
+import { DEFAULT_MODAL_RENDER_CONFIG, renderAcousticFingerprint } from "@everything-rings/synth";
 import { createAcousticCardSvg, fingerprintSignature } from "@everything-rings/visual";
 import { useState } from "react";
 import { failureCopy } from "./failureCopy";
 import { ResonanceMicroscope } from "./ResonanceMicroscope";
-import { captureAuditionSamples } from "./ringdownPresentation";
+import { captureAuditionSamples, peakMatchSamples } from "./ringdownPresentation";
 import { useStrikeSession } from "./useStrikeSession";
 
 const PLAY_NOTES = [
@@ -44,7 +44,11 @@ export function ConsumerApp() {
   function hearCapture(): void {
     const capture = session.capture;
     if (capture === undefined) return;
-    session.play(captureAuditionSamples(capture), capture.sampleRate);
+    const audition = peakMatchSamples(
+      captureAuditionSamples(capture),
+      DEFAULT_MODAL_RENDER_CONFIG.outputPeak,
+    );
+    session.play(audition, capture.sampleRate);
   }
 
   function hearModel(): void {
