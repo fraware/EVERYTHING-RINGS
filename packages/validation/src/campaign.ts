@@ -117,7 +117,7 @@ function parseSpecimen(value: unknown, index: number): EmpiricalCampaignSpecimen
     throw new TypeError(`${field}.cohort is invalid`);
   }
   const targetSessions = value.targetSessions;
-  if (!Number.isInteger(targetSessions) || typeof targetSessions !== "number" || targetSessions <= 0) {
+  if (typeof targetSessions !== "number" || !Number.isInteger(targetSessions) || targetSessions <= 0) {
     throw new TypeError(`${field}.targetSessions must be a positive integer`);
   }
   return {
@@ -266,7 +266,7 @@ export function evaluateEmpiricalCampaign(
       pushUnique(reasons, "more sessions were collected than precommitted");
     }
     const passingSessionCount = conforming.filter((bundle) => evaluateGateASession(bundle).passed).length;
-    const analyticalFailureCount = conforming.reduce(
+    const analyticalFailureCount = sessions.reduce(
       (total, bundle) => total + bundle.attempts.filter((attempt) => attempt.analysis.status === "failure").length,
       0,
     );
