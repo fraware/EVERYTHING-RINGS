@@ -11,13 +11,13 @@ function closeContext(context: AudioContext): void {
 }
 
 function disconnectGraph(graph: CaptureGraph): void {
-  graph.node.port.onmessage = null;
+  try { graph.node.port.onmessage = null; } catch { /* port already unavailable */ }
   try { graph.disconnect(); } catch { /* already disconnected */ }
 }
 
 function terminateWorker(worker: Worker): void {
-  worker.onmessage = null;
-  worker.onerror = null;
+  try { worker.onmessage = null; } catch { /* worker already unavailable */ }
+  try { worker.onerror = null; } catch { /* worker already unavailable */ }
   try { worker.terminate(); } catch { /* already terminated */ }
 }
 

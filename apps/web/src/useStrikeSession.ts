@@ -209,16 +209,18 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     }
   }
 
-  function disposeSessionResources(current: SessionResources | undefined): void {
+  function disposeSessionResources(current: SessionResources | undefined, updateUi = true): void {
     instrumentGeneration.current += 1;
     if (current === undefined) return;
-    current.playback.stop();
-    current.instrument?.port.postMessage({ type: "ALL_NOTES_OFF" });
-    if (current.instrument !== undefined) current.instrument.port.onmessage = null;
+    try { current.playback.stop(); } catch { /* playback already unavailable */ }
+    try { current.instrument?.port.postMessage({ type: "ALL_NOTES_OFF" }); } catch { /* port already unavailable */ }
+    try {
+      if (current.instrument !== undefined) current.instrument.port.onmessage = null;
+    } catch { /* port already unavailable */ }
     try { current.instrument?.disconnect(); } catch { /* already disconnected */ }
-    current.graph.node.port.onmessage = null;
-    current.worker.onmessage = null;
-    current.worker.onerror = null;
+    try { current.graph.node.port.onmessage = null; } catch { /* port already unavailable */ }
+    try { current.worker.onmessage = null; } catch { /* worker already unavailable */ }
+    try { current.worker.onerror = null; } catch { /* worker already unavailable */ }
     try { current.graph.disconnect(); } catch { /* already disconnected */ }
     current.microphone.stream.getTracks().forEach((track) => {
       try { track.stop(); } catch { /* already stopped */ }
@@ -228,7 +230,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     if (resources.current === current) resources.current = undefined;
     instrumentPreparation.current = undefined;
     pendingInstrumentEvents.current.clear();
-    setInstrumentReady(false);
+    if (updateUi) setInstrumentReady(false);
   }
 
   function supersedeLifecycle(): number {
@@ -242,14 +244,14 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     return generation;
   }
 
-  function invalidateLifecycle(): void {
+  function invalidateLifecycle(updateUi = true): void {
     lifecycle.current.invalidate();
     const opening = pendingStartup.current;
     pendingStartup.current = undefined;
     opening?.dispose();
     const current = resources.current;
     resources.current = undefined;
-    disposeSessionResources(current);
+    disposeSessionResources(current, updateUi);
   }
 
   function clearPendingStartup(opening: OpeningSessionResources): void {
@@ -315,6 +317,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
         clearPendingStartup(opening);
         return;
       }
+      const playback = new SamplePlaybackController(context);
       const claimed = opening.claim();
       clearPendingStartup(opening);
       if (claimed === undefined) {
@@ -327,7 +330,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
         microphone: claimed.microphone,
         graph: claimed.graph,
         worker: claimed.worker,
-        playback: new SamplePlaybackController(claimed.context),
+        playback,
       };
       resources.current = current;
       setSettings(current.microphone.settings);
@@ -525,7 +528,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      invalidateLifecycle();
+      invalidateLifecycle(false);
     };
   }, []);
 
