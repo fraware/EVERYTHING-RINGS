@@ -1,13 +1,15 @@
 import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
 import { acousticDnaSourceModeIndices, encodeAcousticDna } from "@everything-rings/visual";
+import { modeEnvelopeFractionAtTime } from "./ringdownPresentation";
 
 interface AcousticDnaViewProps {
   readonly fingerprint: AcousticFingerprintV1;
   readonly selectedModeIndex?: number;
   readonly onSelectMode?: (modeIndex: number) => void;
+  readonly elapsedSeconds?: number;
 }
 
-export function AcousticDnaView({ fingerprint, selectedModeIndex, onSelectMode }: AcousticDnaViewProps) {
+export function AcousticDnaView({ fingerprint, selectedModeIndex, onSelectMode, elapsedSeconds = 0 }: AcousticDnaViewProps) {
   const dna = encodeAcousticDna(fingerprint);
   const sourceModeIndices = acousticDnaSourceModeIndices(fingerprint);
   const center = 160;
@@ -23,6 +25,9 @@ export function AcousticDnaView({ fingerprint, selectedModeIndex, onSelectMode }
         {dna.modes.map((mode, index) => {
           const sourceModeIndex = sourceModeIndices[index];
           if (sourceModeIndex === undefined) return null;
+          const sourceMode = fingerprint.modes[sourceModeIndex];
+          if (sourceMode === undefined) return null;
+          const envelopeFraction = modeEnvelopeFractionAtTime(sourceMode.decaySeconds, elapsedSeconds);
           const radius = minimumRadius + mode.radius * radiusRange;
           const circumference = 2 * Math.PI * radius;
           const arcFraction = 0.12 + 0.86 * mode.persistence;
@@ -30,6 +35,8 @@ export function AcousticDnaView({ fingerprint, selectedModeIndex, onSelectMode }
           const gapLength = Math.max(0.001, circumference - arcLength);
           const rotationDegrees = mode.angleRadians * 180 / Math.PI - 90;
           const selected = selectedModeIndex === sourceModeIndex;
+          const baseOpacity = 0.18 + 0.8 * mode.intensity;
+          const visibleOpacity = Math.max(0.035, baseOpacity * envelopeFraction);
           return (
             <circle
               className={`dna-ring${interactive ? " dna-ring-interactive" : ""}${selected ? " dna-ring-selected" : ""}`}
@@ -38,12 +45,13 @@ export function AcousticDnaView({ fingerprint, selectedModeIndex, onSelectMode }
               cy={center}
               r={radius}
               strokeDasharray={`${arcLength} ${gapLength}`}
-              strokeWidth={0.8 + 4.2 * mode.intensity}
-              opacity={selected ? 1 : 0.18 + 0.8 * mode.intensity}
+              strokeWidth={0.8 + 4.2 * mode.intensity * Math.sqrt(envelopeFraction)}
+              opacity={visibleOpacity}
               transform={`rotate(${rotationDegrees} ${center} ${center})`}
               role={interactive ? "button" : undefined}
               tabIndex={interactive ? 0 : undefined}
-              aria-label={interactive ? `Select resonance ${sourceModeIndex + 1}, ${Math.round(mode.frequencyHz)} hertz` : undefined}
+              data-envelope-fraction={envelopeFraction.toFixed(3)}
+              aria-label={interactive ? `Select resonance ${sourceModeIndex + 1}, ${Math.round(mode.frequencyHz)} hertz, ${Math.round(envelopeFraction * 100)} percent fitted envelope at ${elapsedSeconds.toFixed(2)} seconds` : undefined}
               aria-pressed={interactive ? selected : undefined}
               onClick={interactive ? () => onSelectMode(sourceModeIndex) : undefined}
               onKeyDown={interactive ? (event) => {
