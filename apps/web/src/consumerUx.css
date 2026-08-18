@@ -104,6 +104,70 @@ button, .file-button, input, select {
   flex: 1 1 0;
 }
 
+.saved-capture-truth {
+  margin: 24px 0 0;
+  padding: 18px;
+  border: 1px solid #353530;
+  display: grid;
+  gap: 6px;
+}
+
+.saved-capture-truth strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.saved-capture-truth p {
+  margin: 0;
+  max-width: 760px;
+  color: #8f8f88;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.saved-capture-provenance {
+  margin: 12px 0 28px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid #292925;
+  border-left: 1px solid #292925;
+}
+
+.saved-capture-provenance > div {
+  min-width: 0;
+  padding: 14px 16px;
+  border-right: 1px solid #292925;
+  border-bottom: 1px solid #292925;
+}
+
+.saved-capture-provenance dt {
+  margin-bottom: 6px;
+  color: #777771;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.saved-capture-provenance dd {
+  margin: 0;
+  min-width: 0;
+  color: #c2c2ba;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.saved-capture-provenance code {
+  font-size: 11px;
+}
+
+.saved-capture-view .consumer-instrument {
+  margin-top: 22px;
+}
+
+.saved-capture-view > .consumer-actions {
+  margin-top: 18px;
+}
+
 .lab-link {
   min-height: 44px;
   display: inline-flex;
@@ -160,7 +224,8 @@ select:focus-visible {
     width: 100%;
   }
 
-  .consumer-history-grid {
+  .consumer-history-grid,
+  .saved-capture-provenance {
     grid-template-columns: 1fr;
   }
 
