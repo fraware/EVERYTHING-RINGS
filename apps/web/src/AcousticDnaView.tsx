@@ -1,5 +1,5 @@
 import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
-import { DEFAULT_ACOUSTIC_DNA_CONFIG, encodeAcousticDna } from "@everything-rings/visual";
+import { acousticDnaSourceModeIndices, encodeAcousticDna } from "@everything-rings/visual";
 
 interface AcousticDnaViewProps {
   readonly fingerprint: AcousticFingerprintV1;
@@ -9,12 +9,7 @@ interface AcousticDnaViewProps {
 
 export function AcousticDnaView({ fingerprint, selectedModeIndex, onSelectMode }: AcousticDnaViewProps) {
   const dna = encodeAcousticDna(fingerprint);
-  const sourceModeIndices = fingerprint.modes
-    .map((mode, index) => ({ mode, index }))
-    .filter(({ mode }) => mode.frequencyHz > 0 && Number.isFinite(mode.frequencyHz))
-    .sort((left, right) => left.mode.frequencyHz - right.mode.frequencyHz)
-    .slice(0, DEFAULT_ACOUSTIC_DNA_CONFIG.maximumModes)
-    .map(({ index }) => index);
+  const sourceModeIndices = acousticDnaSourceModeIndices(fingerprint);
   const center = 160;
   const minimumRadius = 28;
   const radiusRange = 112;
