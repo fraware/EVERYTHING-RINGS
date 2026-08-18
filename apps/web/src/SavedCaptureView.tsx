@@ -35,11 +35,15 @@ function browserDependencies(): SavedCaptureAudioDependencies {
 
 export function SavedCaptureView({
   record,
+  status,
   onBack,
+  onShareLink,
   onShareDna,
 }: {
   readonly record: ConsumerCaptureRecord;
+  readonly status?: string | undefined;
   readonly onBack: () => void;
+  readonly onShareLink: () => void;
   readonly onShareDna: () => void;
 }) {
   const controller = useRef<SavedCaptureAudioController | undefined>(undefined);
@@ -95,6 +99,7 @@ export function SavedCaptureView({
     </dl>
 
     {playbackFailure !== undefined ? <p className="consumer-playback-error" role="alert">{playbackFailure}</p> : null}
+    {status !== undefined ? <p className="consumer-history-status" role="status">{status}</p> : null}
 
     <ResonanceMicroscope
       fingerprint={record.fingerprint}
@@ -110,7 +115,8 @@ export function SavedCaptureView({
     />
 
     <div className="consumer-actions" aria-label="Saved capture actions">
-      <button className="consumer-primary" onClick={onShareDna}>SHARE DNA</button>
+      <button className="consumer-primary" onClick={onShareLink}>SHARE LINK</button>
+      <button className="consumer-ghost" onClick={onShareDna}>SHARE DNA</button>
       <button className="consumer-ghost" onClick={() => {
         controller.current?.silence();
         onBack();

@@ -17,3 +17,6 @@ The playable object synthesizes estimated resonant modes instead of pitch-shifti
 
 ## ADR-006 — Testable acquisition kernel
 Automatic onset detection and rolling capture live in a pure state machine. The AudioWorklet only adapts browser audio blocks to that kernel, so capture semantics remain deterministic and independently testable.
+
+## ADR-007 — Fragment-only Acoustic Capsule transport
+Consumer share links encode a bounded, versioned fingerprint transport in the URL fragment. The origin server does not need the fingerprint to open the shared experience, and recipient playback remains output-only. Capsules are transport artifacts, not canonical object IDs, authenticated provenance, release evidence, or permanent records. Incompatible wire changes require a new capsule version; existing version semantics never change in place.

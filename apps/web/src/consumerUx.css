@@ -27,6 +27,24 @@ button, .file-button, input, select {
   line-height: 1.5;
 }
 
+.consumer-share {
+  align-self: flex-start;
+  min-width: 180px;
+  padding: 15px 19px;
+  border: 1px solid #696960;
+  background: #171715;
+  color: #e4e4de;
+  cursor: pointer;
+  font-size: 12px;
+  letter-spacing: .09em;
+}
+
+.consumer-share:hover,
+.consumer-share:focus-visible {
+  border-color: #b6b6ae;
+  background: #20201d;
+}
+
 .consumer-history {
   width: 100%;
   margin-top: 42px;
@@ -180,7 +198,13 @@ button, .file-button, input, select {
   align-items: center;
 }
 
+.consumer-shell button,
+.consumer-shell a {
+  -webkit-tap-highlight-color: transparent;
+}
+
 .consumer-actions button,
+.consumer-share,
 .consumer-keyboard button,
 .mode-chip,
 .mode-audition-actions button,
@@ -205,11 +229,25 @@ select:focus-visible {
 
 @media (max-width: 760px) {
   .consumer-shell {
+    width: auto;
+    max-width: 1180px;
+    margin-left: max(14px, env(safe-area-inset-left));
+    margin-right: max(14px, env(safe-area-inset-right));
+    padding-top: max(22px, env(safe-area-inset-top));
     padding-bottom: max(36px, env(safe-area-inset-bottom));
   }
 
-  .consumer-actions button {
+  .consumer-actions button,
+  .consumer-share {
     width: 100%;
+  }
+
+  .consumer-keyboard {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .consumer-keyboard button {
+    min-height: 68px;
   }
 
   .consumer-tip {
@@ -245,5 +283,14 @@ select:focus-visible {
   .pulse-armed,
   .pulse-capturing {
     box-shadow: none;
+  }
+
+  .consumer-shell *,
+  .consumer-shell *::before,
+  .consumer-shell *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .001ms !important;
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
   }
 }
