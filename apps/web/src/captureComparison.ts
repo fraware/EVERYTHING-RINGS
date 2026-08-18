@@ -25,25 +25,26 @@ export function summarizeCaptureObservation(
   fingerprint: AcousticFingerprintV1,
 ): CaptureObservationSummary {
   const modes = finitePositiveModes(fingerprint);
-  if (modes.length === 0) return { modeCount: 0 };
+  const firstMode = modes[0];
+  if (firstMode === undefined) return { modeCount: 0 };
 
-  let lowestFrequencyHz = Number.POSITIVE_INFINITY;
-  let highestFrequencyHz = 0;
-  let strongest = modes[0];
-  let longest = modes[0];
+  let lowestFrequencyHz = firstMode.frequencyHz;
+  let highestFrequencyHz = firstMode.frequencyHz;
+  let strongest = firstMode;
+  let longest = firstMode;
   for (const mode of modes) {
     lowestFrequencyHz = Math.min(lowestFrequencyHz, mode.frequencyHz);
     highestFrequencyHz = Math.max(highestFrequencyHz, mode.frequencyHz);
-    if (strongest === undefined || mode.relativeAmplitude > strongest.relativeAmplitude) strongest = mode;
-    if (longest === undefined || mode.decaySeconds > longest.decaySeconds) longest = mode;
+    if (mode.relativeAmplitude > strongest.relativeAmplitude) strongest = mode;
+    if (mode.decaySeconds > longest.decaySeconds) longest = mode;
   }
 
   return {
     modeCount: modes.length,
     lowestFrequencyHz,
     highestFrequencyHz,
-    strongestFrequencyHz: strongest?.frequencyHz,
-    longestDecaySeconds: longest?.decaySeconds,
+    strongestFrequencyHz: strongest.frequencyHz,
+    longestDecaySeconds: longest.decaySeconds,
   };
 }
 
