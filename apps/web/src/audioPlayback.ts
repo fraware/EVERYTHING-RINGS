@@ -1,5 +1,6 @@
 export class SamplePlaybackController {
   private source: AudioBufferSourceNode | undefined;
+  private generation = 0;
 
   constructor(private readonly context: AudioContext) {}
 
@@ -9,8 +10,10 @@ export class SamplePlaybackController {
     }
     if (samples.length === 0) throw new RangeError("samples must not be empty");
 
-    this.stop();
+    const generation = ++this.generation;
+    this.stopCurrentSource();
     if (this.context.state !== "running") await this.context.resume();
+    if (generation !== this.generation) return;
     if (this.context.state !== "running") {
       throw new Error("Audio output is not active");
     }
@@ -27,6 +30,11 @@ export class SamplePlaybackController {
       if (this.source === source) this.source = undefined;
       try { source.disconnect(); } catch { /* already disconnected */ }
     };
+    if (generation !== this.generation) {
+      source.onended = null;
+      try { source.disconnect(); } catch { /* already disconnected */ }
+      return;
+    }
     this.source = source;
     try {
       source.start();
@@ -38,6 +46,11 @@ export class SamplePlaybackController {
   }
 
   stop(): void {
+    this.generation += 1;
+    this.stopCurrentSource();
+  }
+
+  private stopCurrentSource(): void {
     const source = this.source;
     this.source = undefined;
     if (source === undefined) return;
