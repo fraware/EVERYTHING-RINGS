@@ -1,6 +1,7 @@
 import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
 import { useState } from "react";
 import { AcousticDnaView } from "./AcousticDnaView";
+import "./resonanceMicroscope.css";
 import {
   formatConfidence,
   formatDecay,
