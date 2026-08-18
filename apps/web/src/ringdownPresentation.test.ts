@@ -1,8 +1,12 @@
 import type { AudioCapture } from "@everything-rings/acquisition";
-import type { AcousticFingerprintV1, AcousticMode } from "@everything-rings/dsp";
+import {
+  extractImpactRingdown,
+  type AcousticFingerprintV1,
+  type AcousticMode,
+} from "@everything-rings/dsp";
 import { describe, expect, it } from "vitest";
 import {
-  captureAuditionSamples,
+  captureRingdownAuditionSamples,
   modeEnvelopeFractionAtTime,
   modeRelativeEnvelopeAtTime,
   peakMatchSamples,
@@ -53,14 +57,15 @@ describe("ringdown presentation", () => {
     expect(late?.modesAboveVisibleEnvelope).toBe(2);
   });
 
-  it("auditions the retained capture with a bounded lead-in before the trigger", () => {
-    const samples = Float32Array.from(Array.from({ length: 100 }, (_, index) => index));
-    const capture: AudioCapture = { samples, sampleRate: 1000, triggerSample: 50 };
-    const audition = captureAuditionSamples(capture, 0.01);
-    expect(audition).toHaveLength(60);
-    expect(audition[0]).toBe(40);
-    expect(audition[10]).toBe(50);
-    expect(audition.at(-1)).toBe(99);
+  it("reuses the deterministic DSP ringdown isolation for capture audition", () => {
+    const samples = new Float32Array(200);
+    samples[80] = 1;
+    for (let index = 81; index < samples.length; index += 1) {
+      samples[index] = Math.exp(-(index - 80) / 30);
+    }
+    const capture: AudioCapture = { samples, sampleRate: 1000, triggerSample: 80 };
+    const expected = extractImpactRingdown(samples, capture.sampleRate, capture.triggerSample).samples;
+    expect(Array.from(captureRingdownAuditionSamples(capture))).toEqual(Array.from(expected));
   });
 
   it("applies gain-only peak matching for a less confounded consumer A/B", () => {
@@ -75,7 +80,7 @@ describe("ringdown presentation", () => {
   it("rejects invalid physical timing and peak inputs", () => {
     expect(() => modeEnvelopeFractionAtTime(0, 1)).toThrow(RangeError);
     expect(() => modeEnvelopeFractionAtTime(1, -1)).toThrow(RangeError);
-    expect(() => captureAuditionSamples({ samples: new Float32Array(8), sampleRate: 48_000, triggerSample: 9 })).toThrow(RangeError);
+    expect(() => captureRingdownAuditionSamples({ samples: new Float32Array(8), sampleRate: 48_000, triggerSample: 9 })).toThrow(RangeError);
     expect(() => peakMatchSamples(new Float32Array([1]), 0)).toThrow(RangeError);
   });
 });
