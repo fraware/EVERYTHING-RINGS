@@ -1,7 +1,11 @@
 import {
   buildReleaseVerdictForRevision,
+  empiricalCampaignSignature,
+  evaluateEmpiricalCampaign,
   mergeValidationEvidence,
+  parseEmpiricalCampaignJson,
   parseValidationEvidenceJson,
+  type EmpiricalCampaignV1,
   type ValidationEvidenceV5,
 } from "@everything-rings/validation";
 import { useMemo, useState } from "react";
@@ -30,6 +34,7 @@ function Reasons({ reasons }: { readonly reasons: readonly string[] }) {
 
 export function ReleaseApp() {
   const [evidence, setEvidence] = useState<ValidationEvidenceV5[]>([]);
+  const [campaign, setCampaign] = useState<EmpiricalCampaignV1>();
   const [errors, setErrors] = useState<string[]>([]);
   const gateBReviews = useMemo(() => evidence.flatMap((bundle) => bundle.gateBReviews), [evidence]);
   const gateCReviews = useMemo(() => evidence.flatMap((bundle) => bundle.gateCReviews), [evidence]);
@@ -37,6 +42,21 @@ export function ReleaseApp() {
     () => buildReleaseVerdictForRevision(evidence, gateBReviews, gateCReviews, "preview", SOFTWARE_REVISION),
     [evidence, gateBReviews, gateCReviews],
   );
+  const campaignProgress = useMemo(
+    () => campaign === undefined ? undefined : evaluateEmpiricalCampaign(campaign, evidence),
+    [campaign, evidence],
+  );
+
+  async function importCampaign(file: File | undefined): Promise<void> {
+    if (file === undefined) return;
+    const parsed = parseEmpiricalCampaignJson(await file.text());
+    if (!parsed.ok) {
+      setErrors((current) => [...current, `${file.name}: ${parsed.error}`]);
+      return;
+    }
+    setCampaign(parsed.campaign);
+    setErrors((current) => current.filter((error) => !error.startsWith(`${file.name}:`)));
+  }
 
   async function importFiles(files: FileList | null): Promise<void> {
     if (files === null) return;
@@ -80,6 +100,13 @@ export function ReleaseApp() {
       evidenceContractVersion: "validation-evidence-5",
       gateAContractVersion: "gate-a-2",
       authorizedCollectionSoftwareRevision: SOFTWARE_REVISION_VALID ? SOFTWARE_REVISION : null,
+      empiricalCampaign: campaign === undefined ? null : {
+        campaignContractVersion: campaign.campaignContractVersion,
+        campaignId: campaign.campaignId,
+        campaignSignature: empiricalCampaignSignature(campaign),
+        authorizedSoftwareRevision: campaign.authorizedSoftwareRevision,
+        progress: campaignProgress,
+      },
       evidenceSessions: evidence.map((bundle) => ({
         sessionId: bundle.sessionId,
         object: bundle.object,
@@ -93,22 +120,54 @@ export function ReleaseApp() {
     <header>
       <p className="eyebrow">EVERYTHING RINGS / RELEASE CONSOLE</p>
       <h1>Empirical release gates</h1>
-      <p className="lede">Import local validation-evidence-5 bundles. The console evaluates frozen Gate A2/B/C contracts without uploading evidence or microphone audio.</p>
+      <p className="lede">Import a precommitted campaign and local validation-evidence-5 bundles. The console accounts for planned failures and evaluates frozen Gate A2/B/C contracts without uploading evidence or microphone audio.</p>
     </header>
 
     <section className="release-import">
+      <label className="file-button">IMPORT CAMPAIGN<input type="file" accept="application/json,.json" onChange={(event) => { void importCampaign(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} /></label>
       <label className="file-button">IMPORT EVIDENCE<input type="file" accept="application/json,.json" multiple onChange={(event) => { void importFiles(event.currentTarget.files); event.currentTarget.value = ""; }} /></label>
-      <button className="secondary" disabled={evidence.length === 0} onClick={() => { setEvidence([]); setErrors([]); }}>CLEAR</button>
+      <button className="secondary" disabled={evidence.length === 0 && campaign === undefined} onClick={() => { setEvidence([]); setCampaign(undefined); setErrors([]); }}>CLEAR</button>
       <button disabled={evidence.length === 0} onClick={exportVerdict}>EXPORT VERDICT</button>
-      <span className="small">{evidence.length} sessions · {gateBReviews.length} Gate B reviews · {gateCReviews.length} Gate C reviews</span>
+      <span className="small">{campaign === undefined ? "no campaign" : campaign.campaignId} · {evidence.length} sessions · {gateBReviews.length} Gate B · {gateCReviews.length} Gate C</span>
     </section>
 
     {errors.length > 0 ? <section className="import-errors"><h2>Rejected files</h2><Reasons reasons={errors} /></section> : null}
 
+    {campaign !== undefined && campaignProgress !== undefined ? <section className="campaign-panel" aria-label="Precommitted empirical campaign">
+      <div className="release-card-head">
+        <div><p className="eyebrow">EMPIRICAL CAMPAIGN / PRECOMMITTED</p><h2>{campaignProgress.collectionComplete ? "Collection accounted for" : "Collection still open"}</h2></div>
+        <Verdict passed={campaignProgress.collectionComplete} />
+      </div>
+      <div className="campaign-summary">
+        <div><span>CAMPAIGN</span><strong>{campaign.campaignId}</strong></div>
+        <div><span>SIGNATURE</span><strong className="campaign-signature">{campaignProgress.campaignSignature}</strong></div>
+        <div><span>PLANNED SPECIMENS</span><strong>{campaignProgress.plannedSpecimenCount}</strong></div>
+        <div><span>COMPLETE SESSIONS</span><strong>{campaignProgress.conformingCompleteSessionCount} / {campaignProgress.plannedSessionCount}</strong></div>
+        <div><span>GATE A2 PASSING</span><strong>{campaignProgress.passingSessionCount}</strong></div>
+        <div><span>ANALYTICAL FAILURES</span><strong>{campaignProgress.analyticalFailureCount}</strong></div>
+      </div>
+      <p className="small">Campaign revision: {campaign.authorizedSoftwareRevision}{campaign.authorizedSoftwareRevision === SOFTWARE_REVISION ? " · matches this build" : " · differs from this build"}</p>
+      <Reasons reasons={campaignProgress.reasons} />
+      {campaignProgress.unplannedSpecimenIds.length > 0 ? <p className="small">Unplanned evidence: {campaignProgress.unplannedSpecimenIds.join(", ")}</p> : null}
+      <div className="campaign-table" role="table" aria-label="Campaign specimen accounting">
+        <div className="campaign-row campaign-row-head" role="row"><span>cohort</span><span>specimen</span><span>material</span><span>sessions</span><span>passing</span><span>failures</span><span>status</span></div>
+        {campaignProgress.specimens.map((specimen) => <div className="campaign-row" role="row" key={specimen.specimenId}>
+          <span>{specimen.cohort}</span>
+          <span><strong>{specimen.specimenId}</strong><small>{specimen.label}</small></span>
+          <span>{specimen.material}</span>
+          <span>{specimen.conformingCompleteSessionCount} / {specimen.targetSessions}</span>
+          <span>{specimen.passingSessionCount}</span>
+          <span>{specimen.analyticalFailureCount}</span>
+          <span>{specimen.complete ? "ACCOUNTED" : "OPEN"}</span>
+          {specimen.reasons.length > 0 ? <div className="campaign-row-reasons"><Reasons reasons={specimen.reasons} /></div> : null}
+        </div>)}
+      </div>
+    </section> : null}
+
     <section className="release-status">
       <article className="release-card release-overall">
         <div className="release-card-head"><div><p className="eyebrow">RELEASE</p><h2>{verdict.releaseReady ? "Empirically ready" : "Evidence incomplete"}</h2></div><Verdict passed={verdict.releaseReady} /></div>
-        <p className="small">Release becomes ready only when Gate A2, Gate B, and Gate C all pass their frozen contracts.</p>
+        <p className="small">Release becomes ready only when Gate A2, Gate B, and Gate C all pass their frozen contracts. Campaign accounting is a collection-integrity layer and does not lower or replace those gates.</p>
         <p className="small">Authorized collection revision: {SOFTWARE_REVISION_VALID ? SOFTWARE_REVISION : "invalid / unset"}</p>
         <p className="small">Evidence revision: {verdict.softwareRevision ?? "mixed / no evidence"}</p>
       </article>
