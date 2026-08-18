@@ -12,7 +12,7 @@ The empirical release gates remain open until representative physical and percep
 
 Every physical validation object also receives a stable `specimenId`. That identity, not a display label, defines release distinctness and links repeated sessions of the same physical specimen. Relabeling an object cannot manufacture another release specimen. An analysis-worker crash or other true internal session error terminates the current validation session; subsequent capture uses a new session ID and retains the specimen ID when the same object is tested again.
 
-The validation lab exports the versioned fixed-setup evidence, records blinded reconstruction reviews and device playability reviews, and keeps raw microphone PCM local. The Release Console aggregates those bundles into explicit Gate A2/B/C verdicts. Synthetic or cross-field tests never substitute for the required local evidence.
+The validation lab exports the versioned fixed-setup evidence, records blinded reconstruction reviews and device playability reviews, and keeps raw microphone PCM local. The Release Console aggregates those bundles into explicit Gate A2/B/C verdicts. An optional `empirical-campaign-1` manifest precommits the physical specimen set, exact setup, session count, and authorized software revision before collection, so missing, failed, extra, or substituted specimens remain visible. Synthetic or cross-field tests never substitute for the required local evidence.
 
 ## Engineering invariants
 
@@ -29,6 +29,7 @@ The validation lab exports the versioned fixed-setup evidence, records blinded r
 - Acoustic DNA share cards derive only from the fingerprint, display its analysis version, and never count as release evidence.
 - Gate A2 never substitutes or replaces a qualified analytical failure.
 - Physical release distinctness is keyed by stable specimen ID, not object label.
+- A precommitted empirical campaign keeps planned failures, missing specimens, setup deviations, extra sessions, and unplanned specimens visible without changing release thresholds.
 - Analysis-worker crashes and other fatal validation-session errors cannot continue on the same worker/audio resources.
 - Gate B reviews are bound to one exact passing session/attempt target per specimen.
 - Gate C inherits the exact Gate B target and requires explicit cross-device evidence from passing specimens.
@@ -50,4 +51,4 @@ Release-validation builds must set `VITE_SOFTWARE_REVISION` to the exact 40-hex 
 
 The root web experience is the consumer loop. Append `?lab=1` for physical/listening evidence collection and `?release=1` for the local release-evidence console.
 
-See `docs/SPEC.md`, `docs/DSP.md`, `docs/VALIDATION.md`, `docs/GATE_A.md`, `docs/REALIMPACT.md`, `docs/GATE_B.md`, `docs/GATE_C.md`, `docs/VALIDATION_EVIDENCE.md`, `docs/ACOUSTIC_DNA.md`, `docs/ACOUSTIC_CARD.md`, `docs/RINGDOWN_LENS.md`, and `docs/DEPLOYMENT.md` for the implementation contracts, release gates, evidence model, visual artifacts, and deployment path.
+See `docs/SPEC.md`, `docs/DSP.md`, `docs/VALIDATION.md`, `docs/GATE_A.md`, `docs/REALIMPACT.md`, `docs/GATE_B.md`, `docs/GATE_C.md`, `docs/VALIDATION_EVIDENCE.md`, `docs/EMPIRICAL_CAMPAIGN.md`, `docs/ACOUSTIC_DNA.md`, `docs/ACOUSTIC_CARD.md`, `docs/RINGDOWN_LENS.md`, and `docs/DEPLOYMENT.md` for the implementation contracts, release gates, evidence model, campaign-integrity contract, visual artifacts, and deployment path.
