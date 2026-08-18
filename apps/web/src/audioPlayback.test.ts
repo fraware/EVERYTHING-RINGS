@@ -53,6 +53,19 @@ describe("SamplePlaybackController", () => {
     expect(sources[1]?.start).toHaveBeenCalledOnce();
   });
 
+  it("lets the latest tap win when two plays wait on resume", async () => {
+    const { context, raw, sources } = fakeContext("suspended");
+    let releaseResume: (() => void) | undefined;
+    raw.resume.mockImplementation(() => new Promise<void>((resolve) => { releaseResume = () => { raw.state = "running"; resolve(); }; }));
+    const playback = new SamplePlaybackController(context);
+    const first = playback.play(Float32Array.from([0, 0.2]), 48_000);
+    const second = playback.play(Float32Array.from([0, 0.3]), 48_000);
+    releaseResume?.();
+    await Promise.all([first, second]);
+    expect(sources).toHaveLength(1);
+    expect(sources[0]?.start).toHaveBeenCalledOnce();
+  });
+
   it("stops and disconnects the active source idempotently", async () => {
     const { context, sources } = fakeContext();
     const playback = new SamplePlaybackController(context);
