@@ -12,6 +12,18 @@ export {
   buildReleaseVerdictForRevision,
 } from "./current-release";
 export {
+  empiricalCampaignSignature,
+  evaluateEmpiricalCampaign,
+  parseEmpiricalCampaign,
+  parseEmpiricalCampaignJson,
+  type EmpiricalCampaignCohort,
+  type EmpiricalCampaignParseResult,
+  type EmpiricalCampaignProgress,
+  type EmpiricalCampaignSpecimen,
+  type EmpiricalCampaignSpecimenStatus,
+  type EmpiricalCampaignV1,
+} from "./campaign";
+export {
   deriveEvidenceRecurrence,
   deriveMedianModalDriftCents,
   medianFinite,
