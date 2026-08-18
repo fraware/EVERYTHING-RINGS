@@ -1,8 +1,11 @@
 import type { AudioCapture } from "@everything-rings/acquisition";
-import type { AcousticFingerprintV1, AcousticMode } from "@everything-rings/dsp";
+import {
+  extractImpactRingdown,
+  type AcousticFingerprintV1,
+  type AcousticMode,
+} from "@everything-rings/dsp";
 
 export const RINGDOWN_VISIBLE_ENVELOPE_FRACTION = 0.1;
-export const CAPTURE_AUDITION_LEAD_SECONDS = 0.025;
 
 export interface RingdownSnapshot {
   readonly elapsedSeconds: number;
@@ -69,22 +72,12 @@ export function summarizeRingdownAtTime(
   };
 }
 
-export function captureAuditionSamples(
-  capture: AudioCapture,
-  leadSeconds: number = CAPTURE_AUDITION_LEAD_SECONDS,
-): Float32Array {
-  if (!(leadSeconds >= 0) || !Number.isFinite(leadSeconds)) {
-    throw new RangeError("leadSeconds must be finite and non-negative");
-  }
-  if (!(capture.sampleRate > 0) || !Number.isFinite(capture.sampleRate)) {
-    throw new RangeError("capture sampleRate must be finite and positive");
-  }
-  if (!Number.isInteger(capture.triggerSample) || capture.triggerSample < 0 || capture.triggerSample > capture.samples.length) {
-    throw new RangeError("capture triggerSample is outside the sample buffer");
-  }
-  const leadSamples = Math.round(leadSeconds * capture.sampleRate);
-  const startSample = Math.max(0, capture.triggerSample - leadSamples);
-  return capture.samples.slice(startSample);
+export function captureRingdownAuditionSamples(capture: AudioCapture): Float32Array {
+  return extractImpactRingdown(
+    capture.samples,
+    capture.sampleRate,
+    capture.triggerSample,
+  ).samples;
 }
 
 export function peakMatchSamples(samples: Float32Array, outputPeak: number): Float32Array {
