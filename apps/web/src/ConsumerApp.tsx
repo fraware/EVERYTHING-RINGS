@@ -1,8 +1,9 @@
-import { renderAcousticFingerprint } from "@everything-rings/synth";
+import { DEFAULT_MODAL_RENDER_CONFIG, renderAcousticFingerprint } from "@everything-rings/synth";
 import { createAcousticCardSvg, fingerprintSignature } from "@everything-rings/visual";
 import { useState } from "react";
 import { failureCopy } from "./failureCopy";
 import { ResonanceMicroscope } from "./ResonanceMicroscope";
+import { captureRingdownAuditionSamples, peakMatchSamples } from "./ringdownPresentation";
 import { useStrikeSession } from "./useStrikeSession";
 
 const PLAY_NOTES = [
@@ -38,6 +39,16 @@ export function ConsumerApp() {
       return;
     }
     session.reset();
+  }
+
+  function hearCapture(): void {
+    const capture = session.capture;
+    if (capture === undefined) return;
+    const audition = peakMatchSamples(
+      captureRingdownAuditionSamples(capture),
+      DEFAULT_MODAL_RENDER_CONFIG.outputPeak,
+    );
+    session.play(audition, capture.sampleRate);
   }
 
   function hearModel(): void {
@@ -109,9 +120,9 @@ export function ConsumerApp() {
 
   return <main className="consumer-shell consumer-reveal">
     <p className="consumer-mark">EVERYTHING RINGS</p>
-    <section className="reveal-copy"><p className="consumer-kicker">REVEAL</p><h1>You found {fingerprint.modes.length} resonances.</h1><p>Now open the object up and hear what each measured ring contributes.</p></section>
-    <ResonanceMicroscope fingerprint={fingerprint} onHearMode={hearMode} onHearAll={hearModel} />
-    <div className="consumer-actions"><button className="consumer-primary" onClick={hearModel}>HEAR FULL OBJECT</button><button className="consumer-primary" disabled={!session.instrumentReady} onClick={() => setShowKeyboard((value) => !value)}>{playLabel}</button><button className="consumer-ghost" onClick={shareAcousticCard}>SHARE DNA</button><button className="consumer-ghost" onClick={strikeAgain}>STRIKE ANOTHER</button></div>
+    <section className="reveal-copy"><p className="consumer-kicker">REVEAL</p><h1>You found {fingerprint.modes.length} resonances.</h1><p>Compare the analyzed microphone ringdown with its reconstruction, then move through time and hear what each measured mode contributes.</p></section>
+    <ResonanceMicroscope fingerprint={fingerprint} onHearMode={hearMode} onHearAll={hearModel} onHearCapture={hearCapture} />
+    <div className="consumer-actions"><button className="consumer-primary" disabled={!session.instrumentReady} onClick={() => setShowKeyboard((value) => !value)}>{playLabel}</button><button className="consumer-ghost" onClick={shareAcousticCard}>SHARE DNA</button><button className="consumer-ghost" onClick={strikeAgain}>STRIKE ANOTHER</button></div>
     {showKeyboard && session.instrumentReady ? <section className="consumer-instrument"><p className="consumer-kicker">PLAY</p><div className="consumer-keyboard">{PLAY_NOTES.map((note, index) => <button key={`${note.midi}-${index}`} onPointerDown={() => session.noteOn(note.midi)}>{note.label}</button>)}</div></section> : null}
     <a className="lab-link" href="?lab=1">open measurements</a>
   </main>;

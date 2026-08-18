@@ -1,16 +1,14 @@
 .dna-view-interactive .dna-ring-interactive {
   cursor: pointer;
-  transition: opacity 140ms ease, stroke-width 140ms ease, filter 140ms ease;
+  transition: opacity 90ms linear, stroke-width 90ms linear, filter 140ms ease;
 }
 .dna-view-interactive .dna-ring-interactive:hover,
 .dna-view-interactive .dna-ring-interactive:focus-visible {
-  opacity: 1;
   outline: none;
   filter: drop-shadow(0 0 3px rgba(240, 240, 233, .45));
 }
 .dna-view-interactive .dna-ring-selected {
-  opacity: 1;
-  filter: drop-shadow(0 0 5px rgba(240, 240, 233, .5));
+  filter: drop-shadow(0 0 6px rgba(240, 240, 233, .68));
 }
 
 .resonance-microscope {
@@ -39,6 +37,100 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: .08em;
 }
+
+.listening-compare {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto 34px minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin: 24px 0 10px;
+  padding: 18px;
+  border: 1px solid #292925;
+}
+.listening-source {
+  display: grid;
+  gap: 5px;
+}
+.listening-source > span {
+  color: #686862;
+  font-size: 9px;
+  letter-spacing: .14em;
+}
+.listening-source strong {
+  font-size: 14px;
+  font-weight: 470;
+}
+.listening-source p {
+  margin: 0;
+  color: #686862;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.listening-compare button {
+  min-width: 150px;
+}
+.listening-divider {
+  color: #4f4f4a;
+  text-align: center;
+  font-size: 18px;
+}
+
+.ringdown-control {
+  margin-bottom: 12px;
+  padding: 18px 20px 16px;
+  border: 1px solid #242421;
+}
+.ringdown-control-head,
+.ringdown-scale {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.ringdown-control-head span,
+.ringdown-scale span {
+  color: #62625d;
+  font-size: 8px;
+  letter-spacing: .13em;
+}
+.ringdown-control-head strong {
+  font-size: 25px;
+  font-weight: 440;
+  font-variant-numeric: tabular-nums;
+}
+.ringdown-slider {
+  width: 100%;
+  margin: 19px 0 9px;
+  padding: 0;
+  border: 0;
+  accent-color: #f0f0e9;
+  background: transparent;
+  cursor: ew-resize;
+}
+.ringdown-readout {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 16px;
+  background: #292925;
+  border: 1px solid #292925;
+}
+.ringdown-readout > div {
+  display: grid;
+  gap: 7px;
+  padding: 11px 12px;
+  background: #0b0b0b;
+}
+.ringdown-readout span {
+  color: #5f5f5a;
+  font-size: 8px;
+  letter-spacing: .1em;
+}
+.ringdown-readout strong {
+  font-size: 16px;
+  font-weight: 450;
+  font-variant-numeric: tabular-nums;
+}
+
 .microscope-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(300px, .8fr);
@@ -100,11 +192,17 @@
 }
 .mode-frequency {
   display: block;
-  margin: 28px 0 32px;
+  margin: 28px 0 8px;
   font-size: clamp(54px, 7vw, 92px);
   line-height: .9;
   font-weight: 430;
   letter-spacing: -.055em;
+  font-variant-numeric: tabular-nums;
+}
+.mode-envelope-now {
+  margin: 0 0 28px;
+  color: #777771;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 .mode-primary-metrics {
@@ -190,22 +288,29 @@
   color: #595955;
 }
 .microscope-note {
-  max-width: 760px;
+  max-width: 820px;
   margin: 18px 0 0;
   color: #62625d;
   font-size: 10px;
   line-height: 1.55;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
+  .listening-compare {
+    grid-template-columns: 1fr auto;
+  }
+  .listening-divider { display: none; }
   .microscope-grid { grid-template-columns: 1fr; }
   .mode-inspector { min-height: 520px; }
 }
 
 @media (max-width: 760px) {
   .microscope-heading { align-items: flex-start; flex-direction: column; }
+  .listening-compare { grid-template-columns: 1fr; }
+  .listening-compare button { width: 100%; min-width: 0; }
+  .ringdown-readout { grid-template-columns: 1fr; }
   .mode-inspector { min-height: 0; padding: 20px; }
-  .mode-frequency { margin: 24px 0; font-size: clamp(48px, 16vw, 74px); }
+  .mode-frequency { margin-top: 24px; font-size: clamp(48px, 16vw, 74px); }
   .mode-primary-metrics { grid-template-columns: 1fr 1fr 1fr; }
   .mode-audition-actions { flex-direction: column; }
   .mode-audition-actions button { width: 100%; }

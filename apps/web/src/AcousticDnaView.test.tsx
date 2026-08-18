@@ -3,11 +3,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { AcousticDnaView } from "./AcousticDnaView";
 
-function mode(frequencyHz: number, amplitude: number): AcousticMode {
+function mode(frequencyHz: number, amplitude: number, decaySeconds = 0.7): AcousticMode {
   return {
     frequencyHz,
     relativeAmplitude: amplitude,
-    decaySeconds: 0.7,
+    decaySeconds,
     q: 200,
     confidence: 0.9,
     diagnostics: {
@@ -46,5 +46,21 @@ describe("interactive Acoustic DNA", () => {
 
     const selected = markup.slice(middle, high);
     expect(selected).toContain('aria-pressed="true"');
+  });
+
+  it("encodes fitted ringdown envelope state without removing faded modes from navigation", () => {
+    const fingerprint: AcousticFingerprintV1 = {
+      ...FINGERPRINT,
+      modes: [mode(440, 1, 1), mode(880, 0.5, 2)],
+    };
+    const markup = renderToStaticMarkup(
+      <AcousticDnaView fingerprint={fingerprint} elapsedSeconds={1} onSelectMode={() => undefined} />,
+    );
+
+    expect(markup).toContain('data-envelope-fraction="0.368"');
+    expect(markup).toContain('data-envelope-fraction="0.607"');
+    expect(markup).toContain("37 percent fitted envelope at 1.00 seconds");
+    expect(markup).toContain("61 percent fitted envelope at 1.00 seconds");
+    expect(markup.match(/role="button"/g)).toHaveLength(2);
   });
 });
