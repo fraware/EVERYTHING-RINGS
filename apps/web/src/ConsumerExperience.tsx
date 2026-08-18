@@ -64,8 +64,8 @@ export function ConsumerFailure({
 export interface ConsumerRevealProps {
   readonly fingerprint: AcousticFingerprintV1;
   readonly instrumentReady: boolean;
-  readonly instrumentFailure?: string;
-  readonly playbackFailure?: string;
+  readonly instrumentFailure?: string | undefined;
+  readonly playbackFailure?: string | undefined;
   readonly onHearMode: (modeIndex: number) => void;
   readonly onHearModel: () => void;
   readonly onHearCapture: () => void;
