@@ -101,16 +101,39 @@ async function browserTarget() {
 const target = await browserTarget();
 const socket = new WebSocket(target.webSocketDebuggerUrl);
 const pending = new Map();
+const diagnostics = [];
 let nextId = 1;
+let targetCrashed = false;
+
+function diagnosticText(value) {
+  if (typeof value === "string") return value;
+  try { return JSON.stringify(value); } catch { return String(value); }
+}
 
 socket.addEventListener("message", (event) => {
   const message = JSON.parse(String(event.data));
-  if (typeof message.id !== "number") return;
-  const handler = pending.get(message.id);
-  if (!handler) return;
-  pending.delete(message.id);
-  if (message.error) handler.reject(new Error(message.error.message));
-  else handler.resolve(message.result);
+  if (typeof message.id === "number") {
+    const handler = pending.get(message.id);
+    if (!handler) return;
+    pending.delete(message.id);
+    if (message.error) handler.reject(new Error(message.error.message));
+    else handler.resolve(message.result);
+    return;
+  }
+  if (message.method === "Inspector.targetCrashed") {
+    targetCrashed = true;
+    diagnostics.push("renderer target crashed");
+  }
+  if (message.method === "Runtime.exceptionThrown") {
+    diagnostics.push(`exception: ${message.params?.exceptionDetails?.exception?.description ?? message.params?.exceptionDetails?.text ?? "unknown"}`);
+  }
+  if (message.method === "Runtime.consoleAPICalled") {
+    const values = (message.params?.args ?? []).map((arg) => arg.value ?? arg.description).map(diagnosticText);
+    diagnostics.push(`console ${message.params?.type ?? "log"}: ${values.join(" ")}`);
+  }
+  if (message.method === "Log.entryAdded" && message.params?.entry?.level === "error") {
+    diagnostics.push(`browser log: ${message.params.entry.text}`);
+  }
 });
 
 await new Promise((resolve, reject) => {
@@ -127,14 +150,33 @@ function command(method, params = {}) {
 }
 
 async function evaluate(expression, userGesture = false) {
+  if (targetCrashed) throw new Error(`Browser renderer crashed. ${diagnostics.join(" | ")}`);
   const result = await command("Runtime.evaluate", {
     expression,
     returnByValue: true,
     awaitPromise: true,
     userGesture,
   });
-  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text || "Browser evaluation failed");
+  if (result.exceptionDetails) {
+    const description = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text ?? "Browser evaluation failed";
+    throw new Error(description);
+  }
   return result.result?.value;
+}
+
+async function pageSnapshot() {
+  try {
+    return await evaluate(`(() => ({
+      href: location.href,
+      readyState: document.readyState,
+      visibility: document.visibilityState,
+      text: document.body?.innerText ?? null,
+      html: document.body?.innerHTML?.slice(0, 1200) ?? null,
+      buttons: Array.from(document.querySelectorAll("button")).map((button) => ({ text: button.textContent?.trim(), disabled: button.disabled })),
+    }))()`);
+  } catch (error) {
+    return { snapshotError: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 async function waitFor(expression, label, timeoutMs = 18_000) {
@@ -143,18 +185,21 @@ async function waitFor(expression, label, timeoutMs = 18_000) {
     if (await evaluate(expression)) return;
     const failed = await evaluate(`document.body?.innerText.includes("TRY THAT AGAIN") ?? false`);
     if (failed) {
-      const text = await evaluate("document.body?.innerText ?? ''");
-      throw new Error(`Consumer flow entered failure state while waiting for ${label}: ${text}`);
+      throw new Error(`Consumer flow entered failure state while waiting for ${label}. ${JSON.stringify(await pageSnapshot())}`);
     }
     await sleep(150);
   }
-  const text = await evaluate("document.body?.innerText ?? ''");
-  throw new Error(`Timed out waiting for ${label}. Current page: ${text}`);
+  const snapshot = await pageSnapshot();
+  const diagnosticTail = diagnostics.slice(-12).join(" | ");
+  const stderrTail = stderr.slice(-2000);
+  throw new Error(`Timed out waiting for ${label}. Snapshot: ${JSON.stringify(snapshot)}. Diagnostics: ${diagnosticTail}. Browser stderr: ${stderrTail}`);
 }
 
 try {
   await command("Runtime.enable");
   await command("Page.enable");
+  await command("Log.enable");
+  await command("Inspector.enable");
   await command("Emulation.setDeviceMetricsOverride", {
     width: 390,
     height: 844,
@@ -187,13 +232,18 @@ try {
   if (layout.overflow > 1) throw new Error(`Mobile reveal has ${layout.overflow}px horizontal overflow`);
   if (layout.undersized.length > 0) throw new Error(`Undersized touch targets: ${layout.undersized.join(", ")}`);
 
+  await waitFor(`Array.from(document.querySelectorAll("button")).some((button) => button.textContent?.includes("PLAY IT") || button.textContent?.includes("PLAY UNAVAILABLE"))`, "realtime instrument outcome", 8_000);
+  const playUnavailable = await evaluate(`Array.from(document.querySelectorAll("button")).some((button) => button.textContent?.includes("PLAY UNAVAILABLE"))`);
+  if (playUnavailable) {
+    throw new Error(`Realtime instrument failed to initialize. ${JSON.stringify(await pageSnapshot())}. Diagnostics: ${diagnostics.slice(-12).join(" | ")}`);
+  }
+
   await evaluate(`Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("HEAR CAPTURE"))?.click()`, true);
   await evaluate(`Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("WATCH + HEAR MODEL"))?.click()`, true);
   await sleep(250);
   const playbackError = await evaluate(`document.querySelector(".consumer-playback-error")?.textContent ?? ""`);
   if (playbackError) throw new Error(`Playback recovery failed during capture/model comparison: ${playbackError}`);
 
-  await waitFor(`Array.from(document.querySelectorAll("button")).some((button) => button.textContent?.includes("PLAY IT"))`, "playable instrument readiness", 8_000);
   await evaluate(`Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("PLAY IT"))?.click()`, true);
   await waitFor(`document.querySelectorAll("#consumer-playable-keys button").length === 13`, "playable keyboard", 3_000);
   await evaluate(`document.querySelector("#consumer-playable-keys button")?.click()`, true);
