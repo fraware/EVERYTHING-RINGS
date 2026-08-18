@@ -165,6 +165,20 @@ async function layoutAudit() {
   })()`);
 }
 
+async function interceptMicrophoneCounter(counterName) {
+  return evaluate(`(() => {
+    const mediaDevices = navigator.mediaDevices;
+    if (!mediaDevices || typeof mediaDevices.getUserMedia !== "function") return false;
+    const original = mediaDevices.getUserMedia.bind(mediaDevices);
+    window[${JSON.stringify(counterName)}] = 0;
+    mediaDevices.getUserMedia = (...args) => {
+      window[${JSON.stringify(counterName)}] += 1;
+      return original(...args);
+    };
+    return true;
+  })()`);
+}
+
 function completedDownloads() {
   return readdirSync(downloadDir).filter((name) => !name.endsWith(".crdownload"));
 }
@@ -232,17 +246,7 @@ try {
     throw new Error(`History did not survive reload: ${JSON.stringify(reloaded)}`);
   }
 
-  const microphoneInterception = await evaluate(`(() => {
-    const mediaDevices = navigator.mediaDevices;
-    if (!mediaDevices || typeof mediaDevices.getUserMedia !== "function") return false;
-    const original = mediaDevices.getUserMedia.bind(mediaDevices);
-    window.__everythingRingsSavedCaptureMicCalls = 0;
-    mediaDevices.getUserMedia = (...args) => {
-      window.__everythingRingsSavedCaptureMicCalls += 1;
-      return original(...args);
-    };
-    return true;
-  })()`);
+  const microphoneInterception = await interceptMicrophoneCounter("__everythingRingsSavedCaptureMicCalls");
   if (!microphoneInterception) throw new Error("Could not instrument microphone calls for saved-capture boundary test");
 
   await evaluate(`Array.from(document.querySelectorAll(".consumer-history-card button")).find((button) => button.textContent?.trim() === "OPEN")?.click()`, true);
@@ -280,6 +284,66 @@ try {
   const countAfterPlayer = await evaluate(`JSON.parse(localStorage.getItem(${JSON.stringify(HISTORY_KEY)}) ?? '{"records":[]}').records?.length ?? 0`);
   if (countAfterPlayer !== 1) throw new Error(`Saved player mutated history: ${countAfterPlayer}`);
 
+  const seededComparison = await evaluate(`(() => {
+    const raw = localStorage.getItem(${JSON.stringify(HISTORY_KEY)});
+    if (raw === null) return null;
+    const parsed = JSON.parse(raw);
+    const first = parsed.records?.[0];
+    if (!first) return null;
+    const secondCapturedAt = new Date(Date.parse(first.capturedAt) + 1000).toISOString();
+    const second = {
+      ...first,
+      id: secondCapturedAt + "-" + first.signature,
+      capturedAt: secondCapturedAt,
+    };
+    parsed.records = [first, second];
+    localStorage.setItem(${JSON.stringify(HISTORY_KEY)}, JSON.stringify(parsed));
+    return {
+      count: parsed.records.length,
+      distinctIds: first.id !== second.id,
+      equalSignatures: first.signature === second.signature,
+    };
+  })()`);
+  if (seededComparison?.count !== 2 || !seededComparison.distinctIds || !seededComparison.equalSignatures) {
+    throw new Error(`Could not seed distinct equal-signature observations: ${JSON.stringify(seededComparison)}`);
+  }
+
+  await command("Page.reload", { ignoreCache: true });
+  await waitFor(`document.querySelectorAll(".consumer-history-card").length === 2`, "two-observation history", 8_000);
+  const comparisonMicrophoneInterception = await interceptMicrophoneCounter("__everythingRingsComparisonMicCalls");
+  if (!comparisonMicrophoneInterception) throw new Error("Could not instrument microphone calls for comparison boundary test");
+
+  await evaluate(`Array.from(document.querySelectorAll(".consumer-history-card"))[0]?.querySelectorAll("button") && Array.from(Array.from(document.querySelectorAll(".consumer-history-card"))[0].querySelectorAll("button")).find((button) => button.textContent?.trim() === "COMPARE")?.click()`, true);
+  await waitFor(`document.body?.innerText.includes("Choose a second saved capture for Resonance Diff") ?? false`, "comparison anchor", 3_000);
+  await evaluate(`Array.from(Array.from(document.querySelectorAll(".consumer-history-card"))[1]?.querySelectorAll("button") ?? []).find((button) => button.textContent?.trim() === "COMPARE WITH")?.click()`, true);
+  await waitFor(`document.body?.innerText.includes("RESONANCE DIFF") ?? false`, "resonance diff", 5_000);
+
+  const comparisonText = await evaluate("document.body.innerText");
+  if (!comparisonText.includes("No identity verdict")) throw new Error("Comparison identity boundary is missing");
+  if (!comparisonText.includes("Threshold-free and one-to-one")) throw new Error("Comparison pairing contract is missing");
+  if (!comparisonText.includes("MUTUAL-NEAREST FREQUENCIES")) throw new Error("Comparison frequency-pair view is missing");
+  if (comparisonText.toLowerCase().includes("similarity score")) throw new Error("Comparison exposed a scalar similarity score");
+
+  const comparisonLayout = await layoutAudit();
+  if (comparisonLayout.overflow > 1) throw new Error(`Comparison view has ${comparisonLayout.overflow}px horizontal overflow`);
+  if (comparisonLayout.undersized.length > 0) throw new Error(`Comparison view has undersized controls: ${comparisonLayout.undersized.join(", ")}`);
+
+  await evaluate(`Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.trim() === "HEAR A MODEL")?.click()`, true);
+  await sleep(250);
+  let comparisonPlaybackError = await evaluate(`document.querySelector(".consumer-playback-error")?.textContent ?? ""`);
+  if (comparisonPlaybackError) throw new Error(`Capture A comparison playback failed: ${comparisonPlaybackError}`);
+  await evaluate(`Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.trim() === "HEAR B MODEL")?.click()`, true);
+  await sleep(250);
+  comparisonPlaybackError = await evaluate(`document.querySelector(".consumer-playback-error")?.textContent ?? ""`);
+  if (comparisonPlaybackError) throw new Error(`Capture B comparison playback failed: ${comparisonPlaybackError}`);
+  const comparisonMicCalls = await evaluate(`window.__everythingRingsComparisonMicCalls ?? -1`);
+  if (comparisonMicCalls !== 0) throw new Error(`Capture comparison requested microphone access ${comparisonMicCalls} time(s)`);
+
+  await evaluate(`Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.trim() === "BACK TO HISTORY")?.click()`, true);
+  await waitFor(`document.querySelectorAll(".consumer-history-card").length === 2`, "history after comparison", 5_000);
+  const countAfterComparison = await evaluate(`JSON.parse(localStorage.getItem(${JSON.stringify(HISTORY_KEY)}) ?? '{"records":[]}').records?.length ?? 0`);
+  if (countAfterComparison !== 2) throw new Error(`Comparison mutated history: ${countAfterComparison}`);
+
   await evaluate(`Array.from(document.querySelectorAll(".consumer-history-card button")).find((button) => button.textContent?.includes("SHARE DNA"))?.click()`, true);
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (completedDownloads().some((name) => name.endsWith(".svg"))) break;
@@ -290,16 +354,18 @@ try {
   }
 
   await evaluate(`Array.from(document.querySelectorAll(".consumer-history-card button")).find((button) => button.textContent?.includes("REMOVE"))?.click()`, true);
-  await waitFor(`!document.body?.innerText.includes("RECENT DISCOVERIES")`, "history removal", 3_000);
+  await waitFor(`JSON.parse(localStorage.getItem(${JSON.stringify(HISTORY_KEY)}) ?? '{"records":[]}').records?.length === 1`, "first history removal", 3_000);
+  await evaluate(`Array.from(document.querySelectorAll(".consumer-history-card button")).find((button) => button.textContent?.includes("REMOVE"))?.click()`, true);
+  await waitFor(`!document.body?.innerText.includes("RECENT DISCOVERIES")`, "second history removal", 3_000);
   const removed = await evaluate(`JSON.parse(localStorage.getItem(${JSON.stringify(HISTORY_KEY)}) ?? '{"records":[]}').records?.length ?? 0`);
-  if (removed !== 0) throw new Error(`Removed capture remains in storage: ${removed}`);
+  if (removed !== 0) throw new Error(`Removed captures remain in storage: ${removed}`);
 
   await command("Page.reload", { ignoreCache: true });
   await waitFor(`document.body?.innerText.includes("START LISTENING") ?? false`, "landing after removal", 8_000);
   const historyReturned = await evaluate(`document.body?.innerText.includes("RECENT DISCOVERIES") ?? false`);
-  if (historyReturned) throw new Error("Removed capture returned after reload");
+  if (historyReturned) throw new Error("Removed captures returned after reload");
 
-  console.log("Consumer history E2E passed: strike → fingerprint-only storage → reload → open saved model → hear → play → back → share → remove on 390×844 viewport.");
+  console.log("Consumer history E2E passed: strike → fingerprint-only storage → reload → saved player → distinct equal-signature observations → Resonance Diff A/B → zero microphone reacquisition → share → remove on 390×844 viewport.");
 } finally {
   try { socket.close(); } catch { /* already closed */ }
   chrome.kill("SIGTERM");

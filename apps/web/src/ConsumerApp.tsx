@@ -2,6 +2,7 @@ import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
 import { DEFAULT_MODAL_RENDER_CONFIG, renderAcousticFingerprint } from "@everything-rings/synth";
 import { createAcousticCardSvg, createAcousticStoryHtml, fingerprintSignature } from "@everything-rings/visual";
 import { useEffect, useRef, useState } from "react";
+import { CaptureComparisonView } from "./CaptureComparisonView";
 import {
   ConsumerFailure,
   ConsumerLanding,
@@ -78,6 +79,8 @@ export function ConsumerApp() {
   const historyRef = useRef(history);
   const [historyStatus, setHistoryStatus] = useState<string>();
   const [openedCaptureId, setOpenedCaptureId] = useState<string>();
+  const [compareAnchorId, setCompareAnchorId] = useState<string>();
+  const [comparisonPairIds, setComparisonPairIds] = useState<readonly [string, string]>();
   const savedFingerprint = useRef<AcousticFingerprintV1 | undefined>(undefined);
 
   function replaceHistory(next: readonly ConsumerCaptureRecord[]): void {
@@ -110,6 +113,13 @@ export function ConsumerApp() {
       return;
     }
     session.reset();
+  }
+
+  function startListening(): void {
+    setOpenedCaptureId(undefined);
+    setCompareAnchorId(undefined);
+    setComparisonPairIds(undefined);
+    void session.start();
   }
 
   function hearCapture(): void {
@@ -160,22 +170,61 @@ export function ConsumerApp() {
     );
   }
 
+  function openHistoryRecord(record: ConsumerCaptureRecord): void {
+    setCompareAnchorId(undefined);
+    setComparisonPairIds(undefined);
+    setOpenedCaptureId(record.id);
+  }
+
+  function compareHistoryRecord(record: ConsumerCaptureRecord): void {
+    if (compareAnchorId === undefined) {
+      setOpenedCaptureId(undefined);
+      setCompareAnchorId(record.id);
+      setHistoryStatus("Choose a second saved capture for Resonance Diff.");
+      return;
+    }
+    if (compareAnchorId === record.id) {
+      setCompareAnchorId(undefined);
+      setHistoryStatus(undefined);
+      return;
+    }
+    setOpenedCaptureId(undefined);
+    setComparisonPairIds([compareAnchorId, record.id]);
+    setCompareAnchorId(undefined);
+    setHistoryStatus(undefined);
+  }
+
   function removeHistoryRecord(id: string): void {
     const next = removeConsumerCapture(historyRef.current, id);
     replaceHistory(next);
     if (openedCaptureId === id) setOpenedCaptureId(undefined);
+    if (compareAnchorId === id) setCompareAnchorId(undefined);
+    if (comparisonPairIds?.includes(id) === true) setComparisonPairIds(undefined);
     const persisted = persistConsumerHistory(browserHistoryStorage(), next);
     setHistoryStatus(persisted ? "Capture removed from this device." : "Local browser storage could not be updated.");
   }
 
   function clearHistory(): void {
     setOpenedCaptureId(undefined);
+    setCompareAnchorId(undefined);
+    setComparisonPairIds(undefined);
     replaceHistory([]);
     const cleared = clearConsumerHistory(browserHistoryStorage());
     setHistoryStatus(cleared ? "Local capture history cleared." : "Local browser storage could not be cleared.");
   }
 
   if (session.state === "idle") {
+    if (comparisonPairIds !== undefined) {
+      const left = history.find((record) => record.id === comparisonPairIds[0]);
+      const right = history.find((record) => record.id === comparisonPairIds[1]);
+      if (left !== undefined && right !== undefined && left.id !== right.id) {
+        return <CaptureComparisonView
+          left={left}
+          right={right}
+          onBack={() => setComparisonPairIds(undefined)}
+        />;
+      }
+    }
     const openedCapture = openedCaptureId === undefined
       ? undefined
       : history.find((record) => record.id === openedCaptureId);
@@ -187,10 +236,12 @@ export function ConsumerApp() {
       />;
     }
     return <ConsumerLanding
-      onStart={() => void session.start()}
+      onStart={startListening}
       recentCaptures={history}
       historyStatus={historyStatus}
-      onOpenCapture={(record) => setOpenedCaptureId(record.id)}
+      compareAnchorId={compareAnchorId}
+      onOpenCapture={openHistoryRecord}
+      onCompareCapture={history.length >= 2 ? compareHistoryRecord : undefined}
       onShareCapture={(record) => shareAcousticCard(record.fingerprint)}
       onRemoveCapture={removeHistoryRecord}
       onClearCaptures={clearHistory}
