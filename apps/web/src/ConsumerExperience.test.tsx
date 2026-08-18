@@ -47,7 +47,7 @@ describe("consumer experience contract", () => {
     expect(failure).toContain("TRY AGAIN");
   });
 
-  it("keeps the reveal understandable and keyboard controls semantically exposed", () => {
+  it("keeps the reveal understandable and exposes the low-friction share action", () => {
     const html = renderToStaticMarkup(<ConsumerReveal
       fingerprint={FINGERPRINT}
       instrumentReady
@@ -55,11 +55,13 @@ describe("consumer experience contract", () => {
       onHearModel={vi.fn()}
       onHearCapture={vi.fn()}
       onNote={vi.fn()}
+      onShareLink={vi.fn()}
       onShareStory={vi.fn()}
       onShareDna={vi.fn()}
       onStrikeAnother={vi.fn()}
     />);
     expect(html).toContain("You found 2 resonances");
+    expect(html).toContain("SHARE LINK");
     expect(html).toContain("SHARE STORY");
     expect(html).toContain("SHARE DNA");
     expect(html).toContain('aria-expanded="false"');
@@ -75,6 +77,7 @@ describe("consumer experience contract", () => {
       onHearModel={vi.fn()}
       onHearCapture={vi.fn()}
       onNote={vi.fn()}
+      onShareLink={vi.fn()}
       onShareStory={vi.fn()}
       onShareDna={vi.fn()}
       onStrikeAnother={vi.fn()}

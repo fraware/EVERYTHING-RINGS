@@ -35,9 +35,14 @@ const RECORD: ConsumerCaptureRecord = {
 };
 
 describe("saved capture view", () => {
-  it("makes the fingerprint-only truth boundary and provenance explicit", () => {
+  it("makes the fingerprint-only truth boundary, provenance, and share link explicit", () => {
     const html = renderToStaticMarkup(
-      <SavedCaptureView record={RECORD} onBack={vi.fn()} onShareDna={vi.fn()} />,
+      <SavedCaptureView
+        record={RECORD}
+        onBack={vi.fn()}
+        onShareLink={vi.fn()}
+        onShareDna={vi.fn()}
+      />,
     );
 
     expect(html).toContain("SAVED CAPTURE");
@@ -50,6 +55,7 @@ describe("saved capture view", () => {
     expect(html).toContain("CAPTURE NOT STORED");
     expect(html).toContain("Measured-mode reconstruction");
     expect(html).toContain("Chromatic saved fingerprint keys");
+    expect(html).toContain("SHARE LINK");
     expect(html).toContain("SHARE DNA");
     expect(html).toContain("BACK TO HISTORY");
   });

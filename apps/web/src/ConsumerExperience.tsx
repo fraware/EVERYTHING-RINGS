@@ -25,6 +25,7 @@ export function ConsumerLanding({
   compareAnchorId,
   onOpenCapture,
   onCompareCapture,
+  onShareCaptureLink,
   onShareCapture,
   onRemoveCapture,
   onClearCaptures,
@@ -35,6 +36,7 @@ export function ConsumerLanding({
   readonly compareAnchorId?: string | undefined;
   readonly onOpenCapture?: ((record: ConsumerCaptureRecord) => void) | undefined;
   readonly onCompareCapture?: ((record: ConsumerCaptureRecord) => void) | undefined;
+  readonly onShareCaptureLink?: ((record: ConsumerCaptureRecord) => void) | undefined;
   readonly onShareCapture?: ((record: ConsumerCaptureRecord) => void) | undefined;
   readonly onRemoveCapture?: ((id: string) => void) | undefined;
   readonly onClearCaptures?: (() => void) | undefined;
@@ -72,6 +74,7 @@ export function ConsumerLanding({
             <code>{record.signature}</code>
             <div className="consumer-history-actions">
               {onOpenCapture !== undefined ? <button className="consumer-primary" onClick={() => onOpenCapture(record)}>OPEN</button> : null}
+              {onShareCaptureLink !== undefined ? <button className="consumer-ghost" onClick={() => onShareCaptureLink(record)}>SHARE LINK</button> : null}
               {comparisonAvailable ? <button
                 className="consumer-ghost"
                 aria-pressed={isCompareAnchor}
@@ -136,6 +139,7 @@ export interface ConsumerRevealProps {
   readonly onHearModel: () => void;
   readonly onHearCapture: () => void;
   readonly onNote: (midiNote: number) => void;
+  readonly onShareLink: () => void;
   readonly onShareStory: () => void;
   readonly onShareDna: () => void;
   readonly onStrikeAnother: () => void;
@@ -151,6 +155,7 @@ export function ConsumerReveal({
   onHearModel,
   onHearCapture,
   onNote,
+  onShareLink,
   onShareStory,
   onShareDna,
   onStrikeAnother,
@@ -165,7 +170,7 @@ export function ConsumerReveal({
     <section className="reveal-copy">
       <p className="consumer-kicker">REVEAL</p>
       <h1>You found {fingerprint.modes.length} resonances.</h1>
-      <p>Hear the analyzed ringdown, compare its measured-mode reconstruction, inspect each resonance, then play the object as an instrument.</p>
+      <p>Hear the analyzed ringdown, compare its measured-mode reconstruction, inspect each resonance, then play or share what you found.</p>
     </section>
     {playbackFailure !== undefined ? <p className="consumer-playback-error" role="alert">{playbackFailure}</p> : null}
     {historyStatus !== undefined ? <p className="consumer-history-status" role="status">{historyStatus}</p> : null}
@@ -183,6 +188,7 @@ export function ConsumerReveal({
         aria-controls="consumer-playable-keys"
         onClick={() => setShowKeyboard((value) => !value)}
       >{playLabel}</button>
+      <button className="consumer-share" onClick={onShareLink}>SHARE LINK</button>
       <button className="consumer-ghost" onClick={onShareStory}>SHARE STORY</button>
       <button className="consumer-ghost" onClick={onShareDna}>SHARE DNA</button>
       <button className="consumer-ghost" onClick={onStrikeAnother}>STRIKE ANOTHER</button>
