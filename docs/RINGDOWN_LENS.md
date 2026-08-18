@@ -1,6 +1,6 @@
 # Ringdown Lens
 
-The Ringdown Lens makes the fitted temporal behavior already present in `AcousticFingerprintV1` visible in the consumer reveal. It also places the retained microphone transient beside the modal reconstruction for direct local listening.
+The Ringdown Lens makes the fitted temporal behavior already present in `AcousticFingerprintV1` visible in the consumer reveal. It also places the analyzed microphone ringdown beside the modal reconstruction for direct local listening.
 
 ## Temporal model
 
@@ -16,7 +16,7 @@ The **≥ 10% ENVELOPE** count is an explicit presentation threshold. Falling be
 
 The consumer surface may audition two separate local signals:
 
-- **CAPTURE** starts with a short bounded lead-in before the detected trigger and applies gain-only peak matching to the modal renderer's fixed output peak. The waveform shape and timing are otherwise the retained microphone transient.
+- **CAPTURE** reuses `extractImpactRingdown`, the deterministic preprocessing path used by analysis, so the audition starts at the same refined-onset-plus-analysis-delay boundary as the measured signal. Gain-only peak matching then brings that isolated microphone ringdown to the modal renderer's fixed output peak.
 - **MODEL** synthesizes the estimated modes from the fingerprint. Recorded microphone audio is never mixed into this reconstruction.
 
 Peak matching removes a gross device/input-gain difference from the consumer comparison. It is not perceptual loudness matching and does not make the two signals physically calibrated.
