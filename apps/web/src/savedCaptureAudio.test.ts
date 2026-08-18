@@ -121,16 +121,23 @@ describe("SavedCaptureAudioController", () => {
 
   it("does not create a worklet node if disposal wins an in-flight module load", async () => {
     const fake = fakeDependencies();
-    let releaseModule: (() => void) | undefined;
-    fake.context.audioWorklet.addModule.mockImplementation(() => new Promise<void>((resolve) => {
-      releaseModule = resolve;
-    }));
+    let releaseModule!: () => void;
+    let markModuleStarted!: () => void;
+    const moduleStarted = new Promise<void>((resolve) => {
+      markModuleStarted = resolve;
+    });
+    fake.context.audioWorklet.addModule.mockImplementation(() => {
+      markModuleStarted();
+      return new Promise<void>((resolve) => {
+        releaseModule = resolve;
+      });
+    });
     const player = new SavedCaptureAudioController(FINGERPRINT, fake.dependencies);
 
     const note = player.noteOn(60);
-    await Promise.resolve();
+    await moduleStarted;
     player.dispose();
-    releaseModule?.();
+    releaseModule();
 
     await expect(note).resolves.toBe(false);
     expect(fake.dependencies.createInstrumentNode).not.toHaveBeenCalled();
