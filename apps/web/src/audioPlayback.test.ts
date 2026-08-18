@@ -56,10 +56,17 @@ describe("SamplePlaybackController", () => {
   it("lets the latest tap win when two plays wait on resume", async () => {
     const { context, raw, sources } = fakeContext("suspended");
     let releaseResume: (() => void) | undefined;
-    raw.resume.mockImplementation(() => new Promise<void>((resolve) => { releaseResume = () => { raw.state = "running"; resolve(); }; }));
+    const sharedResume = new Promise<void>((resolve) => {
+      releaseResume = () => {
+        raw.state = "running";
+        resolve();
+      };
+    });
+    raw.resume.mockImplementation(() => sharedResume);
     const playback = new SamplePlaybackController(context);
     const first = playback.play(Float32Array.from([0, 0.2]), 48_000);
     const second = playback.play(Float32Array.from([0, 0.3]), 48_000);
+    expect(raw.resume).toHaveBeenCalledTimes(2);
     releaseResume?.();
     await Promise.all([first, second]);
     expect(sources).toHaveLength(1);
