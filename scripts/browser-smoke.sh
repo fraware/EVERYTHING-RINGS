@@ -66,5 +66,6 @@ echo "Browser route smoke tests passed."
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/consumer-e2e.mjs
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/consumer-history-e2e.mjs
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/acoustic-capsule-e2e.mjs
+BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/session-lifecycle-e2e.mjs
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/permission-e2e.mjs
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/mobile-surfaces-e2e.mjs
