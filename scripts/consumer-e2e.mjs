@@ -77,6 +77,7 @@ const chrome = spawn(browser, [
   `--user-data-dir=${profileDir}`,
   `${baseUrl}/`,
 ], { stdio: ["ignore", "ignore", "pipe"] });
+const chromeExit = new Promise((resolve) => chrome.once("exit", resolve));
 
 let stderr = "";
 chrome.stderr.on("data", (chunk) => { stderr += String(chunk); });
@@ -195,6 +196,18 @@ async function waitFor(expression, label, timeoutMs = 18_000) {
   throw new Error(`Timed out waiting for ${label}. Snapshot: ${JSON.stringify(snapshot)}. Diagnostics: ${diagnosticTail}. Browser stderr: ${stderrTail}`);
 }
 
+async function terminateChrome(): Promise<void> {
+  if (chrome.exitCode !== null || chrome.signalCode !== null) return;
+  chrome.kill("SIGTERM");
+  const exitedGracefully = await Promise.race([
+    chromeExit.then(() => true),
+    sleep(2_000).then(() => false),
+  ]);
+  if (exitedGracefully) return;
+  chrome.kill("SIGKILL");
+  await Promise.race([chromeExit, sleep(1_000)]);
+}
+
 try {
   await command("Runtime.enable");
   await command("Page.enable");
@@ -268,7 +281,6 @@ try {
   console.log("Consumer E2E passed: microphone → reveal → compare → play → share → strike again on 390×844 viewport.");
 } finally {
   try { socket.close(); } catch { /* already closed */ }
-  chrome.kill("SIGTERM");
-  await sleep(100);
-  rmSync(workDir, { recursive: true, force: true });
+  await terminateChrome();
+  rmSync(workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
