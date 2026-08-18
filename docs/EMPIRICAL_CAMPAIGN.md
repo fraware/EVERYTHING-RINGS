@@ -17,6 +17,23 @@ A measurement pipeline can look artificially reliable if difficult objects are a
 
 A conforming session remains collected even when one or more of its qualified attempts fail analytically. Failed analytical attempts remain part of the campaign outcome and cannot be replaced by another physical specimen or an extra unplanned session.
 
+## Manifest-bound collection workflow
+
+The dedicated web route `?campaign=1` is the collection surface for a precommitted campaign. It is deliberately narrower than the general validation lab.
+
+1. Load the frozen `empirical-campaign-1` JSON manifest.
+2. Confirm that the manifest's exact 40-hex `authorizedSoftwareRevision` matches the running build. The collector will not arm a mismatch or an unstamped build.
+3. Select one specimen from the manifest. The collector loads its specimen ID, label, material, microphone distance, striker, strike location, and support condition directly from the manifest. There are no editable overrides in campaign mode.
+4. If `targetSessions` is greater than one, choose the precommitted session ordinal being collected.
+5. Arm the session and collect the same frozen five acquisition-quality-passing attempts used by Gate A2. Every qualified analytical success or failure occupies its slot.
+6. Export the evidence. Do not collect a sixth attempt after the five-attempt session closes.
+7. Close the planned session and move to the next manifest specimen or precommitted session ordinal.
+8. Import the campaign plus all exported evidence bundles into `?release=1` for campaign accounting and Gate A2/B/C evaluation.
+
+The campaign collector does not host Gate B or Gate C review. Those later perceptual workflows remain in the general validation lab so physical collection stays separated from downstream review.
+
+An internal session failure terminates the physical session. Export retained evidence. Restarting the same specimen creates another session, and campaign accounting will expose the additional or incomplete session instead of silently replacing the failure.
+
 ## Recommended first campaign
 
 The first serious physical characterization campaign should be larger than the five-specimen release minimum. A practical target is **12 physical specimens**, split into two predeclared cohorts.
@@ -59,7 +76,7 @@ Each planned specimen commits:
 - strike location;
 - support condition.
 
-The Release Console compares imported evidence against those values exactly. A changed setup remains visible as nonconforming evidence instead of being silently pooled with the planned session.
+The campaign collector loads those fields directly and does not expose editable overrides. The Release Console independently compares imported evidence against the same manifest values. A changed setup remains visible as nonconforming evidence instead of being silently pooled with the planned session.
 
 ## Software binding
 
@@ -73,7 +90,7 @@ The campaign report separately exposes:
 
 - conforming complete sessions;
 - Gate A2-passing sessions;
-- analytical failures retained inside conforming sessions;
+- analytical failures retained inside planned-specimen sessions;
 - material coverage;
 - missing, mismatched, overcollected, and unplanned specimens.
 

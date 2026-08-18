@@ -1,0 +1,106 @@
+.campaign-collection-shell header { max-width: 900px; }
+.campaign-collector-manifest,
+.campaign-collector-selection,
+.campaign-session-status {
+  margin-bottom: 20px;
+  padding: 24px;
+  border: 1px solid #292925;
+}
+.campaign-collector-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
+.file-button-disabled { opacity: .35; cursor: default; }
+.campaign-error { color: #c8aaa3; font-size: 12px; }
+.campaign-collector-meta,
+.campaign-setup-lock,
+.campaign-session-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 20px;
+  background: #292925;
+  border: 1px solid #292925;
+}
+.campaign-collector-meta > div,
+.campaign-setup-lock > div,
+.campaign-session-metrics > div {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  padding: 14px;
+  background: #0b0b0b;
+}
+.campaign-collector-meta span,
+.campaign-setup-lock span,
+.campaign-session-metrics span {
+  color: #62625d;
+  font-size: 9px;
+  letter-spacing: .1em;
+}
+.campaign-collector-meta strong,
+.campaign-setup-lock strong,
+.campaign-session-metrics strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 450;
+  font-variant-numeric: tabular-nums;
+}
+.campaign-collector-meta strong { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+.campaign-selection-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(160px, .7fr);
+  gap: 12px;
+  margin-top: 20px;
+}
+.campaign-selection-grid label {
+  display: grid;
+  gap: 7px;
+  color: #777771;
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.campaign-control-panel { margin-bottom: 18px; }
+.campaign-mode-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 1px;
+  margin-top: 18px;
+  background: #292925;
+  border: 1px solid #292925;
+}
+.campaign-mode-list > span {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  background: #0b0b0b;
+}
+.campaign-mode-list strong { font-size: 13px; font-weight: 450; }
+.campaign-mode-list small { color: #777771; font-size: 10px; }
+.campaign-result { margin-top: 34px; }
+.campaign-collector-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 18px;
+  margin-top: 42px;
+  padding-top: 18px;
+  border-top: 1px solid #292925;
+  color: #62625d;
+  font-size: 11px;
+}
+
+@media (max-width: 760px) {
+  .campaign-collector-manifest,
+  .campaign-collector-selection,
+  .campaign-session-status { padding: 18px; }
+  .campaign-collector-actions { flex-direction: column; align-items: stretch; }
+  .campaign-collector-actions > * { width: 100%; }
+  .campaign-collector-meta,
+  .campaign-setup-lock,
+  .campaign-session-metrics { grid-template-columns: 1fr 1fr; }
+  .campaign-selection-grid { grid-template-columns: 1fr; }
+  .campaign-collector-footer { justify-content: flex-start; }
+}
