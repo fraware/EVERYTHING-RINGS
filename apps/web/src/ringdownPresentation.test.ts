@@ -66,11 +66,9 @@ describe("ringdown presentation", () => {
   it("applies gain-only peak matching for a less confounded consumer A/B", () => {
     const source = Float32Array.from([-0.25, 0.5, -0.125]);
     const matched = peakMatchSamples(source, 0.9);
-    expect(Array.from(matched)).toEqual(expect.arrayContaining([
-      expect.closeTo(-0.45, 6),
-      expect.closeTo(0.9, 6),
-      expect.closeTo(-0.225, 6),
-    ]));
+    expect(matched[0]).toBeCloseTo(-0.45, 6);
+    expect(matched[1]).toBeCloseTo(0.9, 6);
+    expect(matched[2]).toBeCloseTo(-0.225, 6);
     expect(Array.from(source)).toEqual([-0.25, 0.5, -0.125]);
   });
 
