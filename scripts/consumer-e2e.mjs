@@ -196,7 +196,7 @@ async function waitFor(expression, label, timeoutMs = 18_000) {
   throw new Error(`Timed out waiting for ${label}. Snapshot: ${JSON.stringify(snapshot)}. Diagnostics: ${diagnosticTail}. Browser stderr: ${stderrTail}`);
 }
 
-async function terminateChrome(): Promise<void> {
+async function terminateChrome() {
   if (chrome.exitCode !== null || chrome.signalCode !== null) return;
   chrome.kill("SIGTERM");
   const exitedGracefully = await Promise.race([

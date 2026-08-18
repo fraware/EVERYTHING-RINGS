@@ -7,6 +7,10 @@ if [[ -z "$BROWSER" ]]; then
   exit 1
 fi
 
+for script in scripts/*-e2e.mjs; do
+  node --check "$script"
+done
+
 PORT="${PORT:-4173}"
 BASE_URL="http://127.0.0.1:${PORT}"
 
