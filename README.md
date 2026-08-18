@@ -12,7 +12,7 @@ The empirical release gates remain open until representative physical and percep
 
 Every physical validation object also receives a stable `specimenId`. That identity, not a display label, defines release distinctness and links repeated sessions of the same physical specimen. Relabeling an object cannot manufacture another release specimen. An analysis-worker crash or other true internal session error terminates the current validation session; subsequent capture uses a new session ID and retains the specimen ID when the same object is tested again.
 
-The general validation lab exports versioned fixed-setup evidence and hosts blinded reconstruction and device-playability review. The dedicated campaign collector consumes an `empirical-campaign-1` manifest and only arms planned specimens under their exact precommitted setup and authorized software revision. The Release Console then accounts for planned failures, missing specimens, extra sessions, substitutions, and unplanned evidence before evaluating Gate A2/B/C. Raw microphone PCM remains local throughout. Synthetic or cross-field tests never substitute for required physical evidence.
+The campaign author creates a frozen `empirical-campaign-1` manifest from real physical specimen choices on the exact software revision that will collect them. The dedicated campaign collector then only arms planned specimens under their precommitted setup and authorized revision. The general validation lab hosts later blinded reconstruction and device-playability review, and the Release Console accounts for planned failures, missing specimens, extra sessions, substitutions, and unplanned evidence before evaluating Gate A2/B/C. Raw microphone PCM remains local throughout. Synthetic or cross-field tests never substitute for required physical evidence.
 
 ## Engineering invariants
 
@@ -30,6 +30,7 @@ The general validation lab exports versioned fixed-setup evidence and hosts blin
 - Gate A2 never substitutes or replaces a qualified analytical failure.
 - Physical release distinctness is keyed by stable specimen ID, not object label.
 - A precommitted empirical campaign keeps planned failures, missing specimens, setup deviations, extra sessions, and unplanned specimens visible without changing release thresholds.
+- Campaign authoring refuses placeholders and duplicate specimen IDs and binds the manifest to the exact running revision.
 - Campaign-bound collection cannot arm a specimen absent from the manifest or a build whose software revision differs from the campaign authorization.
 - Analysis-worker crashes and other fatal validation-session errors cannot continue on the same worker/audio resources.
 - Gate B reviews are bound to one exact passing session/attempt target per specimen.
@@ -48,8 +49,8 @@ pnpm test
 pnpm build
 ```
 
-Release-validation builds must set `VITE_SOFTWARE_REVISION` to the exact 40-hex Git commit. The GitHub Pages and CI workflows do this automatically; an unstamped local build can use consumer surfaces but cannot arm release evidence collection.
+Release-validation builds must set `VITE_SOFTWARE_REVISION` to the exact 40-hex Git commit. The GitHub Pages and CI workflows do this automatically; an unstamped local build can use consumer surfaces but cannot author or arm conforming release evidence collection.
 
-The root web experience is the consumer loop. Append `?campaign=1` for precommitted physical campaign collection, `?lab=1` for the general validation/review lab, and `?release=1` for the local release-evidence console.
+The root web experience is the consumer loop. Append `?campaign-author=1` to select and freeze the real physical campaign, `?campaign=1` for precommitted campaign collection, `?lab=1` for the general validation/review lab, and `?release=1` for the local release-evidence console.
 
 See `docs/SPEC.md`, `docs/DSP.md`, `docs/VALIDATION.md`, `docs/GATE_A.md`, `docs/REALIMPACT.md`, `docs/GATE_B.md`, `docs/GATE_C.md`, `docs/VALIDATION_EVIDENCE.md`, `docs/EMPIRICAL_CAMPAIGN.md`, `docs/ACOUSTIC_DNA.md`, `docs/ACOUSTIC_CARD.md`, `docs/RINGDOWN_LENS.md`, `docs/ACOUSTIC_STORY.md`, and `docs/DEPLOYMENT.md` for the implementation contracts, release gates, evidence model, campaign-integrity contract, visual artifacts, and deployment path.
