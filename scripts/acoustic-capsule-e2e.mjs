@@ -61,6 +61,29 @@ function signatureFor(candidate) {
   return `er1-${hash.toString(16).padStart(16, "0")}`;
 }
 
+function encodeWireFingerprint(candidate) {
+  const wire = {
+    v: 1,
+    a: candidate.algorithmVersion,
+    r: candidate.sampleRate,
+    d: candidate.durationSeconds,
+    s: signatureFor(candidate),
+    m: candidate.modes.map((mode) => [
+      mode.frequencyHz,
+      mode.relativeAmplitude,
+      mode.decaySeconds,
+      mode.q,
+      mode.confidence,
+      mode.diagnostics.prominenceDb,
+      mode.diagnostics.persistenceSeconds,
+      mode.diagnostics.frequencyStdCents,
+      mode.diagnostics.decayFitScore,
+      mode.diagnostics.observationCount,
+    ]),
+  };
+  return Buffer.from(JSON.stringify(wire), "ascii").toString("base64url");
+}
+
 const signature = signatureFor(fingerprint);
 const capturedAt = "2026-08-18T12:00:00.000Z";
 const historyEnvelope = {
@@ -157,7 +180,7 @@ async function waitFor(expression, label, timeoutMs = 10_000) {
     if (await evaluate(expression)) return;
     await sleep(120);
   }
-  throw new Error(`Timed out waiting for ${label}. Body: ${await evaluate("document.body?.innerText ?? ''")}`);
+  throw new Error(`Timed out waiting for ${label}. URL: ${await evaluate("location.href")}. Body: ${await evaluate("document.body?.innerText ?? ''")}`);
 }
 
 async function clickButton(label) {
@@ -185,6 +208,19 @@ async function layoutAudit() {
       })),
     };
   })()`);
+}
+
+async function assertRecipient(signatureToFind) {
+  await waitFor(`document.body?.innerText.includes("SHARED RING") && document.body?.innerText.includes(${JSON.stringify(signatureToFind)})`, "recipient surface");
+  const text = await evaluate("document.body.innerText");
+  if (!text.includes("A fingerprint, not the original recording")) throw new Error("Recipient recording boundary is missing");
+  if (!text.includes("does not identify a physical object")) throw new Error("Recipient identity boundary is missing");
+  if (!text.includes("not authenticated capture provenance")) throw new Error("Recipient provenance boundary is missing");
+  if ((await evaluate("window.__everythingRingsCapsuleMicCalls ?? -1")) !== 0) throw new Error("Opening a capsule requested microphone access");
+
+  const layout = await layoutAudit();
+  if (layout.overflow > 1) throw new Error(`Recipient has ${layout.overflow}px horizontal overflow`);
+  if (layout.undersized.length > 0) throw new Error(`Recipient has undersized controls: ${JSON.stringify(layout.undersized)}`);
 }
 
 try {
@@ -227,8 +263,7 @@ try {
   await waitFor(`document.body?.innerText.includes("START LISTENING") ?? false`, "initial landing");
   await evaluate(`localStorage.setItem(${JSON.stringify(HISTORY_KEY)}, ${JSON.stringify(JSON.stringify(historyEnvelope))})`);
   await command("Page.reload", { ignoreCache: true });
-  await waitFor(`document.body?.innerText.includes("RECENT DISCOVERIES") ?? false`, "seeded history");
-  await waitFor(`document.body?.innerText.includes(${JSON.stringify(signature)}) ?? false`, "seeded signature");
+  await waitFor(`document.body?.innerText.includes("RECENT DISCOVERIES") && document.body?.innerText.includes(${JSON.stringify(signature)})`, "seeded history");
 
   await clickButton("SHARE LINK");
   await waitFor(`(window.__everythingRingsCapsuleShares?.length ?? 0) >= 1`, "creator share");
@@ -240,16 +275,9 @@ try {
   if (sharedUrl.origin !== new URL(baseUrl).origin) throw new Error("Acoustic Capsule unexpectedly changed origin");
 
   await command("Page.navigate", { url: sharedUrl.toString() });
-  await waitFor(`document.body?.innerText.includes("SHARED RING") ?? false`, "recipient surface");
-  const recipientText = await evaluate("document.body.innerText");
-  if (!recipientText.includes(signature)) throw new Error("Recipient surface lost Acoustic DNA signature");
-  if (!recipientText.includes("A fingerprint, not the original recording")) throw new Error("Recipient truth boundary is missing");
-  if (!recipientText.includes("does not identify a physical object")) throw new Error("Recipient identity boundary is missing");
-  if ((await evaluate("window.__everythingRingsCapsuleMicCalls ?? -1")) !== 0) throw new Error("Opening a capsule requested microphone access");
-
-  const recipientLayout = await layoutAudit();
-  if (recipientLayout.overflow > 1) throw new Error(`Recipient has ${recipientLayout.overflow}px horizontal overflow`);
-  if (recipientLayout.undersized.length > 0) throw new Error(`Recipient has undersized controls: ${JSON.stringify(recipientLayout.undersized)}`);
+  await assertRecipient(signature);
+  const historyBeforeRecipient = await evaluate(`JSON.parse(localStorage.getItem(${JSON.stringify(HISTORY_KEY)}) ?? '{"records":[]}').records?.length ?? 0`);
+  if (historyBeforeRecipient !== 1) throw new Error(`Recipient navigation mutated history: ${historyBeforeRecipient}`);
 
   await clickButton("HEAR THIS RING");
   await sleep(250);
@@ -280,6 +308,22 @@ try {
   const recipientShare = await evaluate(`window.__everythingRingsCapsuleShares.at(-1)`);
   if (recipientShare?.url !== sharedUrl.toString()) throw new Error("Recipient reshare did not preserve the capsule URL");
 
+  const secondFingerprint = {
+    ...fingerprint,
+    modes: fingerprint.modes.map((mode, index) => index === 0 ? { ...mode, frequencyHz: 466.16 } : mode),
+  };
+  const secondSignature = signatureFor(secondFingerprint);
+  const secondUrl = new URL(sharedUrl);
+  secondUrl.hash = `ring=${encodeWireFingerprint(secondFingerprint)}`;
+  await command("Page.navigate", { url: secondUrl.toString() });
+  await assertRecipient(secondSignature);
+  if (await evaluate(`document.body?.innerText.includes(${JSON.stringify(signature)}) ?? false`)) {
+    throw new Error("Recipient retained the prior capsule signature after fragment replacement");
+  }
+  await clickButton("HEAR THIS RING");
+  await sleep(250);
+  if ((await evaluate("window.__everythingRingsCapsuleMicCalls ?? -1")) !== 0) throw new Error("Replacement capsule playback requested microphone access");
+
   await clickButton("TRY YOUR OWN");
   await waitFor(`location.hash === ""`, "capsule fragment removal", 3_000);
   await waitFor(`document.body?.innerText.includes("Listening to the room") || document.body?.innerText.includes("Hit one object")`, "one-tap acquisition handoff", 8_000);
@@ -289,14 +333,16 @@ try {
   await waitFor(`document.body?.innerText.includes("START LISTENING") ?? false`, "landing after capsule handoff");
 
   await command("Page.navigate", { url: `${baseUrl}/#ring=%%%` });
-  await waitFor(`document.body?.innerText.includes("shared ring link could not be opened") ?? false`, "malformed capsule recovery");
-  if (!await evaluate(`document.body?.innerText.includes("START LISTENING") ?? false`)) throw new Error("Malformed capsule did not recover to consumer landing");
+  await waitFor(`location.hash === "#ring=%%%" && document.body?.innerText.includes("shared ring link could not be opened") && document.body?.innerText.includes("START LISTENING")`, "malformed capsule recovery");
 
-  await command("Page.navigate", { url: `${baseUrl}/#ring=${"A".repeat(8_300)}` });
-  await waitFor(`document.body?.innerText.includes("shared ring link could not be opened") ?? false`, "oversized capsule recovery");
-  if (!await evaluate(`document.body?.innerText.includes("START LISTENING") ?? false`)) throw new Error("Oversized capsule did not recover to consumer landing");
+  const oversizedUrl = `${baseUrl}/#ring=${"A".repeat(8_300)}`;
+  await command("Page.navigate", { url: oversizedUrl });
+  await waitFor(`location.hash.length > 8192 && document.body?.innerText.includes("shared ring link could not be opened") && document.body?.innerText.includes("START LISTENING")`, "oversized capsule recovery");
 
-  console.log("Acoustic Capsule E2E passed: share link → recipient DNA → output-only hear/play → reshare → one-tap try-own → malformed recovery at 390×844.");
+  const historyAfterRecipient = await evaluate(`JSON.parse(localStorage.getItem(${JSON.stringify(HISTORY_KEY)}) ?? '{"records":[]}').records?.length ?? 0`);
+  if (historyAfterRecipient !== 1) throw new Error(`Capsule journey mutated local capture history: ${historyAfterRecipient}`);
+
+  console.log("Acoustic Capsule E2E passed: creator link → recipient DNA → output-only hear/play → reshare → live capsule replacement → one-tap try-own → malformed/oversized recovery at 390×844.");
 } finally {
   try { socket.close(); } catch { /* already closed */ }
   chrome.kill("SIGTERM");
