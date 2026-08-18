@@ -99,11 +99,27 @@ export function buildEmpiricalCampaignFromDraft(
     errors.push("authorized software revision must be an exact 40-hex Git revision");
   }
   if (!Number.isFinite(Date.parse(createdAt))) errors.push("createdAt must be an ISO-compatible timestamp");
-  if (draft.specimens.length === 0) errors.push("at least one physical specimen is required");
+  if (draft.specimens.length !== RECOMMENDED_CAMPAIGN_SLOTS.length) {
+    errors.push(`recommended campaign must contain exactly ${RECOMMENDED_CAMPAIGN_SLOTS.length} frozen slots`);
+  }
 
   const seen = new Set<string>();
   draft.specimens.forEach((specimen, index) => {
+    const expectedSlot = RECOMMENDED_CAMPAIGN_SLOTS[index];
     const field = `slot ${index + 1} (${specimen.slotId})`;
+    if (expectedSlot === undefined) {
+      errors.push(`${field}: slot is outside the recommended campaign design`);
+    } else {
+      if (specimen.slotId !== expectedSlot.slotId) {
+        errors.push(`${field}: expected frozen slot ${expectedSlot.slotId}`);
+      }
+      if (specimen.cohort !== expectedSlot.cohort) {
+        errors.push(`${field}: cohort must remain ${expectedSlot.cohort}`);
+      }
+      if (expectedSlot.cohort === "release-core" && specimen.material !== expectedSlot.suggestedMaterial) {
+        errors.push(`${field}: release-core material must remain ${expectedSlot.suggestedMaterial}`);
+      }
+    }
     if (!nonempty(specimen.specimenId)) errors.push(`${field}: specimen ID is required`);
     if (!nonempty(specimen.label)) errors.push(`${field}: object label is required`);
     if (!nonempty(specimen.objectFamily)) errors.push(`${field}: object family is required`);
