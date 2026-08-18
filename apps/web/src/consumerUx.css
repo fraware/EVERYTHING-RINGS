@@ -19,6 +19,91 @@ button, .file-button, input, select {
   line-height: 1.5;
 }
 
+.consumer-history-status {
+  max-width: 680px;
+  margin: 14px 0 0;
+  color: #a7a79f;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.consumer-history {
+  width: 100%;
+  margin-top: 42px;
+  padding-top: 26px;
+  border-top: 1px solid #292925;
+}
+
+.consumer-history-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 18px;
+}
+
+.consumer-history-head h2 {
+  margin: 6px 0 0;
+  font-size: clamp(24px, 4vw, 38px);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
+.consumer-history-clear {
+  flex: 0 0 auto;
+}
+
+.consumer-history-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.consumer-history-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #292925;
+  display: grid;
+  gap: 10px;
+}
+
+.consumer-history-card strong {
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.consumer-history-card > span {
+  color: #8f8f88;
+  font-size: 12px;
+}
+
+.consumer-history-card code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #b8b8b0;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.consumer-history-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #777771;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.consumer-history-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.consumer-history-actions button {
+  flex: 1 1 0;
+}
+
 .lab-link {
   min-height: 44px;
   display: inline-flex;
@@ -29,7 +114,9 @@ button, .file-button, input, select {
 .consumer-keyboard button,
 .mode-chip,
 .mode-audition-actions button,
-.listening-compare button {
+.listening-compare button,
+.consumer-history-actions button,
+.consumer-history-clear {
   touch-action: manipulation;
 }
 
@@ -57,6 +144,28 @@ select:focus-visible {
 
   .consumer-tip {
     margin-top: 8px;
+  }
+
+  .consumer-history {
+    margin-top: 34px;
+  }
+
+  .consumer-history-head {
+    align-items: start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .consumer-history-clear {
+    width: 100%;
+  }
+
+  .consumer-history-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .consumer-history-actions {
+    flex-direction: column;
   }
 }
 

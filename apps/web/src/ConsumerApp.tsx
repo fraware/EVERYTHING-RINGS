@@ -1,14 +1,38 @@
+import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
 import { DEFAULT_MODAL_RENDER_CONFIG, renderAcousticFingerprint } from "@everything-rings/synth";
 import { createAcousticCardSvg, createAcousticStoryHtml, fingerprintSignature } from "@everything-rings/visual";
+import { useEffect, useRef, useState } from "react";
 import {
   ConsumerFailure,
   ConsumerLanding,
   ConsumerProgress,
   ConsumerReveal,
 } from "./ConsumerExperience";
+import {
+  clearConsumerHistory,
+  createConsumerCaptureRecord,
+  loadConsumerHistory,
+  persistConsumerHistory,
+  prependConsumerCapture,
+  removeConsumerCapture,
+  type ConsumerCaptureRecord,
+  type ConsumerHistoryStorage,
+} from "./consumerHistory";
 import { failureCopy } from "./failureCopy";
 import { captureRingdownAuditionSamples, peakMatchSamples } from "./ringdownPresentation";
 import { useStrikeSession } from "./useStrikeSession";
+
+const SOFTWARE_REVISION = ((import.meta as ImportMeta & {
+  readonly env?: { readonly VITE_SOFTWARE_REVISION?: string };
+}).env?.VITE_SOFTWARE_REVISION ?? "").trim();
+
+function browserHistoryStorage(): ConsumerHistoryStorage | undefined {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
 
 function downloadFile(file: File): void {
   const url = URL.createObjectURL(file);
@@ -31,8 +55,52 @@ function shareOrDownload(file: File, title: string, text: string): void {
   downloadFile(file);
 }
 
+function shareAcousticCard(fingerprint: AcousticFingerprintV1): void {
+  const signature = fingerprintSignature(fingerprint);
+  const file = new File(
+    [createAcousticCardSvg(fingerprint)],
+    `everything-rings-${signature}.svg`,
+    { type: "image/svg+xml" },
+  );
+  shareOrDownload(
+    file,
+    "Everything Rings — Acoustic DNA",
+    `${fingerprint.modes.length} measured resonances · ${signature}`,
+  );
+}
+
 export function ConsumerApp() {
   const session = useStrikeSession();
+  const [history, setHistory] = useState<readonly ConsumerCaptureRecord[]>(
+    () => loadConsumerHistory(browserHistoryStorage()),
+  );
+  const historyRef = useRef(history);
+  const [historyStatus, setHistoryStatus] = useState<string>();
+  const savedFingerprint = useRef<AcousticFingerprintV1 | undefined>(undefined);
+
+  function replaceHistory(next: readonly ConsumerCaptureRecord[]): void {
+    historyRef.current = next;
+    setHistory(next);
+  }
+
+  useEffect(() => {
+    const fingerprint = session.fingerprint;
+    if (session.state !== "success" || fingerprint === undefined || savedFingerprint.current === fingerprint) return;
+    savedFingerprint.current = fingerprint;
+    const record = createConsumerCaptureRecord(
+      fingerprint,
+      new Date().toISOString(),
+      SOFTWARE_REVISION,
+    );
+    const next = prependConsumerCapture(historyRef.current, record);
+    replaceHistory(next);
+    const persisted = persistConsumerHistory(browserHistoryStorage(), next);
+    setHistoryStatus(
+      persisted
+        ? "Fingerprint saved locally on this device. Microphone audio was not stored."
+        : "This fingerprint is available for this session, but local browser storage is unavailable.",
+    );
+  }, [session.state, session.fingerprint]);
 
   function retry(): void {
     if (session.state === "error") {
@@ -67,20 +135,9 @@ export function ConsumerApp() {
     void session.play(renderAcousticFingerprint({ ...fingerprint, modes: [mode] }, sampleRate), sampleRate);
   }
 
-  function shareAcousticCard(): void {
+  function shareCurrentAcousticCard(): void {
     const fingerprint = session.fingerprint;
-    if (fingerprint === undefined) return;
-    const signature = fingerprintSignature(fingerprint);
-    const file = new File(
-      [createAcousticCardSvg(fingerprint)],
-      `everything-rings-${signature}.svg`,
-      { type: "image/svg+xml" },
-    );
-    shareOrDownload(
-      file,
-      "Everything Rings — Acoustic DNA",
-      `${fingerprint.modes.length} measured resonances · ${signature}`,
-    );
+    if (fingerprint !== undefined) shareAcousticCard(fingerprint);
   }
 
   function shareAcousticStory(): void {
@@ -101,8 +158,28 @@ export function ConsumerApp() {
     );
   }
 
+  function removeHistoryRecord(id: string): void {
+    const next = removeConsumerCapture(historyRef.current, id);
+    replaceHistory(next);
+    const persisted = persistConsumerHistory(browserHistoryStorage(), next);
+    setHistoryStatus(persisted ? "Capture removed from this device." : "Local browser storage could not be updated.");
+  }
+
+  function clearHistory(): void {
+    replaceHistory([]);
+    const cleared = clearConsumerHistory(browserHistoryStorage());
+    setHistoryStatus(cleared ? "Local capture history cleared." : "Local browser storage could not be cleared.");
+  }
+
   if (session.state === "idle") {
-    return <ConsumerLanding onStart={() => void session.start()} />;
+    return <ConsumerLanding
+      onStart={() => void session.start()}
+      recentCaptures={history}
+      historyStatus={historyStatus}
+      onShareCapture={(record) => shareAcousticCard(record.fingerprint)}
+      onRemoveCapture={removeHistoryRecord}
+      onClearCaptures={clearHistory}
+    />;
   }
 
   if (session.state === "warming" || session.state === "armed" || session.state === "capturing" || session.state === "analyzing") {
@@ -129,12 +206,13 @@ export function ConsumerApp() {
     instrumentReady={session.instrumentReady}
     instrumentFailure={session.instrumentFailure}
     playbackFailure={session.playbackFailure}
+    historyStatus={historyStatus}
     onHearMode={hearMode}
     onHearModel={hearModel}
     onHearCapture={hearCapture}
     onNote={(midiNote) => { session.noteOn(midiNote); }}
     onShareStory={shareAcousticStory}
-    onShareDna={shareAcousticCard}
+    onShareDna={shareCurrentAcousticCard}
     onStrikeAnother={session.reset}
   />;
 }
