@@ -1,4 +1,5 @@
 import { renderAcousticFingerprint } from "@everything-rings/synth";
+import { createAcousticCardSvg, fingerprintSignature } from "@everything-rings/visual";
 import { useState } from "react";
 import { failureCopy } from "./failureCopy";
 import { ResonanceMicroscope } from "./ResonanceMicroscope";
@@ -11,6 +12,15 @@ const PLAY_NOTES = [
   { midi: 69, label: "A" }, { midi: 70, label: "A♯" }, { midi: 71, label: "B" },
   { midi: 72, label: "C" },
 ] as const;
+
+function downloadAcousticCard(file: File): void {
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = file.name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
 
 export function ConsumerApp() {
   const session = useStrikeSession();
@@ -45,6 +55,31 @@ export function ConsumerApp() {
     session.play(renderAcousticFingerprint({ ...fingerprint, modes: [mode] }, sampleRate), sampleRate);
   }
 
+  function shareAcousticCard(): void {
+    const fingerprint = session.fingerprint;
+    if (fingerprint === undefined) return;
+    const signature = fingerprintSignature(fingerprint);
+    const file = new File(
+      [createAcousticCardSvg(fingerprint)],
+      `everything-rings-${signature}.svg`,
+      { type: "image/svg+xml" },
+    );
+    const shareData: ShareData = {
+      files: [file],
+      title: "Everything Rings — Acoustic DNA",
+      text: `${fingerprint.modes.length} measured resonances · ${signature}`,
+    };
+
+    if (typeof navigator.share === "function" && typeof navigator.canShare === "function" && navigator.canShare(shareData)) {
+      void navigator.share(shareData).catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        downloadAcousticCard(file);
+      });
+      return;
+    }
+    downloadAcousticCard(file);
+  }
+
   if (session.state === "idle") {
     return <main className="consumer-shell consumer-hero">
       <p className="consumer-mark">EVERYTHING RINGS</p>
@@ -76,7 +111,7 @@ export function ConsumerApp() {
     <p className="consumer-mark">EVERYTHING RINGS</p>
     <section className="reveal-copy"><p className="consumer-kicker">REVEAL</p><h1>You found {fingerprint.modes.length} resonances.</h1><p>Now open the object up and hear what each measured ring contributes.</p></section>
     <ResonanceMicroscope fingerprint={fingerprint} onHearMode={hearMode} onHearAll={hearModel} />
-    <div className="consumer-actions"><button className="consumer-primary" onClick={hearModel}>HEAR FULL OBJECT</button><button className="consumer-primary" disabled={!session.instrumentReady} onClick={() => setShowKeyboard((value) => !value)}>{playLabel}</button><button className="consumer-ghost" onClick={strikeAgain}>STRIKE ANOTHER</button></div>
+    <div className="consumer-actions"><button className="consumer-primary" onClick={hearModel}>HEAR FULL OBJECT</button><button className="consumer-primary" disabled={!session.instrumentReady} onClick={() => setShowKeyboard((value) => !value)}>{playLabel}</button><button className="consumer-ghost" onClick={shareAcousticCard}>SHARE DNA</button><button className="consumer-ghost" onClick={strikeAgain}>STRIKE ANOTHER</button></div>
     {showKeyboard && session.instrumentReady ? <section className="consumer-instrument"><p className="consumer-kicker">PLAY</p><div className="consumer-keyboard">{PLAY_NOTES.map((note, index) => <button key={`${note.midi}-${index}`} onPointerDown={() => session.noteOn(note.midi)}>{note.label}</button>)}</div></section> : null}
     <a className="lab-link" href="?lab=1">open measurements</a>
   </main>;
