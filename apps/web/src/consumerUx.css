@@ -67,6 +67,11 @@ button, .file-button, input, select {
   gap: 10px;
 }
 
+.consumer-history-card-selected {
+  border-color: #6a6a62;
+  box-shadow: inset 0 0 0 1px #454540;
+}
+
 .consumer-history-card strong {
   font-size: 18px;
   font-weight: 500;
@@ -96,12 +101,13 @@ button, .file-button, input, select {
 
 .consumer-history-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 4px;
 }
 
 .consumer-history-actions button {
-  flex: 1 1 0;
+  flex: 1 1 96px;
 }
 
 .saved-capture-truth {

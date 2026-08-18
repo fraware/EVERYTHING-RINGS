@@ -22,7 +22,9 @@ export function ConsumerLanding({
   onStart,
   recentCaptures = [],
   historyStatus,
+  compareAnchorId,
   onOpenCapture,
+  onCompareCapture,
   onShareCapture,
   onRemoveCapture,
   onClearCaptures,
@@ -30,11 +32,14 @@ export function ConsumerLanding({
   readonly onStart: () => void;
   readonly recentCaptures?: readonly ConsumerCaptureRecord[];
   readonly historyStatus?: string | undefined;
+  readonly compareAnchorId?: string | undefined;
   readonly onOpenCapture?: ((record: ConsumerCaptureRecord) => void) | undefined;
+  readonly onCompareCapture?: ((record: ConsumerCaptureRecord) => void) | undefined;
   readonly onShareCapture?: ((record: ConsumerCaptureRecord) => void) | undefined;
   readonly onRemoveCapture?: ((id: string) => void) | undefined;
   readonly onClearCaptures?: (() => void) | undefined;
 }) {
+  const comparisonAvailable = recentCaptures.length >= 2 && onCompareCapture !== undefined;
   return <main className="consumer-shell consumer-hero">
     <p className="consumer-mark">EVERYTHING RINGS</p>
     <div className="consumer-hero-copy">
@@ -55,7 +60,9 @@ export function ConsumerLanding({
       <div className="consumer-history-grid">
         {recentCaptures.slice(0, 8).map((record, index) => {
           const strongest = strongestMode(record.fingerprint);
-          return <article className="consumer-history-card" key={record.id}>
+          const isCompareAnchor = compareAnchorId === record.id;
+          const compareLabel = isCompareAnchor ? "CANCEL COMPARE" : compareAnchorId === undefined ? "COMPARE" : "COMPARE WITH";
+          return <article className={`consumer-history-card${isCompareAnchor ? " consumer-history-card-selected" : ""}`} key={record.id}>
             <div className="consumer-history-meta">
               <span>CAPTURE {String(index + 1).padStart(2, "0")}</span>
               <span>{captureDate(record.capturedAt)}</span>
@@ -65,6 +72,11 @@ export function ConsumerLanding({
             <code>{record.signature}</code>
             <div className="consumer-history-actions">
               {onOpenCapture !== undefined ? <button className="consumer-primary" onClick={() => onOpenCapture(record)}>OPEN</button> : null}
+              {comparisonAvailable ? <button
+                className="consumer-ghost"
+                aria-pressed={isCompareAnchor}
+                onClick={() => onCompareCapture(record)}
+              >{compareLabel}</button> : null}
               {onShareCapture !== undefined ? <button className="consumer-ghost" onClick={() => onShareCapture(record)}>SHARE DNA</button> : null}
               {onRemoveCapture !== undefined ? <button className="consumer-ghost" onClick={() => onRemoveCapture(record.id)} aria-label={`Remove ${record.signature}`}>REMOVE</button> : null}
             </div>
