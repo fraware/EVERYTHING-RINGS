@@ -1,6 +1,7 @@
 import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
 import { useState } from "react";
 import { ResonanceMicroscope } from "./ResonanceMicroscope";
+import "./consumerUx.css";
 
 const PLAY_NOTES = [
   { midi: 60, label: "C" }, { midi: 61, label: "C♯" }, { midi: 62, label: "D" },
