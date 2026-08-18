@@ -5,6 +5,7 @@ import {
   captureAuditionSamples,
   modeEnvelopeFractionAtTime,
   modeRelativeEnvelopeAtTime,
+  peakMatchSamples,
   summarizeRingdownAtTime,
 } from "./ringdownPresentation";
 
@@ -62,9 +63,21 @@ describe("ringdown presentation", () => {
     expect(audition.at(-1)).toBe(99);
   });
 
-  it("rejects invalid physical timing inputs", () => {
+  it("applies gain-only peak matching for a less confounded consumer A/B", () => {
+    const source = Float32Array.from([-0.25, 0.5, -0.125]);
+    const matched = peakMatchSamples(source, 0.9);
+    expect(Array.from(matched)).toEqual(expect.arrayContaining([
+      expect.closeTo(-0.45, 6),
+      expect.closeTo(0.9, 6),
+      expect.closeTo(-0.225, 6),
+    ]));
+    expect(Array.from(source)).toEqual([-0.25, 0.5, -0.125]);
+  });
+
+  it("rejects invalid physical timing and peak inputs", () => {
     expect(() => modeEnvelopeFractionAtTime(0, 1)).toThrow(RangeError);
     expect(() => modeEnvelopeFractionAtTime(1, -1)).toThrow(RangeError);
     expect(() => captureAuditionSamples({ samples: new Float32Array(8), sampleRate: 48_000, triggerSample: 9 })).toThrow(RangeError);
+    expect(() => peakMatchSamples(new Float32Array([1]), 0)).toThrow(RangeError);
   });
 });
