@@ -40,7 +40,7 @@ describe("Acoustic Story", () => {
     expect(first).toContain("2 RESONANCES");
     expect(first).toContain("440 Hz — 997 Hz");
     expect(first).toContain("er-dsp-2");
-    expect(first).toMatch(/erc?1-|er1-/);
+    expect(first).toMatch(/er1-[0-9a-f]{16}/);
     expect(first).toContain('src="data:audio/wav;base64,UklGR');
     expect(first).toContain("Math.exp(-elapsed / decay)");
     expect(first).not.toContain("<script src=");
@@ -54,6 +54,13 @@ describe("Acoustic Story", () => {
     expect(html).toContain('data-frequency="440"');
     expect(html).toContain('data-decay="1.1"');
     expect(html).toContain('data-frequency="997"');
+  });
+
+  it("emits syntactically valid inline JavaScript", () => {
+    const html = createAcousticStoryHtml(FINGERPRINT, MODEL, 48_000);
+    const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    expect(script).toBeDefined();
+    expect(() => new Function(script ?? "")).not.toThrow();
   });
 
   it("rejects invalid audio inputs", () => {
