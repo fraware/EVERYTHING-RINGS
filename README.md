@@ -6,7 +6,7 @@ EVERYTHING RINGS is a local-first acoustic instrument for estimating the audible
 
 ## Current phase
 
-MVP-0 contains the full software path from microphone capture to reveal and play: deterministic impact analysis, capture-quality gates, ringdown isolation, versioned acoustic fingerprints, one-to-one recurrence comparison, modal reconstruction, realtime playable modal synthesis, Acoustic DNA, and the consumer **STRIKE → REVEAL → HEAR → PLAY** loop.
+MVP-0 contains the full software path from microphone capture to reveal and play: deterministic impact analysis, capture-quality gates, ringdown isolation, versioned acoustic fingerprints, one-to-one recurrence comparison, modal reconstruction, realtime playable modal synthesis, Acoustic DNA, and the consumer **STRIKE → REVEAL → HEAR → PLAY** loop. The reveal now includes a Resonance Microscope for exact per-mode inspection and isolated audition, plus a locally generated Acoustic DNA card for sharing the measured fingerprint without exporting microphone PCM.
 
 The empirical release gates remain open until representative physical and perceptual evidence passes their frozen contracts. Gate A2 defines each physical-session experiment as the first five acquisition-quality-passing attempts. Once an attempt qualifies, its analytical outcome is immutable: a failed analysis occupies its slot and cannot be retried away. Evidence schema v5 records those success/failure outcomes explicitly, stamps the exact software commit that produced each bundle, and recomputes recurrence from retained fingerprints with attempt 1 fixed as the reference.
 
@@ -24,6 +24,7 @@ The validation lab exports the versioned fixed-setup evidence, records blinded r
 - Reconstruction synthesizes estimated modes; recorded audio is not mixed into the model output.
 - Realtime notes preserve one global modal frequency ratio and the measured decay constants.
 - Acoustic DNA is a deterministic encoding of the measured fingerprint.
+- Acoustic DNA share cards derive only from the fingerprint, display its analysis version, and never count as release evidence.
 - Gate A2 never substitutes or replaces a qualified analytical failure.
 - Physical release distinctness is keyed by stable specimen ID, not object label.
 - Analysis-worker crashes and other fatal validation-session errors cannot continue on the same worker/audio resources.
@@ -47,4 +48,4 @@ Release-validation builds must set `VITE_SOFTWARE_REVISION` to the exact 40-hex 
 
 The root web experience is the consumer loop. Append `?lab=1` for physical/listening evidence collection and `?release=1` for the local release-evidence console.
 
-See `docs/SPEC.md`, `docs/DSP.md`, `docs/VALIDATION.md`, `docs/GATE_A.md`, `docs/REALIMPACT.md`, `docs/GATE_B.md`, `docs/GATE_C.md`, `docs/VALIDATION_EVIDENCE.md`, `docs/ACOUSTIC_DNA.md`, and `docs/DEPLOYMENT.md` for the implementation contracts, release gates, evidence model, and deployment path.
+See `docs/SPEC.md`, `docs/DSP.md`, `docs/VALIDATION.md`, `docs/GATE_A.md`, `docs/REALIMPACT.md`, `docs/GATE_B.md`, `docs/GATE_C.md`, `docs/VALIDATION_EVIDENCE.md`, `docs/ACOUSTIC_DNA.md`, `docs/ACOUSTIC_CARD.md`, and `docs/DEPLOYMENT.md` for the implementation contracts, release gates, evidence model, visual artifacts, and deployment path.

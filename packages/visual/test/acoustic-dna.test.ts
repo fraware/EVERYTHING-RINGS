@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AcousticFingerprintV1, AcousticMode } from "@everything-rings/dsp";
-import { encodeAcousticDna, fingerprintSignature } from "../src/acoustic-dna";
+import {
+  acousticDnaSourceModeIndices,
+  encodeAcousticDna,
+  fingerprintSignature,
+} from "../src/acoustic-dna";
 
 function mode(frequencyHz: number, amplitude = 1, decaySeconds = 0.6): AcousticMode {
   return {
@@ -59,5 +63,15 @@ describe("Acoustic DNA", () => {
       expect(candidate.persistence).toBeGreaterThanOrEqual(0);
       expect(candidate.persistence).toBeLessThanOrEqual(1);
     }
+  });
+
+  it("exposes the exact source indices used by frequency-sorted visual modes", () => {
+    const input = fingerprint([
+      mode(1320, 0.5),
+      mode(440, 1),
+      mode(2860, 0.2),
+    ]);
+    expect(encodeAcousticDna(input).modes.map((candidate) => candidate.frequencyHz)).toEqual([440, 1320, 2860]);
+    expect(acousticDnaSourceModeIndices(input)).toEqual([1, 0, 2]);
   });
 });
