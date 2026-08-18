@@ -1,16 +1,9 @@
 import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
 import { useState } from "react";
 import type { ConsumerCaptureRecord } from "./consumerHistory";
+import { PlayableKeyboard } from "./PlayableKeyboard";
 import { ResonanceMicroscope } from "./ResonanceMicroscope";
 import "./consumerUx.css";
-
-const PLAY_NOTES = [
-  { midi: 60, label: "C" }, { midi: 61, label: "C♯" }, { midi: 62, label: "D" },
-  { midi: 63, label: "D♯" }, { midi: 64, label: "E" }, { midi: 65, label: "F" },
-  { midi: 66, label: "F♯" }, { midi: 67, label: "G" }, { midi: 68, label: "G♯" },
-  { midi: 69, label: "A" }, { midi: 70, label: "A♯" }, { midi: 71, label: "B" },
-  { midi: 72, label: "C" },
-] as const;
 
 function strongestMode(fingerprint: AcousticFingerprintV1) {
   return fingerprint.modes.reduce((strongest, mode) => (
@@ -29,6 +22,7 @@ export function ConsumerLanding({
   onStart,
   recentCaptures = [],
   historyStatus,
+  onOpenCapture,
   onShareCapture,
   onRemoveCapture,
   onClearCaptures,
@@ -36,6 +30,7 @@ export function ConsumerLanding({
   readonly onStart: () => void;
   readonly recentCaptures?: readonly ConsumerCaptureRecord[];
   readonly historyStatus?: string | undefined;
+  readonly onOpenCapture?: ((record: ConsumerCaptureRecord) => void) | undefined;
   readonly onShareCapture?: ((record: ConsumerCaptureRecord) => void) | undefined;
   readonly onRemoveCapture?: ((id: string) => void) | undefined;
   readonly onClearCaptures?: (() => void) | undefined;
@@ -69,6 +64,7 @@ export function ConsumerLanding({
             <span>{strongest === undefined ? "measured ring" : `${strongest.frequencyHz.toFixed(0)} Hz strongest mode`}</span>
             <code>{record.signature}</code>
             <div className="consumer-history-actions">
+              {onOpenCapture !== undefined ? <button className="consumer-primary" onClick={() => onOpenCapture(record)}>OPEN</button> : null}
               {onShareCapture !== undefined ? <button className="consumer-ghost" onClick={() => onShareCapture(record)}>SHARE DNA</button> : null}
               {onRemoveCapture !== undefined ? <button className="consumer-ghost" onClick={() => onRemoveCapture(record.id)} aria-label={`Remove ${record.signature}`}>REMOVE</button> : null}
             </div>
@@ -179,17 +175,7 @@ export function ConsumerReveal({
       <button className="consumer-ghost" onClick={onShareDna}>SHARE DNA</button>
       <button className="consumer-ghost" onClick={onStrikeAnother}>STRIKE ANOTHER</button>
     </div>
-    {showKeyboard && instrumentReady ? <section className="consumer-instrument" id="consumer-playable-keys" aria-label="Playable object">
-      <p className="consumer-kicker">PLAY</p>
-      <div className="consumer-keyboard" role="group" aria-label="Chromatic playable keys">
-        {PLAY_NOTES.map((note, index) => <button
-          key={`${note.midi}-${index}`}
-          aria-label={`Play ${note.label}, MIDI ${note.midi}`}
-          onPointerDown={() => onNote(note.midi)}
-          onClick={(event) => { if (event.detail === 0) onNote(note.midi); }}
-        >{note.label}</button>)}
-      </div>
-    </section> : null}
+    {showKeyboard && instrumentReady ? <PlayableKeyboard onNote={onNote} /> : null}
     <a className="lab-link" href="?lab=1">open measurements</a>
   </main>;
 }

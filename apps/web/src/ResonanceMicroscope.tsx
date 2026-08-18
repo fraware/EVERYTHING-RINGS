@@ -20,6 +20,7 @@ interface ResonanceMicroscopeProps {
   readonly onHearMode: (modeIndex: number) => void;
   readonly onHearAll: () => void;
   readonly onHearCapture?: () => void;
+  readonly captureUnavailableCopy?: string;
 }
 
 function modeOrdinal(index: number, count: number): string {
@@ -30,7 +31,13 @@ function formatElapsedSeconds(elapsedSeconds: number): string {
   return `+${elapsedSeconds.toFixed(2)} s`;
 }
 
-export function ResonanceMicroscope({ fingerprint, onHearMode, onHearAll, onHearCapture }: ResonanceMicroscopeProps) {
+export function ResonanceMicroscope({
+  fingerprint,
+  onHearMode,
+  onHearAll,
+  onHearCapture,
+  captureUnavailableCopy,
+}: ResonanceMicroscopeProps) {
   const summary = summarizeResonances(fingerprint);
   const [selectedModeIndex, setSelectedModeIndex] = useState(summary?.strongestModeIndex ?? 0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -38,6 +45,7 @@ export function ResonanceMicroscope({ fingerprint, onHearMode, onHearAll, onHear
   const selectedMode = fingerprint.modes[selectedModeIndex];
   const ringdown = summarizeRingdownAtTime(fingerprint, elapsedSeconds);
   const maximumElapsedSeconds = Math.max(0.1, fingerprint.durationSeconds);
+  const captureAvailable = onHearCapture !== undefined;
 
   function stopAnimation(): void {
     if (animationFrame.current !== undefined) {
@@ -85,10 +93,14 @@ export function ResonanceMicroscope({ fingerprint, onHearMode, onHearAll, onHear
     <section className="listening-compare" aria-label="Capture and reconstruction comparison">
       <div className="listening-source">
         <span>CAPTURE</span>
-        <strong>Analyzed microphone ringdown</strong>
-        <p>Same deterministic isolation used for analysis; gain-only peak matched.</p>
+        <strong>{captureAvailable ? "Analyzed microphone ringdown" : "Original capture unavailable"}</strong>
+        <p>{captureAvailable
+          ? "Same deterministic isolation used for analysis; gain-only peak matched."
+          : (captureUnavailableCopy ?? "The original microphone recording is not available in this view.")}</p>
       </div>
-      <button className="consumer-ghost" disabled={onHearCapture === undefined} onClick={onHearCapture}>HEAR CAPTURE</button>
+      <button className="consumer-ghost" disabled={!captureAvailable} onClick={onHearCapture}>
+        {captureAvailable ? "HEAR CAPTURE" : "CAPTURE NOT STORED"}
+      </button>
       <div className="listening-divider" aria-hidden="true">↔</div>
       <div className="listening-source">
         <span>MODEL</span>
@@ -178,6 +190,6 @@ export function ResonanceMicroscope({ fingerprint, onHearMode, onHearAll, onHear
       </button>)}
     </div>
 
-    <p className="microscope-note">The scrubber visualizes each mode’s fitted exponential amplitude envelope. A faint trace remains so every measured mode stays selectable. Capture and model playback are separate; the model contains synthesized estimated modes only.</p>
+    <p className="microscope-note">The scrubber visualizes each mode’s fitted exponential amplitude envelope. A faint trace remains so every measured mode stays selectable. The model contains synthesized estimated modes only.</p>
   </section>;
 }

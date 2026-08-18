@@ -20,6 +20,7 @@ import {
 } from "./consumerHistory";
 import { failureCopy } from "./failureCopy";
 import { captureRingdownAuditionSamples, peakMatchSamples } from "./ringdownPresentation";
+import { SavedCaptureView } from "./SavedCaptureView";
 import { useStrikeSession } from "./useStrikeSession";
 
 const SOFTWARE_REVISION = ((import.meta as ImportMeta & {
@@ -76,6 +77,7 @@ export function ConsumerApp() {
   );
   const historyRef = useRef(history);
   const [historyStatus, setHistoryStatus] = useState<string>();
+  const [openedCaptureId, setOpenedCaptureId] = useState<string>();
   const savedFingerprint = useRef<AcousticFingerprintV1 | undefined>(undefined);
 
   function replaceHistory(next: readonly ConsumerCaptureRecord[]): void {
@@ -161,21 +163,34 @@ export function ConsumerApp() {
   function removeHistoryRecord(id: string): void {
     const next = removeConsumerCapture(historyRef.current, id);
     replaceHistory(next);
+    if (openedCaptureId === id) setOpenedCaptureId(undefined);
     const persisted = persistConsumerHistory(browserHistoryStorage(), next);
     setHistoryStatus(persisted ? "Capture removed from this device." : "Local browser storage could not be updated.");
   }
 
   function clearHistory(): void {
+    setOpenedCaptureId(undefined);
     replaceHistory([]);
     const cleared = clearConsumerHistory(browserHistoryStorage());
     setHistoryStatus(cleared ? "Local capture history cleared." : "Local browser storage could not be cleared.");
   }
 
   if (session.state === "idle") {
+    const openedCapture = openedCaptureId === undefined
+      ? undefined
+      : history.find((record) => record.id === openedCaptureId);
+    if (openedCapture !== undefined) {
+      return <SavedCaptureView
+        record={openedCapture}
+        onBack={() => setOpenedCaptureId(undefined)}
+        onShareDna={() => shareAcousticCard(openedCapture.fingerprint)}
+      />;
+    }
     return <ConsumerLanding
       onStart={() => void session.start()}
       recentCaptures={history}
       historyStatus={historyStatus}
+      onOpenCapture={(record) => setOpenedCaptureId(record.id)}
       onShareCapture={(record) => shareAcousticCard(record.fingerprint)}
       onRemoveCapture={removeHistoryRecord}
       onClearCaptures={clearHistory}

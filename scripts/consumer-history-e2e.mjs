@@ -232,7 +232,55 @@ try {
     throw new Error(`History did not survive reload: ${JSON.stringify(reloaded)}`);
   }
 
-  await evaluate(`document.querySelector(".consumer-history-card .consumer-history-actions button")?.click()`, true);
+  const microphoneInterception = await evaluate(`(() => {
+    const mediaDevices = navigator.mediaDevices;
+    if (!mediaDevices || typeof mediaDevices.getUserMedia !== "function") return false;
+    const original = mediaDevices.getUserMedia.bind(mediaDevices);
+    window.__everythingRingsSavedCaptureMicCalls = 0;
+    mediaDevices.getUserMedia = (...args) => {
+      window.__everythingRingsSavedCaptureMicCalls += 1;
+      return original(...args);
+    };
+    return true;
+  })()`);
+  if (!microphoneInterception) throw new Error("Could not instrument microphone calls for saved-capture boundary test");
+
+  await evaluate(`Array.from(document.querySelectorAll(".consumer-history-card button")).find((button) => button.textContent?.trim() === "OPEN")?.click()`, true);
+  await waitFor(`document.body?.innerText.includes("SAVED CAPTURE") ?? false`, "saved capture view", 5_000);
+  const savedText = await evaluate("document.body.innerText");
+  if (!savedText.includes("Original microphone audio was not retained")) throw new Error("Saved capture truth boundary is missing");
+  if (!savedText.includes("CAPTURE NOT STORED")) throw new Error("Saved capture incorrectly offers original-capture playback");
+  if (!savedText.includes(stored.signature)) throw new Error("Saved capture signature provenance is missing");
+  if (!savedText.includes(stored.algorithmVersion)) throw new Error("Saved capture algorithm provenance is missing");
+  if (!savedText.includes(stored.softwareRevision)) throw new Error("Saved capture software provenance is missing");
+
+  const savedLayout = await layoutAudit();
+  if (savedLayout.overflow > 1) throw new Error(`Saved capture view has ${savedLayout.overflow}px horizontal overflow`);
+  if (savedLayout.undersized.length > 0) throw new Error(`Saved capture view has undersized controls: ${savedLayout.undersized.join(", ")}`);
+
+  await evaluate(`Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("WATCH + HEAR MODEL"))?.click()`, true);
+  await sleep(250);
+  let savedPlaybackError = await evaluate(`document.querySelector(".consumer-playback-error")?.textContent ?? ""`);
+  if (savedPlaybackError) throw new Error(`Saved model playback failed: ${savedPlaybackError}`);
+
+  await evaluate(`Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("HEAR THIS RING"))?.click()`, true);
+  await sleep(150);
+  savedPlaybackError = await evaluate(`document.querySelector(".consumer-playback-error")?.textContent ?? ""`);
+  if (savedPlaybackError) throw new Error(`Saved mode playback failed: ${savedPlaybackError}`);
+
+  await evaluate(`document.querySelector("#saved-capture-playable-keys button")?.click()`, true);
+  await sleep(500);
+  savedPlaybackError = await evaluate(`document.querySelector(".consumer-playback-error")?.textContent ?? ""`);
+  if (savedPlaybackError) throw new Error(`Saved chromatic playback failed: ${savedPlaybackError}`);
+  const microphoneCalls = await evaluate(`window.__everythingRingsSavedCaptureMicCalls ?? -1`);
+  if (microphoneCalls !== 0) throw new Error(`Saved capture requested microphone access ${microphoneCalls} time(s)`);
+
+  await evaluate(`Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("BACK TO HISTORY"))?.click()`, true);
+  await waitFor(`document.body?.innerText.includes("RECENT DISCOVERIES") ?? false`, "history after saved player", 5_000);
+  const countAfterPlayer = await evaluate(`JSON.parse(localStorage.getItem(${JSON.stringify(HISTORY_KEY)}) ?? '{"records":[]}').records?.length ?? 0`);
+  if (countAfterPlayer !== 1) throw new Error(`Saved player mutated history: ${countAfterPlayer}`);
+
+  await evaluate(`Array.from(document.querySelectorAll(".consumer-history-card button")).find((button) => button.textContent?.includes("SHARE DNA"))?.click()`, true);
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (completedDownloads().some((name) => name.endsWith(".svg"))) break;
     await sleep(100);
@@ -251,7 +299,7 @@ try {
   const historyReturned = await evaluate(`document.body?.innerText.includes("RECENT DISCOVERIES") ?? false`);
   if (historyReturned) throw new Error("Removed capture returned after reload");
 
-  console.log("Consumer history E2E passed: successful strike → fingerprint-only storage → landing → reload → share → remove on 390×844 viewport.");
+  console.log("Consumer history E2E passed: strike → fingerprint-only storage → reload → open saved model → hear → play → back → share → remove on 390×844 viewport.");
 } finally {
   try { socket.close(); } catch { /* already closed */ }
   chrome.kill("SIGTERM");
