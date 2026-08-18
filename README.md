@@ -8,6 +8,8 @@ EVERYTHING RINGS is a local-first acoustic instrument for estimating the audible
 
 MVP-0 contains the full software path from microphone capture to reveal and play: deterministic impact analysis, capture-quality gates, ringdown isolation, versioned acoustic fingerprints, one-to-one recurrence comparison, modal reconstruction, realtime playable modal synthesis, Acoustic DNA, and the consumer **STRIKE → REVEAL → HEAR → PLAY** loop. The reveal includes a Resonance Microscope for exact per-mode inspection and isolated audition, local CAPTURE ↔ MODEL listening, a Ringdown Lens that visualizes the fitted modal envelopes through time, a locally generated Acoustic DNA card, and a self-contained Acoustic Story that packages the fingerprint-derived model as an offline vertical sound-and-motion artifact without exporting microphone PCM.
 
+The consumer path is gated in CI by a deterministic mobile browser journey that feeds a physical-style ringdown through the microphone interface and requires the real acquisition, analysis, reveal, listening, playable-instrument, share-download, and strike-again flow to complete. Playback is single-source for sample auditions, recovers suspended browser audio contexts on user interaction, silences sample and realtime voices on reset/background/disposal, and exposes user-facing recovery instead of raw browser errors. Render failures fall back to an explicit reload surface instead of an empty page.
+
 The empirical release gates remain open until representative physical and perceptual evidence passes their frozen contracts. Gate A2 defines each physical-session experiment as the first five acquisition-quality-passing attempts. Once an attempt qualifies, its analytical outcome is immutable: a failed analysis occupies its slot and cannot be retried away. Evidence schema v5 records those success/failure outcomes explicitly, stamps the exact software commit that produced each bundle, and recomputes recurrence from retained fingerprints with attempt 1 fixed as the reference.
 
 Every physical validation object also receives a stable `specimenId`. That identity, not a display label, defines release distinctness and links repeated sessions of the same physical specimen. Relabeling an object cannot manufacture another release specimen. An analysis-worker crash or other true internal session error terminates the current validation session; subsequent capture uses a new session ID and retains the specimen ID when the same object is tested again.
@@ -22,6 +24,8 @@ The campaign author creates a frozen `empirical-campaign-1` manifest from real p
 - Physical quantities include units in identifiers.
 - Microphone PCM remains local in MVP-0.
 - Consumer capture playback is local and never substitutes for blinded reconstruction evidence.
+- Consumer sample auditions do not overlap; a new sample playback replaces the previous sample playback.
+- Reset, stop, page backgrounding, and resource disposal silence sample playback and realtime voices.
 - Reconstruction synthesizes estimated modes; recorded audio is not mixed into the model output.
 - Ringdown visualization evaluates the fitted modal decay envelopes and adds no new analytical estimate.
 - Realtime notes preserve one global modal frequency ratio and the measured decay constants.
