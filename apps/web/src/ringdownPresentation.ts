@@ -20,6 +20,21 @@ function assertElapsedSeconds(elapsedSeconds: number): void {
   }
 }
 
+export function animationElapsedSeconds(
+  startedAtMs: number,
+  frameTimestampMs: number,
+  maximumElapsedSeconds: number,
+): number {
+  if (!Number.isFinite(startedAtMs) || !Number.isFinite(frameTimestampMs)) {
+    throw new RangeError("animation timestamps must be finite");
+  }
+  if (!(maximumElapsedSeconds >= 0) || !Number.isFinite(maximumElapsedSeconds)) {
+    throw new RangeError("maximumElapsedSeconds must be finite and non-negative");
+  }
+  const elapsedSeconds = Math.max(0, (frameTimestampMs - startedAtMs) / 1000);
+  return Math.min(maximumElapsedSeconds, elapsedSeconds);
+}
+
 export function modeEnvelopeFractionAtTime(
   decaySeconds: number,
   elapsedSeconds: number,

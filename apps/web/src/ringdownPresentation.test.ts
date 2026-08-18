@@ -6,6 +6,7 @@ import {
 } from "@everything-rings/dsp";
 import { describe, expect, it } from "vitest";
 import {
+  animationElapsedSeconds,
   captureRingdownAuditionSamples,
   modeEnvelopeFractionAtTime,
   modeRelativeEnvelopeAtTime,
@@ -57,6 +58,12 @@ describe("ringdown presentation", () => {
     expect(late?.modesAboveVisibleEnvelope).toBe(2);
   });
 
+  it("clamps an earlier first animation-frame timestamp to the strike boundary", () => {
+    expect(animationElapsedSeconds(100.5, 100, 2)).toBe(0);
+    expect(animationElapsedSeconds(100, 350, 2)).toBeCloseTo(0.25, 12);
+    expect(animationElapsedSeconds(100, 3100, 2)).toBe(2);
+  });
+
   it("reuses the deterministic DSP ringdown isolation for capture audition", () => {
     const samples = new Float32Array(200);
     samples[80] = 1;
@@ -80,6 +87,8 @@ describe("ringdown presentation", () => {
   it("rejects invalid physical timing and peak inputs", () => {
     expect(() => modeEnvelopeFractionAtTime(0, 1)).toThrow(RangeError);
     expect(() => modeEnvelopeFractionAtTime(1, -1)).toThrow(RangeError);
+    expect(() => animationElapsedSeconds(Number.NaN, 1, 1)).toThrow(RangeError);
+    expect(() => animationElapsedSeconds(0, 1, -1)).toThrow(RangeError);
     expect(() => captureRingdownAuditionSamples({ samples: new Float32Array(8), sampleRate: 48_000, triggerSample: 9 })).toThrow(RangeError);
     expect(() => peakMatchSamples(new Float32Array([1]), 0)).toThrow(RangeError);
   });

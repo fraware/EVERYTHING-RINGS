@@ -62,4 +62,7 @@ check_route "/?campaign-author=1&release=1" "Empirical release gates" "release-a
 check_route "/?campaign-author=1&campaign=1" "Freeze the experiment before the first strike." "author-precedence"
 check_route "/?campaign=1&lab=1" "Precommitted physical collection" "campaign-precedence"
 
-echo "Browser smoke tests passed for consumer, lab, campaign authoring, campaign collection, release, and route precedence."
+echo "Browser route smoke tests passed."
+BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/consumer-e2e.mjs
+BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/permission-e2e.mjs
+BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/mobile-surfaces-e2e.mjs

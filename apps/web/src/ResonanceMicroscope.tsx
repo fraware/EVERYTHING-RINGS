@@ -10,6 +10,7 @@ import {
   summarizeResonances,
 } from "./resonancePresentation";
 import {
+  animationElapsedSeconds,
   RINGDOWN_VISIBLE_ENVELOPE_FRACTION,
   summarizeRingdownAtTime,
 } from "./ringdownPresentation";
@@ -50,8 +51,12 @@ export function ResonanceMicroscope({ fingerprint, onHearMode, onHearAll, onHear
     setElapsedSeconds(0);
     onHearAll();
     const startedAtMs = performance.now();
-    const advance = (nowMs: number): void => {
-      const nextElapsedSeconds = Math.min(maximumElapsedSeconds, (nowMs - startedAtMs) / 1000);
+    const advance = (frameTimestampMs: number): void => {
+      const nextElapsedSeconds = animationElapsedSeconds(
+        startedAtMs,
+        frameTimestampMs,
+        maximumElapsedSeconds,
+      );
       setElapsedSeconds(nextElapsedSeconds);
       if (nextElapsedSeconds < maximumElapsedSeconds) {
         animationFrame.current = requestAnimationFrame(advance);
