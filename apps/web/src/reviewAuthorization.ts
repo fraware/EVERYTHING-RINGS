@@ -8,6 +8,14 @@ export type ReviewAuthorizationResult =
   | { readonly ok: true; readonly target: ReviewTarget }
   | { readonly ok: false; readonly error: string };
 
+const SOFTWARE_REVISION_PATTERN = /^[0-9a-f]{40}$/;
+
+function currentSoftwareRevision(): string {
+  return ((import.meta as ImportMeta & {
+    readonly env?: { readonly VITE_SOFTWARE_REVISION?: string };
+  }).env?.VITE_SOFTWARE_REVISION ?? "").trim();
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -16,7 +24,17 @@ function normalized(value: string): string {
   return value.trim().toLocaleLowerCase("en-US");
 }
 
-function exactReleaseContext(value: unknown, evidence: ValidationEvidenceV5): Record<string, unknown> {
+function exactReleaseContext(
+  value: unknown,
+  evidence: ValidationEvidenceV5,
+  runningSoftwareRevision: string,
+): Record<string, unknown> {
+  if (!SOFTWARE_REVISION_PATTERN.test(runningSoftwareRevision)) {
+    throw new TypeError("running review build is unstamped");
+  }
+  if (evidence.softwareRevision !== runningSoftwareRevision) {
+    throw new TypeError("evidence software revision does not match the running review build");
+  }
   if (!isRecord(value)) throw new TypeError("release verdict must be an object");
   if (value.schemaVersion !== 1) throw new TypeError("release verdict schemaVersion must be 1");
   if (value.softwareRevision !== evidence.softwareRevision) {
@@ -58,9 +76,10 @@ function exactGateATarget(release: Record<string, unknown>, evidence: Validation
 export function authorizeGateBReview(
   releaseVerdict: unknown,
   evidence: ValidationEvidenceV5,
+  runningSoftwareRevision = currentSoftwareRevision(),
 ): ReviewAuthorizationResult {
   try {
-    const release = exactReleaseContext(releaseVerdict, evidence);
+    const release = exactReleaseContext(releaseVerdict, evidence, runningSoftwareRevision);
     return { ok: true, target: exactGateATarget(release, evidence) };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -70,9 +89,10 @@ export function authorizeGateBReview(
 export function authorizeGateCReview(
   releaseVerdict: unknown,
   evidence: ValidationEvidenceV5,
+  runningSoftwareRevision = currentSoftwareRevision(),
 ): ReviewAuthorizationResult {
   try {
-    const release = exactReleaseContext(releaseVerdict, evidence);
+    const release = exactReleaseContext(releaseVerdict, evidence, runningSoftwareRevision);
     const target = exactGateATarget(release, evidence);
     const gateB = release.gateB;
     if (!isRecord(gateB) || gateB.passed !== true || !Array.isArray(gateB.objects)) {
