@@ -18,6 +18,7 @@ import {
   type CampaignBoundSetup,
 } from "./campaignBinding";
 import { failureCopy } from "./failureCopy";
+import { createGateBListeningCompanion } from "./gateBListeningCompanion";
 import { useStrikeSession } from "./useStrikeSession";
 import "./campaignCollection.css";
 
@@ -39,6 +40,10 @@ function downloadJson(filename: string, value: unknown): void {
   URL.revokeObjectURL(url);
 }
 
+function safeSpecimenId(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "specimen";
+}
+
 function ModeSummary({ modes }: { readonly modes: readonly AcousticMode[] }) {
   return <div className="campaign-mode-list" aria-label="Estimated acoustic modes">
     {modes.map((mode, index) => <span key={`${mode.frequencyHz}-${index}`}>
@@ -56,6 +61,9 @@ export function CampaignCollectionApp() {
   const [selectedSessionOrdinal, setSelectedSessionOrdinal] = useState(1);
   const [activeSetup, setActiveSetup] = useState<CampaignBoundSetup>();
   const [sessionId, setSessionId] = useState(createSessionId);
+  const [evidenceExported, setEvidenceExported] = useState(false);
+  const [listeningCompanionExported, setListeningCompanionExported] = useState(false);
+  const [exportError, setExportError] = useState<string>();
 
   const selectedSpecimen = useMemo(
     () => campaign === undefined ? undefined : findCampaignSpecimen(campaign, selectedSpecimenId),
@@ -122,6 +130,9 @@ export function CampaignCollectionApp() {
     if (!canArm || selectedSpecimen === undefined) return;
     setActiveSetup(setupFromCampaignSpecimen(selectedSpecimen));
     setSessionId(createSessionId());
+    setEvidenceExported(false);
+    setListeningCompanionExported(false);
+    setExportError(undefined);
     void session.start();
   }
 
@@ -151,9 +162,8 @@ export function CampaignCollectionApp() {
   function exportEvidence(): void {
     const report = evidence(new Date().toISOString());
     if (report === undefined || report.attempts.length === 0) return;
-    const safeSpecimen = report.object.specimenId.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     downloadJson(
-      `everything-rings-${safeSpecimen}-session-${selectedSessionOrdinal}-${Date.now()}.json`,
+      `everything-rings-${safeSpecimenId(report.object.specimenId)}-session-${selectedSessionOrdinal}-${Date.now()}.json`,
       {
         ...report,
         campaignContext: campaign === undefined ? null : {
@@ -166,16 +176,71 @@ export function CampaignCollectionApp() {
         },
       },
     );
+    setEvidenceExported(true);
+    setExportError(undefined);
+  }
+
+  async function exportListeningCompanion(): Promise<void> {
+    const capture = session.capture;
+    const fingerprint = session.fingerprint;
+    const report = evidence(new Date().toISOString());
+    if (
+      report === undefined
+      || gateAVerdict?.passed !== true
+      || gateAVerdict.reviewAttemptId === null
+      || capture === undefined
+      || fingerprint === undefined
+    ) return;
+    try {
+      const companion = await createGateBListeningCompanion(
+        report,
+        capture.samples,
+        capture.sampleRate,
+        fingerprint,
+        new Date().toISOString(),
+      );
+      downloadJson(
+        `everything-rings-${safeSpecimenId(report.object.specimenId)}-session-${selectedSessionOrdinal}-gate-b-companion-${Date.now()}.json`,
+        companion,
+      );
+      setListeningCompanionExported(true);
+      setExportError(undefined);
+    } catch (error) {
+      setListeningCompanionExported(false);
+      setExportError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  function resetAttempt(): void {
+    setEvidenceExported(false);
+    setListeningCompanionExported(false);
+    setExportError(undefined);
+    session.reset();
   }
 
   function closePlannedSession(): void {
+    const requiresCompanion = gateAVerdict?.passed === true;
+    if (!evidenceExported || (requiresCompanion && !listeningCompanionExported)) return;
     session.stop();
     setActiveSetup(undefined);
     setSessionId(createSessionId());
+    setEvidenceExported(false);
+    setListeningCompanionExported(false);
+    setExportError(undefined);
   }
 
   const canStartNextAttempt = (session.state === "success" || session.state === "failure") && !attemptLimitReached;
   const activeFingerprint = session.fingerprint;
+  const passingTargetAvailable = attemptLimitReached
+    && gateAVerdict?.passed === true
+    && gateAVerdict.reviewAttemptId !== null
+    && session.capture !== undefined
+    && session.fingerprint !== undefined;
+  const passingExportsComplete = evidenceExported && listeningCompanionExported;
+  const closeReady = activeSetup !== undefined
+    && evidenceExported
+    && (gateAVerdict?.passed !== true || listeningCompanionExported);
+  const stopWouldLoseRequiredTarget = passingTargetAvailable && !passingExportsComplete;
 
   return <main className="shell campaign-collection-shell">
     <header>
@@ -233,27 +298,30 @@ export function CampaignCollectionApp() {
           {session.state === "idle" && activeSetup === undefined && campaign !== undefined && selectedSpecimen === undefined && "Select one planned physical specimen."}
           {session.state === "idle" && activeSetup === undefined && selectedSpecimen !== undefined && revisionMatches && "Verify the physical setup, then arm this planned session."}
           {session.state === "idle" && activeSetup === undefined && selectedSpecimen !== undefined && !revisionMatches && "Collection is blocked because the software revision does not match the manifest."}
-          {session.state === "idle" && activeSetup !== undefined && "Session stopped. Export retained evidence before closing this planned session."}
+          {session.state === "idle" && activeSetup !== undefined && "Session stopped. Required exports must be complete before this planned session can close."}
           {session.state === "warming" && "Measuring the room noise floor…"}
           {session.state === "armed" && `Ready for qualified attempt ${Math.min(5, session.attempts.length + 1)}. Strike exactly as precommitted.`}
           {session.state === "capturing" && "Capturing the decay…"}
           {session.state === "analyzing" && "Qualified attempt locked. Running deterministic analysis…"}
           {session.state === "success" && !attemptLimitReached && `${activeFingerprint?.modes.length ?? 0} resonances found. This outcome is retained.`}
-          {session.state === "success" && attemptLimitReached && (gateAVerdict?.passed ? "Five qualified attempts complete. This planned session passes Gate A2." : "Five qualified attempts complete. This planned session remains a campaign result and cannot be replaced.")}
+          {session.state === "success" && attemptLimitReached && (gateAVerdict?.passed ? "Five qualified attempts complete. Export evidence and the local Gate B companion before stopping." : "Five qualified attempts complete. This planned session remains a campaign result and cannot be replaced.")}
           {(session.state === "failure" || session.state === "error") && failureCopy(session.failureReason)}
         </p>
       </div>
       <div className="actions">
         {session.state === "idle" && activeSetup === undefined ? <button disabled={!canArm} onClick={armSelectedSession}>ARM PLANNED SESSION</button> : null}
-        {session.state !== "idle" ? <button disabled={!canStartNextAttempt} onClick={session.reset}>NEW QUALIFIED ATTEMPT</button> : null}
-        {activeSetup !== undefined && session.attempts.length > 0 ? <button onClick={exportEvidence}>EXPORT EVIDENCE</button> : null}
-        {session.state !== "idle" ? <button className="secondary" onClick={session.stop}>STOP</button> : null}
-        {session.state === "idle" && activeSetup !== undefined ? <button className="secondary" onClick={closePlannedSession}>CLOSE PLANNED SESSION</button> : null}
+        {session.state !== "idle" ? <button disabled={!canStartNextAttempt} onClick={resetAttempt}>NEW QUALIFIED ATTEMPT</button> : null}
+        {activeSetup !== undefined && session.attempts.length > 0 ? <button onClick={exportEvidence}>{evidenceExported ? "EVIDENCE EXPORTED" : "EXPORT EVIDENCE"}</button> : null}
+        {passingTargetAvailable ? <button onClick={() => { void exportListeningCompanion(); }}>{listeningCompanionExported ? "COMPANION EXPORTED" : "EXPORT LOCAL GATE B COMPANION"}</button> : null}
+        {session.state !== "idle" ? <button className="secondary" disabled={stopWouldLoseRequiredTarget} onClick={session.stop}>STOP</button> : null}
+        {session.state === "idle" && activeSetup !== undefined ? <button className="secondary" disabled={!closeReady} onClick={closePlannedSession}>CLOSE PLANNED SESSION</button> : null}
       </div>
     </section>
 
+    {exportError !== undefined ? <p className="campaign-error" role="alert">Listening companion export failed: {exportError}</p> : null}
     {session.state === "error" ? <p className="validation-note">Internal session failure terminates this physical session. Export every retained attempt. A restart with the same specimen creates another session and will remain visible to campaign accounting.</p> : null}
     {attemptLimitReached && !gateAVerdict?.passed ? <p className="validation-note">Do not collect a sixth attempt and do not substitute another object. Export this result exactly as observed.</p> : null}
+    {passingTargetAvailable ? <p className="validation-note">The local Gate B companion contains the exact attempt-5 microphone samples and stays outside validation evidence. Keep it local, hash it in the operator ledger, and never import it into the Release Console. Stopping is blocked until both required exports have been invoked.</p> : null}
 
     {activeSetup !== undefined ? <section className="campaign-session-status">
       <div className="release-card-head"><div><p className="eyebrow">ACTIVE PRECOMMITMENT</p><h2>{activeSetup.object.label}</h2></div><span className="gate-verdict">SESSION {selectedSessionOrdinal} / {activeSetup.targetSessions}</span></div>
@@ -264,6 +332,8 @@ export function CampaignCollectionApp() {
         <div><span>MEDIAN DRIFT</span><strong>{drift === null ? "—" : `${drift.toFixed(1)}¢`}</strong></div>
         <div><span>GATE A2</span><strong>{attemptLimitReached ? gateAVerdict?.passed ? "PASS" : "OPEN" : "COLLECTING"}</strong></div>
         <div><span>SNR</span><strong>{session.quality === undefined ? "—" : `${session.quality.snrDb.toFixed(1)} dB`}</strong></div>
+        <div><span>EVIDENCE EXPORT</span><strong>{evidenceExported ? "DONE" : "PENDING"}</strong></div>
+        <div><span>GATE B COMPANION</span><strong>{gateAVerdict?.passed ? listeningCompanionExported ? "DONE" : "PENDING" : "NOT ELIGIBLE"}</strong></div>
       </div>
     </section> : null}
 
@@ -273,6 +343,6 @@ export function CampaignCollectionApp() {
       <ModeSummary modes={activeFingerprint.modes} />
     </section> : null}
 
-    <footer className="campaign-collector-footer"><a href="?lab=1">general validation lab</a><a href="?release=1">release console</a></footer>
+    <footer className="campaign-collector-footer"><a href="?lab=1">general validation lab</a><a href="?release=1">release console</a><a href="?gate-b=1">Gate B review</a><a href="?gate-c=1">Gate C review</a></footer>
   </main>;
 }
