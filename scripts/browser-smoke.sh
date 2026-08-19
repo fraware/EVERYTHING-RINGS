@@ -71,3 +71,54 @@ BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/consumer-e2e.mjs
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/permission-e2e.mjs
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/mobile-surfaces-e2e.mjs
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" VITE_SOFTWARE_REVISION="${VITE_SOFTWARE_REVISION:-}" node scripts/post-collection-review-e2e.mjs
+
+# Disposable hosted-v6 qualification. This branch is never merged.
+LIVE_BASE_URL="https://fraware.github.io/EVERYTHING-RINGS"
+EXPECTED_REVISION="579ae35ceccacc24b4b0a9ce5744e3a2bf3159b0"
+
+curl --fail --location --silent --show-error "${LIVE_BASE_URL}/" >/dev/null
+
+check_hosted_route() {
+  local path="$1"
+  local expected="$2"
+  local name="$3"
+  local output="/tmp/everything-rings-hosted-${name}.html"
+  "$BROWSER" \
+    --headless=new \
+    --no-sandbox \
+    --disable-gpu \
+    --disable-dev-shm-usage \
+    --virtual-time-budget=5000 \
+    --dump-dom "${LIVE_BASE_URL}${path}" >"$output" 2>"/tmp/everything-rings-hosted-${name}.browser.log"
+  if ! grep -Fq "$expected" "$output"; then
+    echo "Hosted qualification failed for ${path}; expected text: ${expected}" >&2
+    cat "$output" >&2
+    cat "/tmp/everything-rings-hosted-${name}.browser.log" >&2
+    exit 1
+  fi
+}
+
+check_hosted_route "/" "Hit anything." "consumer"
+check_hosted_route "/?lab=1" "Acoustic analysis lab" "lab"
+check_hosted_route "/?campaign-author=1" "Freeze the experiment before the first strike." "campaign-author"
+check_hosted_route "/?campaign=1" "Precommitted physical collection" "campaign"
+check_hosted_route "/?release=1" "Empirical release gates" "release"
+check_hosted_route "/?gate-b=1" "Post-collection blinded reconstruction" "gate-b"
+check_hosted_route "/?gate-c=1" "Post-Gate-B playable identity" "gate-c"
+
+if ! grep -Fq "software revision ${EXPECTED_REVISION}" /tmp/everything-rings-hosted-lab.html; then
+  echo "Hosted lab does not report the frozen v6 revision" >&2
+  cat /tmp/everything-rings-hosted-lab.html >&2
+  exit 1
+fi
+if ! grep -Fq "${EXPECTED_REVISION}" /tmp/everything-rings-hosted-campaign-author.html; then
+  echo "Hosted campaign author does not report the frozen v6 revision" >&2
+  cat /tmp/everything-rings-hosted-campaign-author.html >&2
+  exit 1
+fi
+
+echo "Hosted static route and revision checks passed."
+BROWSER="$BROWSER" BASE_URL="$LIVE_BASE_URL" node scripts/consumer-e2e.mjs
+BROWSER="$BROWSER" BASE_URL="$LIVE_BASE_URL" VITE_SOFTWARE_REVISION="$EXPECTED_REVISION" node scripts/post-collection-review-e2e.mjs
+
+echo "Hosted v6 qualification passed."
