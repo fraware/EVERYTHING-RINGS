@@ -22,6 +22,26 @@ const fingerprint = {
 };
 
 const quality = { score: 1, snrDb: 30, clippedFraction: 0, peakAmplitude: 0.2, secondaryTransientRatio: 0.1 };
+const attempts = Array.from({ length: 5 }, (_, index) => ({
+  id: index + 1,
+  quality,
+  analysis: { status: "success", fingerprint },
+}));
+const identicalRecurrenceMatches = fingerprint.modes.map((mode, index) => ({
+  referenceIndex: index,
+  candidateIndex: index,
+  referenceFrequencyHz: mode.frequencyHz,
+  candidateFrequencyHz: mode.frequencyHz,
+  distanceCents: 0,
+}));
+const recurrence = [2, 3, 4, 5].map((attemptId) => ({
+  attemptId,
+  medianCents: 0,
+  meanCents: 0,
+  matchedCount: fingerprint.modes.length,
+  unmatchedReferenceCount: 0,
+  matches: identicalRecurrenceMatches,
+}));
 const evidence = {
   schemaVersion: 5,
   evidenceContractVersion: "validation-evidence-5",
@@ -35,8 +55,8 @@ const evidence = {
   realtimeAudioTiming: null,
   attemptCount: 5,
   medianModalDriftCents: 0,
-  recurrence: [],
-  attempts: Array.from({ length: 5 }, (_, index) => ({ id: index + 1, quality, analysis: { status: "success", fingerprint } })),
+  recurrence,
+  attempts,
   gateBReviews: [],
   gateCReviews: [],
   rawMicrophoneSamplesIncluded: false,
@@ -217,7 +237,10 @@ try {
 
   await navigate("/?gate-b=1", "Post-collection blinded reconstruction");
   await importJsonFile(0, "gate-a-release.json", gateARelease);
+  await waitFor(`document.body?.innerText.includes("gate-a-release.json") ?? false`, "Gate A release import");
   await importJsonFile(1, "evidence.json", evidence);
+  await waitFor(`document.body?.innerText.includes("evidence.json") ?? false`, "evidence import");
+  await waitFor(`document.body?.innerText.includes("authorized target ${evidence.sessionId} / attempt 5") ?? false`, "Gate B upstream authorization");
   await importJsonFile(2, "tampered-companion.json", tamperedCompanion);
   await waitFor(`document.body?.innerText.includes("audio payload SHA-256 does not match") ?? false`, "tampered companion rejection");
   await importJsonFile(2, "companion.json", companion);
@@ -231,7 +254,9 @@ try {
 
   await navigate("/?gate-c=1", "Post-Gate-B playable identity");
   await importJsonFile(0, "wrong-gate-b-release.json", wrongGateBRelease);
+  await waitFor(`document.body?.innerText.includes("wrong-gate-b-release.json") ?? false`, "wrong Gate B release import");
   await importJsonFile(1, "evidence.json", evidence);
+  await waitFor(`document.body?.innerText.includes("evidence.json") ?? false`, "Gate C evidence import");
   await waitFor(`document.body?.innerText.includes("does not inherit the canonical Gate B target") ?? false`, "Gate C target substitution rejection");
   await importJsonFile(0, "gate-b-release.json", gateBRelease);
   await waitFor(`document.body?.innerText.includes("authorized target ${evidence.sessionId} / attempt 5") ?? false`, "Gate C exact target authorization");
