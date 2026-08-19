@@ -4,6 +4,7 @@ import { ConsumerApp } from "./ConsumerApp";
 import { LabApp } from "./LabApp";
 import { PostCollectionReviewApp } from "./PostCollectionReviewApp";
 import { ReleaseApp } from "./ReleaseApp";
+import "./postCollectionReview.css";
 
 export function App() {
   const params = new URLSearchParams(window.location.search);
