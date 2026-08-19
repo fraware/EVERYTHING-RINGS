@@ -58,11 +58,16 @@ fi
 check_route "/?campaign-author=1" "Freeze the experiment before the first strike." "campaign-author"
 check_route "/?campaign=1" "Precommitted physical collection" "campaign"
 check_route "/?release=1" "Empirical release gates" "release"
+check_route "/?gate-b=1" "Post-collection blinded reconstruction" "gate-b"
+check_route "/?gate-c=1" "Post-Gate-B playable identity" "gate-c"
 check_route "/?campaign-author=1&release=1" "Empirical release gates" "release-author-precedence"
+check_route "/?gate-b=1&release=1" "Empirical release gates" "release-review-precedence"
 check_route "/?campaign-author=1&campaign=1" "Freeze the experiment before the first strike." "author-precedence"
 check_route "/?campaign=1&lab=1" "Precommitted physical collection" "campaign-precedence"
+check_route "/?gate-b=1&campaign=1" "Post-collection blinded reconstruction" "review-campaign-precedence"
 
 echo "Browser route smoke tests passed."
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/consumer-e2e.mjs
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/permission-e2e.mjs
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/mobile-surfaces-e2e.mjs
+BROWSER="$BROWSER" BASE_URL="$BASE_URL" VITE_SOFTWARE_REVISION="${VITE_SOFTWARE_REVISION:-}" node scripts/post-collection-review-e2e.mjs
