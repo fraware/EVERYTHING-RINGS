@@ -282,5 +282,10 @@ try {
 } finally {
   try { socket.close(); } catch { /* already closed */ }
   await terminateChrome();
-  rmSync(workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  try {
+    rmSync(workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.warn(`Browser profile cleanup deferred after completed consumer assertions: ${detail}`);
+  }
 }
