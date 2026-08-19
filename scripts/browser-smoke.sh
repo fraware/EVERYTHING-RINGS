@@ -70,3 +70,4 @@ echo "Browser route smoke tests passed."
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/consumer-e2e.mjs
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/permission-e2e.mjs
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/mobile-surfaces-e2e.mjs
+BROWSER="$BROWSER" BASE_URL="$BASE_URL" VITE_SOFTWARE_REVISION="${VITE_SOFTWARE_REVISION:-}" node scripts/post-collection-review-e2e.mjs
