@@ -30,6 +30,8 @@ const KEYBOARD_NOTES = [
   { midi: 72, label: "C5" },
 ] as const;
 
+type ImportSource = "release" | "evidence" | "companion";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -63,7 +65,10 @@ function safeFilePart(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "review";
 }
 
-function targetFingerprint(evidence: ValidationEvidenceV5 | undefined, target: ReviewTarget | undefined): AcousticFingerprintV1 | undefined {
+function targetFingerprint(
+  evidence: ValidationEvidenceV5 | undefined,
+  target: ReviewTarget | undefined,
+): AcousticFingerprintV1 | undefined {
   if (evidence === undefined || target === undefined || evidence.sessionId !== target.sessionId) return undefined;
   const attempt = evidence.attempts.find((candidate) => candidate.id === target.attemptId);
   return attempt?.analysis.status === "success" ? attempt.analysis.fingerprint : undefined;
@@ -91,7 +96,7 @@ export function PostCollectionReviewApp({ mode }: { readonly mode: "gate-b" | "g
   const [companionSamples, setCompanionSamples] = useState<Float32Array>();
   const [companionFilename, setCompanionFilename] = useState<string>();
   const [companionBinding, setCompanionBinding] = useState<{ readonly ok: boolean; readonly error?: string }>();
-  const [importError, setImportError] = useState<string>();
+  const [importErrors, setImportErrors] = useState<Partial<Record<ImportSource, string>>>({});
   const [playbackFailure, setPlaybackFailure] = useState<string>();
   const audio = useRef<{ readonly key: string; readonly controller: PostCollectionReviewAudioController } | undefined>(undefined);
 
@@ -117,6 +122,16 @@ export function PostCollectionReviewApp({ mode }: { readonly mode: "gate-b" | "g
   }, [mode, evidence, releaseVerdict]);
   const target = authorization?.ok ? authorization.target : undefined;
   const fingerprint = targetFingerprint(evidence, target);
+  const visibleImportErrors = Object.values(importErrors).filter((value): value is string => value !== undefined);
+
+  function setImportError(source: ImportSource, error: string | undefined): void {
+    setImportErrors((current) => {
+      const next = { ...current };
+      if (error === undefined) delete next[source];
+      else next[source] = error;
+      return next;
+    });
+  }
 
   function disposeAudio(): void {
     audio.current?.controller.dispose();
@@ -175,7 +190,7 @@ export function PostCollectionReviewApp({ mode }: { readonly mode: "gate-b" | "g
     if (file === undefined) return;
     const parsed = parseValidationEvidenceJson(await file.text());
     if (!parsed.ok) {
-      setImportError(`${file.name}: ${parsed.error}`);
+      setImportError("evidence", `${file.name}: ${parsed.error}`);
       return;
     }
     disposeAudio();
@@ -187,7 +202,7 @@ export function PostCollectionReviewApp({ mode }: { readonly mode: "gate-b" | "g
     setCompanionBinding(undefined);
     setPresentationOrder(undefined);
     setPlaybackFailure(undefined);
-    setImportError(undefined);
+    setImportError("evidence", undefined);
   }
 
   async function importReleaseVerdict(file: File | undefined): Promise<void> {
@@ -198,9 +213,9 @@ export function PostCollectionReviewApp({ mode }: { readonly mode: "gate-b" | "g
       setReleaseVerdict(value);
       setReleaseFilename(file.name);
       setPresentationOrder(undefined);
-      setImportError(undefined);
+      setImportError("release", undefined);
     } catch (error) {
-      setImportError(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
+      setImportError("release", `${file.name}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -208,7 +223,7 @@ export function PostCollectionReviewApp({ mode }: { readonly mode: "gate-b" | "g
     if (file === undefined) return;
     const parsed = await parseGateBListeningCompanionJson(await file.text());
     if (!parsed.ok) {
-      setImportError(`${file.name}: ${parsed.error}`);
+      setImportError("companion", `${file.name}: ${parsed.error}`);
       setCompanion(undefined);
       setCompanionSamples(undefined);
       setCompanionFilename(undefined);
@@ -217,7 +232,7 @@ export function PostCollectionReviewApp({ mode }: { readonly mode: "gate-b" | "g
     setCompanion(parsed.companion);
     setCompanionSamples(parsed.samples);
     setCompanionFilename(file.name);
-    setImportError(undefined);
+    setImportError("companion", undefined);
   }
 
   function runAudio(action: (player: PostCollectionReviewAudioController) => Promise<boolean>): void {
@@ -362,7 +377,7 @@ export function PostCollectionReviewApp({ mode }: { readonly mode: "gate-b" | "g
         {mode === "gate-b" ? <label className="file-button">IMPORT LOCAL COMPANION<input type="file" accept="application/json,.json" onChange={(event) => { void importCompanion(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} /></label> : null}
         <button className="secondary" disabled={evidence === undefined} onClick={exportReviewedEvidence}>EXPORT REVIEWED EVIDENCE</button>
       </div>
-      {importError !== undefined ? <p className="import-errors" role="alert">{importError}</p> : null}
+      {visibleImportErrors.length > 0 ? <div className="import-errors" role="alert"><ul>{visibleImportErrors.map((error) => <li key={error}>{error}</li>)}</ul></div> : null}
       <div className="review-provenance-grid">
         <div><span>RELEASE VERDICT</span><strong>{releaseFilename ?? "—"}</strong></div>
         <div><span>EVIDENCE</span><strong>{evidenceFilename ?? "—"}</strong></div>
