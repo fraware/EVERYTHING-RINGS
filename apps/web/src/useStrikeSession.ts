@@ -28,6 +28,11 @@ import {
   type QualifiedAttempt,
   type QualifiedAttemptLedger,
 } from "./qualifiedAttemptLedger";
+import {
+  OpeningSessionResources,
+  SessionLifecycleGeneration,
+  ownsSessionResources,
+} from "./sessionLifecycle";
 import { microphoneStartFailureCopy, playbackFailureCopy } from "./sessionErrors";
 
 export type StrikeSessionState =
@@ -91,6 +96,9 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
   const [playbackFailure, setPlaybackFailure] = useState<string>();
   const [audioTiming, setAudioTiming] = useState<RealtimeAudioTiming>();
   const resources = useRef<SessionResources | undefined>(undefined);
+  const pendingStartup = useRef<OpeningSessionResources | undefined>(undefined);
+  const lifecycle = useRef(new SessionLifecycleGeneration());
+  const stateRef = useRef<StrikeSessionState>("idle");
   const requestId = useRef(0);
   const attemptLedger = useRef<QualifiedAttemptLedger>(createQualifiedAttemptLedger());
   const instrumentPreparation = useRef<Promise<void> | undefined>(undefined);
@@ -98,6 +106,11 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
   const nextInstrumentEventId = useRef(1);
   const pendingInstrumentEvents = useRef(new Map<number, number>());
   const maximumQualifiedAttempts = options.maximumQualifiedAttempts;
+
+  function transitionState(next: StrikeSessionState): void {
+    stateRef.current = next;
+    setState(next);
+  }
 
   function syncLedger(next: QualifiedAttemptLedger): void {
     attemptLedger.current = next;
@@ -151,6 +164,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
           outputChannelCount: [1],
         });
         node.port.onmessage = (event: MessageEvent<ModalInstrumentWorkletEvent>) => {
+          if (resources.current !== current) return;
           if (event.data.type !== "NOTE_STARTED") return;
           const sentContextTime = pendingInstrumentEvents.current.get(event.data.eventId);
           if (sentContextTime === undefined) return;
@@ -195,69 +209,139 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     }
   }
 
-  function disposeResources(): void {
+  function disposeSessionResources(current: SessionResources | undefined, updateUi = true): void {
     instrumentGeneration.current += 1;
-    const current = resources.current;
     if (current === undefined) return;
-    current.playback.stop();
-    current.instrument?.port.postMessage({ type: "ALL_NOTES_OFF" });
-    current.instrument?.disconnect();
-    current.graph.disconnect();
-    current.microphone.stream.getTracks().forEach((track) => track.stop());
-    current.worker.terminate();
-    void current.context.close();
-    resources.current = undefined;
+    try { current.playback.stop(); } catch { /* playback already unavailable */ }
+    try { current.instrument?.port.postMessage({ type: "ALL_NOTES_OFF" }); } catch { /* port already unavailable */ }
+    try {
+      if (current.instrument !== undefined) current.instrument.port.onmessage = null;
+    } catch { /* port already unavailable */ }
+    try { current.instrument?.disconnect(); } catch { /* already disconnected */ }
+    try { current.graph.node.port.onmessage = null; } catch { /* port already unavailable */ }
+    try { current.worker.onmessage = null; } catch { /* worker already unavailable */ }
+    try { current.worker.onerror = null; } catch { /* worker already unavailable */ }
+    try { current.graph.disconnect(); } catch { /* already disconnected */ }
+    current.microphone.stream.getTracks().forEach((track) => {
+      try { track.stop(); } catch { /* already stopped */ }
+    });
+    try { current.worker.terminate(); } catch { /* already terminated */ }
+    try { void current.context.close().catch(() => undefined); } catch { /* already closed */ }
+    if (resources.current === current) resources.current = undefined;
     instrumentPreparation.current = undefined;
     pendingInstrumentEvents.current.clear();
-    setInstrumentReady(false);
+    if (updateUi) setInstrumentReady(false);
+  }
+
+  function supersedeLifecycle(): number {
+    const generation = lifecycle.current.begin();
+    const opening = pendingStartup.current;
+    pendingStartup.current = undefined;
+    opening?.dispose();
+    const current = resources.current;
+    resources.current = undefined;
+    disposeSessionResources(current);
+    return generation;
+  }
+
+  function invalidateLifecycle(updateUi = true): void {
+    lifecycle.current.invalidate();
+    const opening = pendingStartup.current;
+    pendingStartup.current = undefined;
+    opening?.dispose();
+    const current = resources.current;
+    resources.current = undefined;
+    disposeSessionResources(current, updateUi);
+  }
+
+  function clearPendingStartup(opening: OpeningSessionResources): void {
+    if (pendingStartup.current === opening) pendingStartup.current = undefined;
   }
 
   async function start(): Promise<void> {
-    let openingMicrophone: OpenedMicrophone | undefined;
-    let openingContext: AudioContext | undefined;
-    let openingGraph: CaptureGraph | undefined;
-    let openingWorker: Worker | undefined;
+    const generation = supersedeLifecycle();
+    const opening = new OpeningSessionResources();
+    pendingStartup.current = opening;
+
+    requestId.current += 1;
+    const clearedLedger = clearQualifiedAttemptLedger();
+    attemptLedger.current = clearedLedger;
+    setAttempts([]);
+    setFailureReason(undefined);
+    setFingerprint(undefined);
+    setCapture(undefined);
+    setQuality(undefined);
+    setInstrumentFailure(undefined);
+    setPlaybackFailure(undefined);
+    setAudioTiming(undefined);
+    transitionState("warming");
 
     try {
-      disposeResources();
-      requestId.current += 1;
-      const clearedLedger = clearQualifiedAttemptLedger();
-      attemptLedger.current = clearedLedger;
-      setAttempts([]);
-      setFailureReason(undefined);
-      setFingerprint(undefined);
-      setCapture(undefined);
-      setQuality(undefined);
-      setInstrumentFailure(undefined);
-      setPlaybackFailure(undefined);
-      setAudioTiming(undefined);
-      setState("warming");
+      const microphone = await openMicrophone();
+      if (!opening.attachMicrophone(microphone) || !lifecycle.current.owns(generation)) {
+        opening.dispose();
+        clearPendingStartup(opening);
+        return;
+      }
 
-      openingMicrophone = await openMicrophone();
-      openingContext = new AudioContext();
-      await openingContext.resume();
-      openingGraph = await createCaptureGraph(openingContext, openingMicrophone.stream, captureWorkletUrl);
-      openingWorker = new Worker(new URL("./analysis.worker.ts", import.meta.url), { type: "module" });
+      const context = new AudioContext();
+      if (!opening.attachContext(context) || !lifecycle.current.owns(generation)) {
+        opening.dispose();
+        clearPendingStartup(opening);
+        return;
+      }
 
-      const microphone = openingMicrophone;
-      const context = openingContext;
-      const graph = openingGraph;
-      const worker = openingWorker;
-      resources.current = {
-        context,
-        microphone,
-        graph,
-        worker,
-        playback: new SamplePlaybackController(context),
+      await context.resume();
+      if (!lifecycle.current.owns(generation)) {
+        opening.dispose();
+        clearPendingStartup(opening);
+        return;
+      }
+
+      const graph = await createCaptureGraph(context, microphone.stream, captureWorkletUrl);
+      if (!opening.attachGraph(graph) || !lifecycle.current.owns(generation)) {
+        opening.dispose();
+        clearPendingStartup(opening);
+        return;
+      }
+
+      const worker = new Worker(new URL("./analysis.worker.ts", import.meta.url), { type: "module" });
+      if (!opening.attachWorker(worker) || !lifecycle.current.owns(generation)) {
+        opening.dispose();
+        clearPendingStartup(opening);
+        return;
+      }
+
+      if (!lifecycle.current.owns(generation)) {
+        opening.dispose();
+        clearPendingStartup(opening);
+        return;
+      }
+      const playback = new SamplePlaybackController(context);
+      const claimed = opening.claim();
+      clearPendingStartup(opening);
+      if (claimed === undefined) {
+        opening.dispose();
+        throw new Error("Session startup could not claim complete resources");
+      }
+
+      const current: SessionResources = {
+        context: claimed.context,
+        microphone: claimed.microphone,
+        graph: claimed.graph,
+        worker: claimed.worker,
+        playback,
       };
-      setSettings(microphone.settings);
-      setAudioTiming(initialAudioTiming(context));
+      resources.current = current;
+      setSettings(current.microphone.settings);
+      setAudioTiming(initialAudioTiming(current.context));
 
-      graph.node.port.onmessage = (event: MessageEvent<CaptureWorkletEvent>) => {
+      current.graph.node.port.onmessage = (event: MessageEvent<CaptureWorkletEvent>) => {
+        if (!ownsSessionResources(lifecycle.current, generation, resources.current, current)) return;
         if (event.data.type === "STATE") {
-          if (event.data.state === "warming") setState("warming");
-          if (event.data.state === "armed") setState("armed");
-          if (event.data.state === "capturing") setState("capturing");
+          if (event.data.state === "warming") transitionState("warming");
+          if (event.data.state === "armed") transitionState("armed");
+          if (event.data.state === "capturing") transitionState("capturing");
           return;
         }
 
@@ -267,7 +351,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
         setQuality(assessment.quality);
         if (!assessment.ok) {
           setFailureReason(assessment.reason);
-          setState("failure");
+          transitionState("failure");
           return;
         }
 
@@ -282,39 +366,41 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
           );
         } catch (error) {
           setFailureReason(error instanceof Error ? error.message : String(error));
-          setState("error");
+          transitionState("error");
           return;
         }
 
-        setState("analyzing");
+        transitionState("analyzing");
         const samples = nextCapture.samples.slice();
-        worker.postMessage(
+        current.worker.postMessage(
           { type: "ANALYZE", requestId: id, samples, sampleRate: nextCapture.sampleRate },
           [samples.buffer],
         );
       };
 
-      worker.onmessage = (event: MessageEvent<AnalysisResponse>) => {
+      current.worker.onmessage = (event: MessageEvent<AnalysisResponse>) => {
+        if (!ownsSessionResources(lifecycle.current, generation, resources.current, current)) return;
         if (event.data.type === "FAILURE") {
           if (!settleCurrentAttempt(event.data.requestId, { status: "failure", reason: event.data.reason })) return;
           setFingerprint(undefined);
           setFailureReason(event.data.reason);
-          setState("failure");
+          transitionState("failure");
           return;
         }
 
         const nextFingerprint = event.data.fingerprint;
         if (!settleCurrentAttempt(event.data.requestId, { status: "success", fingerprint: nextFingerprint })) return;
         setFingerprint(nextFingerprint);
-        setState("success");
+        transitionState("success");
         void prepareInstrument(nextFingerprint);
       };
 
-      worker.onerror = () => {
+      current.worker.onerror = () => {
+        if (!ownsSessionResources(lifecycle.current, generation, resources.current, current)) return;
         const pendingRequest = attemptLedger.current.pending?.requestId;
         if (pendingRequest === undefined) {
           setFailureReason("Analysis stopped unexpectedly. Start the session again.");
-          setState("error");
+          transitionState("error");
           return;
         }
         settleCurrentAttempt(
@@ -324,19 +410,17 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
         requestId.current += 1;
         setFingerprint(undefined);
         setFailureReason("Analysis stopped unexpectedly. Start the session again.");
-        setState("error");
+        transitionState("error");
       };
     } catch (error) {
+      const stillCurrent = lifecycle.current.owns(generation);
+      opening.dispose();
+      clearPendingStartup(opening);
+      if (!stillCurrent) return;
       retainInterruptedQualifiedAttempt();
       requestId.current += 1;
-      if (resources.current === undefined) {
-        openingGraph?.disconnect();
-        openingWorker?.terminate();
-        openingMicrophone?.stream.getTracks().forEach((track) => track.stop());
-        if (openingContext !== undefined) void openingContext.close();
-      }
       setFailureReason(microphoneStartFailureCopy(error));
-      setState("error");
+      transitionState("error");
     }
   }
 
@@ -354,23 +438,23 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     setPlaybackFailure(undefined);
     const node = resources.current?.graph.node;
     if (node === undefined) {
-      setState("idle");
+      transitionState("idle");
       return;
     }
     if (maximumQualifiedAttempts !== undefined && attemptLedger.current.attempts.length >= maximumQualifiedAttempts) {
       setFailureReason(`Qualified attempt limit of ${maximumQualifiedAttempts} has been reached`);
-      setState("failure");
+      transitionState("failure");
       return;
     }
     node.port.postMessage({ type: "RESET" });
-    setState("warming");
+    transitionState("warming");
   }
 
   function stop(): void {
-    const alreadyIdle = state === "idle";
+    const alreadyIdle = stateRef.current === "idle";
     retainInterruptedQualifiedAttempt();
     requestId.current += 1;
-    disposeResources();
+    invalidateLifecycle();
     setCapture(undefined);
     setQuality(undefined);
     setFingerprint(undefined);
@@ -384,17 +468,18 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
       setSettings(undefined);
       setAudioTiming(undefined);
     }
-    setState("idle");
+    transitionState("idle");
   }
 
   async function play(samples: Float32Array, sampleRate: number): Promise<void> {
-    const playback = resources.current?.playback;
-    if (playback === undefined) return;
+    const current = resources.current;
+    const playback = current?.playback;
+    if (current === undefined || playback === undefined) return;
     setPlaybackFailure(undefined);
     try {
       await playback.play(samples, sampleRate);
     } catch {
-      setPlaybackFailure(playbackFailureCopy());
+      if (resources.current === current) setPlaybackFailure(playbackFailureCopy());
     }
   }
 
@@ -415,10 +500,13 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     setPlaybackFailure(undefined);
     if (current.context.state === "running") return postNote(current, midiNote, velocity);
     void current.context.resume().then(() => {
+      if (resources.current !== current) return;
       if (current.context.state !== "running" || !postNote(current, midiNote, velocity)) {
         setPlaybackFailure(playbackFailureCopy());
       }
-    }).catch(() => setPlaybackFailure(playbackFailureCopy()));
+    }).catch(() => {
+      if (resources.current === current) setPlaybackFailure(playbackFailureCopy());
+    });
     return true;
   }
 
@@ -431,7 +519,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
   }
 
   useEffect(() => {
-    const handlePageHide = (): void => silenceAudio();
+    const handlePageHide = (): void => stop();
     const handleVisibilityChange = (): void => {
       if (document.visibilityState === "hidden") silenceAudio();
     };
@@ -440,7 +528,7 @@ export function useStrikeSession(options: StrikeSessionOptions = {}) {
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      disposeResources();
+      invalidateLifecycle(false);
     };
   }, []);
 
