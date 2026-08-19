@@ -121,4 +121,32 @@ echo "Hosted static route and revision checks passed."
 BROWSER="$BROWSER" BASE_URL="$LIVE_BASE_URL" node scripts/consumer-e2e.mjs
 BROWSER="$BROWSER" BASE_URL="$LIVE_BASE_URL" VITE_SOFTWARE_REVISION="$EXPECTED_REVISION" node scripts/post-collection-review-e2e.mjs
 
+PAGES_RUNS_URL="https://api.github.com/repos/fraware/EVERYTHING-RINGS/actions/workflows/pages.yml/runs?branch=main&per_page=20"
+if curl --fail --silent --show-error --header "Accept: application/vnd.github+json" "$PAGES_RUNS_URL" > /tmp/everything-rings-pages-runs.json; then
+  PAGES_RUN_ID="$(EXPECTED_REVISION="$EXPECTED_REVISION" node -e '
+    const fs = require("fs");
+    const data = JSON.parse(fs.readFileSync("/tmp/everything-rings-pages-runs.json", "utf8"));
+    const run = (data.workflow_runs || []).find((candidate) => candidate.head_sha === process.env.EXPECTED_REVISION);
+    if (!run) process.exit(2);
+    if (run.status !== "completed" || run.conclusion !== "success") process.exit(3);
+    process.stdout.write(String(run.id));
+  ')"
+  echo "Hosted Pages workflow run: ${PAGES_RUN_ID}"
+
+  ARTIFACTS_URL="https://api.github.com/repos/fraware/EVERYTHING-RINGS/actions/runs/${PAGES_RUN_ID}/artifacts"
+  if curl --fail --silent --show-error --header "Accept: application/vnd.github+json" "$ARTIFACTS_URL" > /tmp/everything-rings-pages-artifacts.json; then
+    node -e '
+      const fs = require("fs");
+      const data = JSON.parse(fs.readFileSync("/tmp/everything-rings-pages-artifacts.json", "utf8"));
+      const artifact = (data.artifacts || []).find((candidate) => candidate.name === "github-pages");
+      if (!artifact) { console.log("Hosted Pages artifact: metadata returned, github-pages artifact not listed"); process.exit(0); }
+      console.log(`Hosted Pages artifact: id=${artifact.id} name=${artifact.name} size=${artifact.size_in_bytes} digest=${artifact.digest || "unavailable"}`);
+    '
+  else
+    echo "Hosted Pages artifact metadata unavailable through public API."
+  fi
+else
+  echo "Hosted Pages workflow metadata unavailable through public API."
+fi
+
 echo "Hosted v6 qualification passed."
