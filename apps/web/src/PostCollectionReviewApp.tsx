@@ -93,7 +93,7 @@ export function PostCollectionReviewApp({ mode }: { readonly mode: "gate-b" | "g
   const [companionBinding, setCompanionBinding] = useState<{ readonly ok: boolean; readonly error?: string }>();
   const [importError, setImportError] = useState<string>();
   const [playbackFailure, setPlaybackFailure] = useState<string>();
-  const audio = useRef<{ readonly key: string; readonly controller: PostCollectionReviewAudioController }>();
+  const audio = useRef<{ readonly key: string; readonly controller: PostCollectionReviewAudioController } | undefined>(undefined);
 
   const [reviewerId, setReviewerId] = useState("");
   const [presentationOrder, setPresentationOrder] = useState<GateBPresentationOrder>();
