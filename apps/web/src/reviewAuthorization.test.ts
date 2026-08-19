@@ -52,55 +52,50 @@ function release() {
     },
     gateA: {
       passed: true,
-      sessions: [{
-        sessionId: source.sessionId,
-        specimenId: source.object.specimenId,
-        passed: true,
-        reviewAttemptId: 5,
-      }],
+      sessions: [{ sessionId: source.sessionId, specimenId: source.object.specimenId, passed: true, reviewAttemptId: 5 }],
     },
     gateB: {
       passed: true,
-      objects: [{
-        specimenId: source.object.specimenId,
-        passed: true,
-        selectedTarget: { sessionId: source.sessionId, attemptId: 5 },
-      }],
+      objects: [{ specimenId: source.object.specimenId, passed: true, selectedTarget: { sessionId: source.sessionId, attemptId: 5 } }],
     },
   };
 }
 
+const RUNNING_REVISION = "b".repeat(40);
+
 describe("post-collection review authorization", () => {
   it("authorizes Gate B only from a complete canonical Gate A2 PASS", () => {
-    const result = authorizeGateBReview(release(), evidence());
-    expect(result).toEqual({ ok: true, target: { sessionId: "session-01", attemptId: 5 } });
-
+    expect(authorizeGateBReview(release(), evidence(), RUNNING_REVISION)).toEqual({ ok: true, target: { sessionId: "session-01", attemptId: 5 } });
     const incomplete = release();
     incomplete.empiricalCampaign.progress.collectionComplete = false;
-    expect(authorizeGateBReview(incomplete, evidence()).ok).toBe(false);
+    expect(authorizeGateBReview(incomplete, evidence(), RUNNING_REVISION).ok).toBe(false);
+  });
+
+  it("rejects evidence from a different running review revision", () => {
+    const result = authorizeGateBReview(release(), evidence(), "c".repeat(40));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("running review build");
   });
 
   it("rejects Gate B evidence absent from the canonical Gate A session set", () => {
     const verdict = release();
     verdict.gateA.sessions[0]!.sessionId = "another-session";
-    const result = authorizeGateBReview(verdict, evidence());
+    const result = authorizeGateBReview(verdict, evidence(), RUNNING_REVISION);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain("canonical Gate A2 review target");
   });
 
   it("authorizes Gate C only after Gate B PASS with exact target inheritance", () => {
-    const result = authorizeGateCReview(release(), evidence());
-    expect(result).toEqual({ ok: true, target: { sessionId: "session-01", attemptId: 5 } });
-
+    expect(authorizeGateCReview(release(), evidence(), RUNNING_REVISION)).toEqual({ ok: true, target: { sessionId: "session-01", attemptId: 5 } });
     const openGateB = release();
     openGateB.gateB.passed = false;
-    expect(authorizeGateCReview(openGateB, evidence()).ok).toBe(false);
+    expect(authorizeGateCReview(openGateB, evidence(), RUNNING_REVISION).ok).toBe(false);
   });
 
   it("rejects Gate C target substitution", () => {
     const verdict = release();
     verdict.gateB.objects[0]!.selectedTarget.attemptId = 4;
-    const result = authorizeGateCReview(verdict, evidence());
+    const result = authorizeGateCReview(verdict, evidence(), RUNNING_REVISION);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain("does not inherit");
   });
