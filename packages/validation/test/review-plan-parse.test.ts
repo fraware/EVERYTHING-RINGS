@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseGateBPlan, parseGateCPlan } from "../src";
 import { SOFTWARE_REVISION } from "./helpers";
 
+const DIGEST = `sha256:${"0".repeat(64)}`;
 const targets = Array.from({ length: 5 }, (_, index) => ({
   specimenId: `specimen-${index + 1}`,
   objectLabel: `object ${index + 1}`,
@@ -10,11 +11,12 @@ const targets = Array.from({ length: 5 }, (_, index) => ({
 }));
 
 describe("canonical review plan parsers", () => {
-  it("accepts exactly five distinct Gate B targets and two distinct reviewers", () => {
+  it("accepts exactly five distinct Gate B targets, two reviewers, and an upstream verdict digest", () => {
     const result = parseGateBPlan({
       schemaVersion: 1,
       planContractVersion: "gate-b-plan-1",
       gateARevision: SOFTWARE_REVISION,
+      gateAVerdictSha256: DIGEST,
       reviewerIds: ["reviewer-a", "reviewer-b"],
       targets,
     });
@@ -26,6 +28,7 @@ describe("canonical review plan parsers", () => {
       schemaVersion: 1,
       planContractVersion: "gate-b-plan-1",
       gateARevision: SOFTWARE_REVISION,
+      gateAVerdictSha256: DIGEST,
       reviewerIds: ["reviewer-a", "reviewer-b"],
       targets: [...targets.slice(0, 4), { ...targets[4], specimenId: targets[0]?.specimenId }],
     });
@@ -37,6 +40,7 @@ describe("canonical review plan parsers", () => {
     const result = parseGateCPlan({
       schemaVersion: 1,
       planContractVersion: "gate-c-plan-1",
+      gateBVerdictSha256: DIGEST,
       reviewerIds: ["reviewer-c", "reviewer-d"],
       devices: [
         { deviceId: "desktop-1", deviceClass: "desktop" },
@@ -51,6 +55,7 @@ describe("canonical review plan parsers", () => {
     const result = parseGateCPlan({
       schemaVersion: 1,
       planContractVersion: "gate-c-plan-1",
+      gateBVerdictSha256: DIGEST,
       reviewerIds: ["reviewer-c", "reviewer-d"],
       devices: [
         { deviceId: "desktop-1", deviceClass: "desktop" },
@@ -60,5 +65,18 @@ describe("canonical review plan parsers", () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/mobile/);
+  });
+
+  it("rejects missing or malformed upstream verdict digests", () => {
+    const result = parseGateBPlan({
+      schemaVersion: 1,
+      planContractVersion: "gate-b-plan-1",
+      gateARevision: SOFTWARE_REVISION,
+      gateAVerdictSha256: "not-a-digest",
+      reviewerIds: ["reviewer-a", "reviewer-b"],
+      targets,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/sha256/);
   });
 });
