@@ -80,3 +80,14 @@ export {
   type RiskCoveragePointV1,
   type SonicTwinCalibrationModelV1,
 } from "./calibration";
+export {
+  benchmarkMaterialResearch,
+  fitMaterialCentroidResearch,
+  predictMaterialResearch,
+  type MaterialBenchmarkExampleV1,
+  type MaterialBenchmarkMetricsV1,
+  type MaterialCentroidV1,
+  type MaterialInferenceModelV1,
+  type MaterialPredictionV1,
+  type MaterialTrainingExampleV1,
+} from "./material-research";
