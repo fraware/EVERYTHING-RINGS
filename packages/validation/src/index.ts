@@ -24,6 +24,17 @@ export {
   type EmpiricalCampaignV1,
 } from "./campaign";
 export {
+  contentDigest,
+  createDerivationRecord,
+  createMeasurementRecord,
+  verifyDerivationRecord,
+  verifyMeasurementRecord,
+  type DerivationKind,
+  type DerivationRecordV1,
+  type MeasurementRecordV1,
+  type MeasurementStationV1,
+} from "./provenance";
+export {
   deriveEvidenceRecurrence,
   deriveMedianModalDriftCents,
   medianFinite,
