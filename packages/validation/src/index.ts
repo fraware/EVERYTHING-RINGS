@@ -57,6 +57,15 @@ export {
   type AtlasSpecimenMergeV1,
 } from "./atlas-registry";
 export {
+  emptyResearchRepository,
+  ingestDerivation,
+  ingestMeasurement,
+  publishRepositoryAtlasRecord,
+  verifyResearchRepositoryIntegrity,
+  type ResearchRepositoryIntegrityV1,
+  type ResearchRepositoryStateV1,
+} from "./repository";
+export {
   deriveEvidenceRecurrence,
   deriveMedianModalDriftCents,
   medianFinite,
