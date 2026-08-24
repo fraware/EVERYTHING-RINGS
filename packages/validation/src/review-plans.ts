@@ -17,6 +17,7 @@ export interface GateBPlanV1 {
   readonly schemaVersion: 1;
   readonly planContractVersion: "gate-b-plan-1";
   readonly gateARevision: string;
+  readonly gateAVerdictSha256: string;
   readonly reviewerIds: readonly [string, string];
   readonly targets: readonly PlannedReviewTarget[];
 }
@@ -29,6 +30,7 @@ export interface GateCDevicePlan {
 export interface GateCPlanV1 {
   readonly schemaVersion: 1;
   readonly planContractVersion: "gate-c-plan-1";
+  readonly gateBVerdictSha256: string;
   readonly reviewerIds: readonly [string, string];
   readonly devices: readonly [GateCDevicePlan, GateCDevicePlan];
   readonly targets: readonly PlannedReviewTarget[];
@@ -58,9 +60,24 @@ function targetKey(target: ReviewTarget): string {
   return `${target.sessionId}\u0000${target.attemptId}`;
 }
 
+function canonicalize(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (value === null || typeof value !== "object") {
+    const encoded = JSON.stringify(value);
+    return encoded === undefined ? String(value) : encoded;
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalize).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalize(record[key])}`).join(",")}}`;
+}
+
 async function sha256Text(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function verdictDigest(value: unknown): Promise<string> {
+  return `sha256:${await sha256Text(canonicalize(value))}`;
 }
 
 async function rankTargets(
@@ -128,6 +145,7 @@ export async function createGateBPlan(
     schemaVersion: 1,
     planContractVersion: "gate-b-plan-1",
     gateARevision: gateA.softwareRevision,
+    gateAVerdictSha256: await verdictDigest(gateA),
     reviewerIds: reviewers,
     targets: selected,
   };
@@ -162,20 +180,22 @@ export async function createGateCPlan(
   return {
     schemaVersion: 1,
     planContractVersion: "gate-c-plan-1",
+    gateBVerdictSha256: await verdictDigest(gateB),
     reviewerIds: reviewers,
     devices: [devices[0]!, devices[1]!],
     targets,
   };
 }
 
-export function evaluateCanonicalGateB(
+export async function evaluateCanonicalGateB(
   plan: GateBPlanV1,
   gateA: GateAReleaseVerdict,
   reviews: readonly GateBReview[],
-): CanonicalGateBResult {
+): Promise<CanonicalGateBResult> {
   const reasons: string[] = [];
   if (!gateA.passed) reasons.push("Gate A has not passed");
   if (gateA.softwareRevision !== plan.gateARevision) reasons.push("Gate B plan revision does not match Gate A");
+  if (await verdictDigest(gateA) !== plan.gateAVerdictSha256) reasons.push("Gate B plan does not bind the exact Gate A verdict");
   if (plan.targets.length !== 5) reasons.push("Gate B plan must contain exactly five targets");
   const expectedReviewers = new Set(plan.reviewerIds.map(normalize));
   const expectedTargets = new Map(plan.targets.map((target) => [targetKey(target), target] as const));
@@ -205,13 +225,14 @@ export function evaluateCanonicalGateB(
   };
 }
 
-export function evaluateCanonicalGateC(
+export async function evaluateCanonicalGateC(
   plan: GateCPlanV1,
   gateB: GateBReleaseVerdict,
   reviews: readonly GateCReview[],
-): CanonicalGateCResult {
+): Promise<CanonicalGateCResult> {
   const reasons: string[] = [];
   if (!gateB.passed) reasons.push("Gate B has not passed");
+  if (await verdictDigest(gateB) !== plan.gateBVerdictSha256) reasons.push("Gate C plan does not bind the exact Gate B verdict");
   if (plan.targets.length !== 4) reasons.push("Gate C plan must contain exactly four targets");
   const expectedReviewers = new Set(plan.reviewerIds.map(normalize));
   const expectedDevices = new Map(plan.devices.map((device) => [normalize(device.deviceId), device] as const));
