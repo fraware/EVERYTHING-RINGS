@@ -35,6 +35,17 @@ export {
   type MeasurementStationV1,
 } from "./provenance";
 export {
+  ArtifactMigrationRegistryV1,
+  createArtifactEnvelope,
+  parseArtifactEnvelope,
+  parseArtifactEnvelopeJson,
+  verifyArtifactEnvelope,
+  type ArtifactEnvelopeParseResult,
+  type ArtifactEnvelopeV1,
+  type ArtifactMigrationStepV1,
+  type EverythingRingsArtifactKind,
+} from "./artifact-envelope";
+export {
   createAtlasRecord,
   createAtlasSnapshot,
   verifyAtlasRecord,
