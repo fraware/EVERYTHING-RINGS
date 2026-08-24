@@ -16,3 +16,16 @@ export {
   type SonicTwinBenchmarkMetrics,
   type SonicTwinDecision,
 } from "./sonic-twin";
+export {
+  characterizeNuisance,
+  selectHardNegativePairs,
+  specimenDisjointSplit,
+  type BenchmarkSplit,
+  type HardNegativePairV1,
+  type LabeledFingerprintObservationV1,
+  type NuisanceCharacterizationV1,
+  type NuisanceFactor,
+  type NuisanceFactorSummaryV1,
+  type NuisanceMetadataV1,
+  type WithinSpecimenPairMetricV1,
+} from "./nuisance";
