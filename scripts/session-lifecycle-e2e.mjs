@@ -5,8 +5,8 @@ const browser = process.env.BROWSER;
 const baseUrl = process.env.BASE_URL;
 if (!browser || !baseUrl) throw new Error("BROWSER and BASE_URL are required");
 
-const profileDir = `/tmp/everything-rings-session-lifecycle-${process.pid}`;
-const debuggingPort = 10120 + (process.pid % 120);
+const profileDir = `/tmp/everything-rings-empirical-lifecycle-${process.pid}`;
+const debuggingPort = 10300 + (process.pid % 100);
 const chrome = spawn(browser, [
   "--headless=new",
   "--no-sandbox",
@@ -20,6 +20,7 @@ const chrome = spawn(browser, [
   `--user-data-dir=${profileDir}`,
   `${baseUrl}/`,
 ], { stdio: ["ignore", "ignore", "pipe"] });
+const chromeExit = new Promise((resolve) => chrome.once("exit", resolve));
 
 let stderr = "";
 chrome.stderr.on("data", (chunk) => { stderr += String(chunk); });
@@ -37,7 +38,7 @@ async function browserTarget() {
     }
     await sleep(100);
   }
-  throw new Error(`Could not connect to session lifecycle browser target. ${stderr}`);
+  throw new Error(`Could not connect to empirical lifecycle browser target. ${stderr}`);
 }
 
 const target = await browserTarget();
@@ -103,7 +104,16 @@ async function clickButton(label) {
 async function assertLanding(label) {
   await waitFor(`document.body?.innerText.includes("START LISTENING") ?? false`, label);
   const body = await evaluate("document.body?.innerText ?? ''");
-  if (body.includes("microphone could not be started")) throw new Error(`${label} surfaced a cancellation as a microphone failure`);
+  if (body.includes("microphone could not be started")) {
+    throw new Error(`${label} surfaced cancellation as a microphone failure`);
+  }
+}
+
+async function dispatchPageHide() {
+  await evaluate(`(() => {
+    window.dispatchEvent(new Event("pagehide"));
+    return true;
+  })()`);
 }
 
 try {
@@ -112,12 +122,7 @@ try {
   await command("Page.addScriptToEvaluateOnNewDocument", {
     source: `(() => {
       const mediaDevices = navigator.mediaDevices;
-      window.__everythingRingsLifecycle = {
-        calls: 0,
-        streams: [],
-        gate: null,
-        release: null,
-      };
+      window.__everythingRingsLifecycle = { calls: 0, streams: [], gate: null, release: null };
       window.__everythingRingsHoldNextMic = () => {
         let release;
         const promise = new Promise((resolve) => { release = resolve; });
@@ -160,28 +165,40 @@ try {
   await clickButton("START LISTENING");
   await waitFor(`window.__everythingRingsLifecycle.calls === 2`, "second microphone request");
   await waitFor(`window.__everythingRingsLifecycle.streams.length === 2`, "second microphone stream");
-  await waitFor(`window.__everythingRingsLifecycle.streams[1].getTracks().some((track) => track.readyState === "live")`, "second generation owns a live microphone");
+  await waitFor(`window.__everythingRingsLifecycle.streams[1].getTracks().some((track) => track.readyState === "live")`, "second session owns a live microphone");
   await clickButton("CANCEL");
-  await assertLanding("landing after second-generation cancel");
-  await waitFor(`window.__everythingRingsLifecycle.streams.every((stream) => stream.getTracks().every((track) => track.readyState === "ended"))`, "second-generation cleanup");
+  await assertLanding("landing after second-session cancel");
+  await waitFor(`window.__everythingRingsLifecycle.streams[1].getTracks().every((track) => track.readyState === "ended")`, "second-session cleanup");
 
   await evaluate("window.__everythingRingsHoldNextMic()");
   await clickButton("START LISTENING");
   await waitFor(`window.__everythingRingsLifecycle.calls === 3`, "third microphone request");
-  await command("Page.navigate", { url: `${baseUrl}/#ring=%%%` });
-  await waitFor(`location.hash === "#ring=%%%" && document.body?.innerText.includes("shared ring link could not be opened")`, "shared route supersedes pending startup");
+  await dispatchPageHide();
+  await assertLanding("landing after pagehide during unresolved startup");
   await evaluate("window.__everythingRingsReleaseMic()");
-  await waitFor(`window.__everythingRingsLifecycle.streams.length === 3`, "late route-transition microphone resolution");
-  await waitFor(`window.__everythingRingsLifecycle.streams[2].getTracks().every((track) => track.readyState === "ended")`, "route-transition microphone cleanup");
-  await waitFor(`document.body?.innerText.includes("shared ring link could not be opened") && document.body?.innerText.includes("START LISTENING")`, "shared recovery remains authoritative");
-  if (await evaluate(`document.body?.innerText.includes("microphone could not be started") ?? false`)) {
-    throw new Error("Route cancellation surfaced as microphone startup failure");
-  }
+  await waitFor(`window.__everythingRingsLifecycle.streams.length === 3`, "late pagehide microphone resolution");
+  await waitFor(`window.__everythingRingsLifecycle.streams[2].getTracks().every((track) => track.readyState === "ended")`, "late pagehide microphone cleanup");
+  await assertLanding("landing after late pagehide cleanup");
 
-  console.log("Session lifecycle E2E passed: unresolved start → cancel → late cleanup → new owner → cancel → shared-route supersession with no stale microphone state.");
+  await clickButton("START LISTENING");
+  await waitFor(`window.__everythingRingsLifecycle.calls === 4`, "fourth microphone request");
+  await waitFor(`window.__everythingRingsLifecycle.streams.length === 4`, "fourth microphone stream");
+  await waitFor(`window.__everythingRingsLifecycle.streams[3].getTracks().some((track) => track.readyState === "live")`, "fourth session owns a live microphone");
+  await dispatchPageHide();
+  await assertLanding("landing after active pagehide");
+  await waitFor(`window.__everythingRingsLifecycle.streams[3].getTracks().every((track) => track.readyState === "ended")`, "active pagehide microphone cleanup");
+
+  const body = await evaluate("document.body?.innerText ?? ''");
+  if (body.includes("microphone could not be started")) throw new Error("Lifecycle cancellation surfaced as microphone startup failure");
+
+  console.log("Empirical session lifecycle E2E passed: unresolved start → cancel → late cleanup → new owner → cancel → pagehide teardown → zero stale microphone state.");
 } finally {
   try { socket.close(); } catch { /* already closed */ }
   chrome.kill("SIGTERM");
-  await sleep(100);
-  rmSync(profileDir, { recursive: true, force: true });
+  await Promise.race([chromeExit, sleep(2_000)]);
+  try {
+    rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {
+    // Runner-local browser profile cleanup is not an empirical assertion.
+  }
 }
