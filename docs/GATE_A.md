@@ -1,6 +1,6 @@
 # Gate A2 — physical acoustic validity
 
-Gate A2 is the first physical release gate. It must pass before the measured modal representation is treated as physically validated.
+Gate A2 is the first physical release gate. It must pass before the measured modal representation is treated as physically validated. The digital-twin lane is supporting stress validation only and is never release-gate equivalent.
 
 ## Protocol
 
@@ -12,7 +12,26 @@ Acquisition-quality failures do not enter the five-attempt experiment and may be
 
 This rule eliminates retry-until-success and optional-stopping paths. The experiment is defined by the first five qualified physical attempts, not by the first five successful analyses.
 
-The initial release set is: bell, wine glass, metal bowl, glass bottle, ceramic mug. Equivalent strongly resonant specimens are acceptable if the final passing set still contains distinct metal, glass, and ceramic specimens.
+## Frozen campaign cohort
+
+The canonical first empirical campaign contains exactly twelve precommitted slots. The six release-core slots are:
+
+- `core-metal-1` and `core-metal-2`, from two distinct metal object families;
+- `core-glass-1` and `core-glass-2`, from two distinct glass object families;
+- `core-ceramic-1` and `core-ceramic-2`, from two distinct ceramic object families.
+
+The six challenge slots are:
+
+- `challenge-short-decay` — strong damping / short audible decay;
+- `challenge-broad` — weak or broad resonant structure;
+- `challenge-coupled` — heterogeneous or coupled multi-part structure;
+- `challenge-high-q` — low damping / long ringdown, intentionally distinct from modal degeneracy;
+- `challenge-low-snr` — weakly radiating or near the acquisition SNR floor;
+- `challenge-degenerate` — symmetry, near-symmetry, close modes, or strike-location sensitivity.
+
+Specimen selection is made from a finite non-acoustic candidate register before production audition. The register records physical identity, family, material, safety/support facts, markable strike location, eligible slots, and exclusions; it must not contain fingerprints, frequencies, decay estimates, mode counts, acoustic scores, or audition rankings. A selected specimen binds slot and inventory identity in its `specimenId`, for example `core-metal-1--inv-003`.
+
+The campaign manifest is frozen before the first production strike. Its exact bytes and campaign signature are retained. Collection order is then derived deterministically from `SHA-256("gate-a2-order-v1|<campaign-signature>|<specimenId>")`, sorting release-core and challenge cohorts separately and interleaving them beginning with release-core. The order is recorded before collection.
 
 For every qualified attempt record the native sample rate, actual microphone-processing settings, capture-quality diagnostics, and one terminal analytical outcome:
 
@@ -23,7 +42,7 @@ Raw microphone PCM remains local.
 
 ## Frozen release contract — `gate-a-2`
 
-These thresholds are fixed before the local five-specimen Gate A2 dataset is accepted and must not be relaxed after observing measurements.
+These thresholds are fixed before the campaign dataset is accepted and must not be relaxed after observing measurements.
 
 A specimen session passes only when all of the following hold:
 
@@ -43,9 +62,9 @@ Attempt 1 is never substituted. If attempt 1 fails analysis, the session cannot 
 
 The exported recurrence rows and aggregate drift are caches for audit and display. The parser requires them to agree with recomputation from the retained qualified-attempt fingerprints, and the release evaluator uses the recomputed values as its source of truth.
 
-Gate A2 passes at release level when all imported sessions come from one software revision and one fingerprint algorithm version, at least **five distinct normalized `specimenId` values** have passing sessions, and the passing specimen set contains metal, glass, and ceramic. Multiple passing sessions for one physical specimen still count as one specimen. Changing only an object label cannot increase release distinctness. Duplicate session IDs invalidate the release verdict. Reusing one normalized `specimenId` with conflicting material classes also invalidates the release-level verdict, including when the conflicting session itself fails physically.
+Gate A2 passes at release level when all imported sessions come from one software revision and one fingerprint algorithm version, at least **five distinct normalized `specimenId` values** have passing sessions, and the passing specimen set contains metal, glass, and ceramic. The empirical campaign adds a stronger accounting requirement: all twelve precommitted specimen outcomes must be present or explicitly accounted before canonical adjudication. Multiple passing sessions for one physical specimen still count as one specimen. Changing only an object label cannot increase release distinctness. Duplicate session IDs invalidate the release verdict. Reusing one normalized `specimenId` with conflicting material classes also invalidates the release-level verdict, including when the conflicting session itself fails physically.
 
-The drift bounds are release criteria for repeatable structure. They are not a general perceptual similarity metric.
+The drift bounds are release criteria for repeatable structure under the frozen setup. They are not a nuisance-invariance result, a general perceptual similarity metric, an object-identity probability, or a material-identification claim.
 
 ## Session-fatal errors
 
@@ -55,13 +74,13 @@ A true session-level internal error is different. The validation lab does not pe
 
 ## Evidence and algorithm versioning
 
-Gate A2 uses `validation-evidence-5` with `schemaVersion: 5` and `gateAContractVersion: "gate-a-2"`. Schema v5 requires the exact software commit, and release-level evidence must use one revision and one fingerprint algorithm version. `er-dsp-2` is the canonical estimator for the new physical collection cycle; it adds the frozen -60 dB relative-amplitude measurement-support floor. Historical `er-dsp-1` bundles remain readable for audit but must not be mixed with `er-dsp-2` evidence in one session or release evaluation.
+Gate A2 uses `validation-evidence-5` with `schemaVersion: 5` and `gateAContractVersion: "gate-a-2"`. Schema v5 requires the exact software commit, and release-level evidence must use one revision and one fingerprint algorithm version. `er-dsp-2` is the canonical estimator for this physical collection cycle; it includes the frozen -60 dB relative-amplitude measurement-support floor. Historical `er-dsp-1` bundles remain readable for audit but must not be mixed with `er-dsp-2` evidence in one session or release evaluation.
 
 Schema v4 was superseded before physical release collection because it lacked implementation provenance; the older record-only Gate A1 format is also superseded because it could not represent qualified analytical failures without selection bias.
 
-## External evidence
+## External and digital-twin evidence
 
-External cross-field recurrence is supporting evidence only. It does not satisfy Gate A2 because listener position and other acquisition conditions vary across those measurements. External results must never be used to tune `gate-a-2` after the fact.
+External cross-field recurrence and deterministic digital twins are supporting evidence only. Neither satisfies Gate A2 because neither proves the exact physical microphone/transducer/object path under the frozen campaign. They may be used to find software defects, exercise nuisance regimes, and compare future estimators, but must never be imported into the canonical Release Console as physical campaign evidence or used to tune `gate-a-2` after observing campaign data.
 
 ## Failure handling
 

@@ -12,6 +12,10 @@ export {
   buildReleaseVerdictForRevision,
 } from "./current-release";
 export {
+  buildCanonicalReleaseVerdictForRevision,
+  type CanonicalReleaseVerdictV1,
+} from "./canonical-release";
+export {
   empiricalCampaignSignature,
   evaluateEmpiricalCampaign,
   parseEmpiricalCampaign,
@@ -23,6 +27,35 @@ export {
   type EmpiricalCampaignSpecimenStatus,
   type EmpiricalCampaignV1,
 } from "./campaign";
+export {
+  deriveCampaignCollectionOrder,
+  validateCampaignSelectionAgainstRegister,
+  validateCandidateRegister,
+  type CampaignCollectionOrderEntryV1,
+  type CampaignCollectionOrderV1,
+  type CandidateRegisterEntryV1,
+  type CandidateRegisterV1,
+} from "./precommitment";
+export {
+  createGateBPlan,
+  createGateCPlan,
+  evaluateCanonicalGateB,
+  evaluateCanonicalGateC,
+  type CanonicalGateBResult,
+  type CanonicalGateCResult,
+  type GateBPlanV1,
+  type GateCDevicePlan,
+  type GateCPlanV1,
+  type PlannedReviewTarget,
+} from "./review-plans";
+export {
+  parseGateBPlan,
+  parseGateBPlanJson,
+  parseGateCPlan,
+  parseGateCPlanJson,
+  type GateBPlanParseResult,
+  type GateCPlanParseResult,
+} from "./review-plan-parse";
 export {
   deriveEvidenceRecurrence,
   deriveMedianModalDriftCents,

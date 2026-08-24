@@ -30,6 +30,7 @@ describe("campaign authoring", () => {
     expect(RECOMMENDED_CAMPAIGN_SLOTS.slice(0, 6).map((slot) => slot.suggestedMaterial)).toEqual([
       "metal", "metal", "glass", "glass", "ceramic", "ceramic",
     ]);
+    expect(RECOMMENDED_CAMPAIGN_SLOTS.find((slot) => slot.slotId === "challenge-high-q")?.selectionCriterion).not.toMatch(/closely spaced/i);
   });
 
   it("prefills only protocol constants that are intentionally standardized", () => {
@@ -71,6 +72,19 @@ describe("campaign authoring", () => {
     const slotResult = buildEmpiricalCampaignFromDraft(missingSlot, "2026-08-18T09:00:00.000Z");
     expect(slotResult.ok).toBe(false);
     if (!slotResult.ok) expect(slotResult.errors).toContain("recommended campaign must contain exactly 12 frozen slots");
+  });
+
+  it("requires two distinct object families for each release-core material pair", () => {
+    const complete = completedDraft();
+    const sameMetalFamily = {
+      ...complete,
+      specimens: complete.specimens.map((specimen, index) => index === 1
+        ? { ...specimen, objectFamily: complete.specimens[0]?.objectFamily ?? "family-1" }
+        : specimen),
+    };
+    const result = buildEmpiricalCampaignFromDraft(sameMetalFamily, "2026-08-18T09:00:00.000Z");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors).toContain("release-core metal slots must use two distinct object families");
   });
 
   it("builds a parser-valid manifest only after every physical field is specified", () => {
