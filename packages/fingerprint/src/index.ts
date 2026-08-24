@@ -29,3 +29,44 @@ export {
   type NuisanceMetadataV1,
   type WithinSpecimenPairMetricV1,
 } from "./nuisance";
+export {
+  DEFAULT_ACOUSTIC_OBJECT_MODEL_CONFIG,
+  buildAcousticObjectModel,
+  compareFingerprintToObjectModel,
+  type AcousticObjectModeEstimateV1,
+  type AcousticObjectModelConfigV1,
+  type AcousticObjectModelV1,
+  type AcousticObjectObservationV1,
+  type FingerprintToObjectModelComparisonV1,
+} from "./object-model";
+export {
+  benchmarkSonicTwinRetrieval,
+  buildSonicTwinIndex,
+  retrieveSonicTwin,
+  type SonicTwinIndexEntryV1,
+  type SonicTwinIndexV1,
+  type SonicTwinRetrievalMetricsV1,
+  type SonicTwinRetrievalQueryV1,
+  type SonicTwinRetrievalResultV1,
+} from "./retrieval";
+export {
+  buildTwinVerificationPairs,
+  validateTwinBenchmarkCorpus,
+  type TwinBenchmarkCorpusV1,
+  type TwinBenchmarkCorpusValidationV1,
+  type TwinBenchmarkObservationV1,
+  type TwinVerificationPairV1,
+} from "./benchmark-corpus";
+export {
+  calibratedPredictions,
+  evaluateCalibration,
+  fitIsotonicCalibration,
+  predictCalibratedProbability,
+  riskCoverageCurve,
+  type CalibratedPredictionV1,
+  type CalibrationMetricsV1,
+  type IsotonicCalibrationBinV1,
+  type LabeledSimilarityScoreV1,
+  type RiskCoveragePointV1,
+  type SonicTwinCalibrationModelV1,
+} from "./calibration";
