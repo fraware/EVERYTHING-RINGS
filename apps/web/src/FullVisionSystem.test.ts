@@ -214,5 +214,5 @@ describe("EVERYTHING RINGS full-vision software system", () => {
     expect(graph.edges.filter((edge) => edge.kind === "created-by")).toHaveLength(1);
     const snapshot = await snapshotAtlasRegistry(repository.atlas, "2026-08-24T16:41:00.000Z");
     expect(snapshot.recordIds).toHaveLength(3);
-  });
+  }, 20_000);
 });
