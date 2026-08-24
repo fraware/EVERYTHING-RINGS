@@ -55,6 +55,12 @@ function finiteSignal(samples: Float32Array): boolean {
   return samples.length > 0 && samples.every((value) => Number.isFinite(value));
 }
 
+function peakMagnitude(samples: Float32Array): number {
+  let peak = 0;
+  for (const value of samples) peak = Math.max(peak, Math.abs(value));
+  return peak;
+}
+
 describe("digital-twin full-stack qualification", () => {
   it("exercises acquisition quality, DSP, reconstruction, instrument, provenance, Twin baseline, and Atlas without a physical object", async () => {
     const capture = digitalTwinCapture();
@@ -70,7 +76,7 @@ describe("digital-twin full-stack qualification", () => {
 
     const reconstructed = renderAcousticFingerprint(analysis.fingerprint, SAMPLE_RATE);
     expect(finiteSignal(reconstructed)).toBe(true);
-    expect(Math.max(...reconstructed.map(Math.abs))).toBeLessThanOrEqual(0.90001);
+    expect(peakMagnitude(reconstructed)).toBeLessThanOrEqual(0.90001);
 
     const reanalysis = analyzeImpact(reconstructed, SAMPLE_RATE);
     expect(reanalysis.ok).toBe(true);
