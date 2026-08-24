@@ -40,6 +40,16 @@ export {
   type FingerprintToObjectModelComparisonV1,
 } from "./object-model";
 export {
+  buildSpatialModalSoundField,
+  fingerprintAtSpatialPoint,
+  type SpatialFingerprintObservationV1,
+  type SpatialModalFieldModeV1,
+  type SpatialModalFieldQueryV1,
+  type SpatialModalSampleV1,
+  type SpatialModalSoundFieldV1,
+  type SpatialPointV1,
+} from "./modal-field";
+export {
   benchmarkSonicTwinRetrieval,
   buildSonicTwinIndex,
   retrieveSonicTwin,
