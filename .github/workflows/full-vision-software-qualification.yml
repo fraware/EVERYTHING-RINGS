@@ -31,7 +31,7 @@ jobs:
       - name: Build all workspaces
         run: pnpm build
       - name: Browser and lifecycle qualification
-        run: pnpm browser:smoke
+        run: bash scripts/browser-smoke.sh
       - name: Emit machine-readable qualification report
         run: |
           mkdir -p qualification
