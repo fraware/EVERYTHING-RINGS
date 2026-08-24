@@ -14,6 +14,9 @@ on:
       - "apps/web/**"
       - "scripts/**"
       - "docs/DIGITAL_TWIN_QUALIFICATION.md"
+  push:
+    branches:
+      - post-freeze-development
 
 permissions:
   contents: read
