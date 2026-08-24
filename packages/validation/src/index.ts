@@ -66,6 +66,13 @@ export {
   type ResearchRepositoryStateV1,
 } from "./repository";
 export {
+  createStationCalibrationProtocol,
+  evaluateStationCalibration,
+  type StationCalibrationObservationV1,
+  type StationCalibrationProtocolV1,
+  type StationCalibrationVerdictV1,
+} from "./station-calibration";
+export {
   deriveEvidenceRecurrence,
   deriveMedianModalDriftCents,
   medianFinite,
