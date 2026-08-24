@@ -13,6 +13,12 @@ function nonempty(value: unknown, field: string): string {
   return value.trim();
 }
 
+function sha256Digest(value: unknown, field: string): string {
+  const digest = nonempty(value, field);
+  if (!/^sha256:[0-9a-f]{64}$/.test(digest)) throw new TypeError(`${field} must be sha256:<64 lowercase hex>`);
+  return digest;
+}
+
 function positiveInteger(value: unknown, field: string): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) throw new TypeError(`${field} must be a positive integer`);
   return value;
@@ -50,11 +56,12 @@ export function parseGateBPlan(value: unknown): GateBPlanParseResult {
     if (value.planContractVersion !== "gate-b-plan-1") throw new TypeError("Gate B plan contract must be gate-b-plan-1");
     const gateARevision = nonempty(value.gateARevision, "gateARevision");
     if (!/^[0-9a-f]{40}$/.test(gateARevision)) throw new TypeError("gateARevision must be an exact 40-hex Git revision");
+    const gateAVerdictSha256 = sha256Digest(value.gateAVerdictSha256, "gateAVerdictSha256");
     const reviewerIds = parseFixedReviewers(value.reviewerIds, "reviewerIds");
     if (!Array.isArray(value.targets)) throw new TypeError("targets must be an array");
     const targets = value.targets.map((target, index) => parseTarget(target, `targets[${index}]`));
     uniqueTargets(targets, 5, "targets");
-    return { ok: true, plan: { schemaVersion: 1, planContractVersion: "gate-b-plan-1", gateARevision, reviewerIds, targets } };
+    return { ok: true, plan: { schemaVersion: 1, planContractVersion: "gate-b-plan-1", gateARevision, gateAVerdictSha256, reviewerIds, targets } };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -77,6 +84,7 @@ export function parseGateCPlan(value: unknown): GateCPlanParseResult {
     if (!isRecord(value)) throw new TypeError("Gate C plan must be an object");
     if (value.schemaVersion !== 1) throw new TypeError("Gate C plan schemaVersion must be 1");
     if (value.planContractVersion !== "gate-c-plan-1") throw new TypeError("Gate C plan contract must be gate-c-plan-1");
+    const gateBVerdictSha256 = sha256Digest(value.gateBVerdictSha256, "gateBVerdictSha256");
     const reviewerIds = parseFixedReviewers(value.reviewerIds, "reviewerIds");
     if (!Array.isArray(value.devices) || value.devices.length !== 2) throw new TypeError("devices must contain exactly two planned devices");
     const devices: [GateCDevicePlan, GateCDevicePlan] = [parseDevice(value.devices[0], "devices[0]"), parseDevice(value.devices[1], "devices[1]")];
@@ -85,7 +93,7 @@ export function parseGateCPlan(value: unknown): GateCPlanParseResult {
     if (!Array.isArray(value.targets)) throw new TypeError("targets must be an array");
     const targets = value.targets.map((target, index) => parseTarget(target, `targets[${index}]`));
     uniqueTargets(targets, 4, "targets");
-    return { ok: true, plan: { schemaVersion: 1, planContractVersion: "gate-c-plan-1", reviewerIds, devices, targets } };
+    return { ok: true, plan: { schemaVersion: 1, planContractVersion: "gate-c-plan-1", gateBVerdictSha256, reviewerIds, devices, targets } };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
