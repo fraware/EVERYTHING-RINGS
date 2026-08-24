@@ -24,6 +24,15 @@ export {
   type EmpiricalCampaignV1,
 } from "./campaign";
 export {
+  deriveCampaignCollectionOrder,
+  validateCampaignSelectionAgainstRegister,
+  validateCandidateRegister,
+  type CampaignCollectionOrderEntryV1,
+  type CampaignCollectionOrderV1,
+  type CandidateRegisterEntryV1,
+  type CandidateRegisterV1,
+} from "./precommitment";
+export {
   createGateBPlan,
   createGateCPlan,
   evaluateCanonicalGateB,
