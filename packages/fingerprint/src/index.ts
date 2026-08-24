@@ -91,3 +91,10 @@ export {
   type MaterialPredictionV1,
   type MaterialTrainingExampleV1,
 } from "./material-research";
+export {
+  DEFAULT_SIMILARITY_PROMOTION_POLICY,
+  evaluateSimilarityAlgorithmPromotion,
+  type SimilarityAlgorithmHeldOutMetricsV1,
+  type SimilarityPromotionPolicyV1,
+  type SimilarityPromotionVerdictV1,
+} from "./promotion";
