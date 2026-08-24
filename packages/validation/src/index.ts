@@ -35,6 +35,16 @@ export {
   type MeasurementStationV1,
 } from "./provenance";
 export {
+  createAtlasRecord,
+  createAtlasSnapshot,
+  verifyAtlasRecord,
+  type AtlasContributorV1,
+  type AtlasMeasurementReferenceV1,
+  type AtlasSpecimenV1,
+  type ResonanceAtlasRecordV1,
+  type ResonanceAtlasSnapshotV1,
+} from "./atlas";
+export {
   deriveEvidenceRecurrence,
   deriveMedianModalDriftCents,
   medianFinite,
