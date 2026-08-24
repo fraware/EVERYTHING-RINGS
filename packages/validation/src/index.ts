@@ -12,6 +12,10 @@ export {
   buildReleaseVerdictForRevision,
 } from "./current-release";
 export {
+  buildCanonicalReleaseVerdictForRevision,
+  type CanonicalReleaseVerdictV1,
+} from "./canonical-release";
+export {
   empiricalCampaignSignature,
   evaluateEmpiricalCampaign,
   parseEmpiricalCampaign,
