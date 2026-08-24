@@ -1,0 +1,83 @@
+name: full-vision-software-qualification
+
+on:
+  pull_request:
+    branches:
+      - post-freeze-development
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VITE_SOFTWARE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck all workspaces
+        run: pnpm typecheck
+      - name: Run all software and digital-twin tests
+        run: pnpm test
+      - name: Build all workspaces
+        run: pnpm build
+      - name: Browser and lifecycle qualification
+        run: pnpm browser:smoke
+      - name: Emit machine-readable qualification report
+        run: |
+          mkdir -p qualification
+          cat > qualification/full-vision-software.json <<EOF
+          {
+            "qualificationContractVersion": "full-vision-software-qualification-1",
+            "sourceRevision": "${VITE_SOFTWARE_REVISION}",
+            "qualifiedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "softwareOnly": true,
+            "physicalObjectTested": false,
+            "humanPerceptualValidationPerformed": false,
+            "realPlaybackTransducerValidated": false,
+            "releaseGateEquivalent": false,
+            "checks": {
+              "frozenDependencyInstall": "pass",
+              "typecheck": "pass",
+              "unitAndDigitalTwinTests": "pass",
+              "build": "pass",
+              "browserAndLifecycleQualification": "pass"
+            },
+            "capabilityFamilies": [
+              "acquisition-software-path",
+              "er-dsp-2",
+              "research-high-resolution-estimator",
+              "modal-reconstruction",
+              "playable-instrument",
+              "measurement-provenance",
+              "nuisance-characterization",
+              "acoustic-object-model",
+              "verification-baseline",
+              "specimen-retrieval",
+              "data-bound-calibration",
+              "risk-coverage",
+              "station-calibration-contract",
+              "atlas-registry",
+              "atlas-search",
+              "atlas-snapshots",
+              "atlas-collections-and-graph",
+              "browser-twin-lab",
+              "browser-atlas-lab"
+            ]
+          }
+          EOF
+      - name: Upload qualification report
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-vision-software-qualification-${{ env.VITE_SOFTWARE_REVISION }}
+          path: qualification/full-vision-software.json
+          if-no-files-found: error
