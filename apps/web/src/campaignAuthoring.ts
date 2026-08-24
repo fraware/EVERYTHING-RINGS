@@ -47,9 +47,9 @@ export const RECOMMENDED_CAMPAIGN_SLOTS: readonly CampaignAuthoringSlot[] = [
   { slotId: "challenge-short-decay", cohort: "challenge", suggestedMaterial: "wood", selectionCriterion: "strongly damped object with short audible decay" },
   { slotId: "challenge-broad", cohort: "challenge", suggestedMaterial: "plastic", selectionCriterion: "weak or broad resonant structure" },
   { slotId: "challenge-coupled", cohort: "challenge", suggestedMaterial: "composite", selectionCriterion: "heterogeneous or coupled multi-part object" },
-  { slotId: "challenge-high-q", cohort: "challenge", suggestedMaterial: "glass", selectionCriterion: "high-Q object with long decay or closely spaced peaks" },
+  { slotId: "challenge-high-q", cohort: "challenge", suggestedMaterial: "glass", selectionCriterion: "low-damping high-Q object with long ringdown; do not select on close-mode or degeneracy behavior" },
   { slotId: "challenge-low-snr", cohort: "challenge", suggestedMaterial: "other", selectionCriterion: "small or weakly radiating object near the microphone/SNR floor" },
-  { slotId: "challenge-degenerate", cohort: "challenge", suggestedMaterial: "other", selectionCriterion: "geometry likely to produce near-degenerate or strike-location-sensitive modes" },
+  { slotId: "challenge-degenerate", cohort: "challenge", suggestedMaterial: "other", selectionCriterion: "geometry likely to produce symmetry, near-degenerate modes, or strike-location sensitivity" },
 ] as const;
 
 export function createRecommendedCampaignDraft(
@@ -79,6 +79,10 @@ function nonempty(value: string): boolean {
   return value.trim().length > 0;
 }
 
+function normalized(value: string): string {
+  return value.trim().toLocaleLowerCase("en-US");
+}
+
 function protocolFromDraft(specimen: CampaignAuthoringSpecimen): FixedSetupProtocol {
   return {
     fixedSetup: true,
@@ -87,6 +91,15 @@ function protocolFromDraft(specimen: CampaignAuthoringSpecimen): FixedSetupProto
     strikeLocation: specimen.strikeLocation.trim(),
     supportCondition: specimen.supportCondition.trim(),
   };
+}
+
+function enforceDistinctCoreFamilies(draft: CampaignAuthoringDraft, errors: string[]): void {
+  for (const material of ["metal", "glass", "ceramic"] as const) {
+    const core = draft.specimens.filter((specimen) => specimen.cohort === "release-core" && specimen.material === material);
+    if (core.length !== 2) continue;
+    const families = new Set(core.map((specimen) => normalized(specimen.objectFamily)).filter(Boolean));
+    if (families.size !== 2) errors.push(`release-core ${material} slots must use two distinct object families`);
+  }
 }
 
 export function buildEmpiricalCampaignFromDraft(
@@ -110,12 +123,8 @@ export function buildEmpiricalCampaignFromDraft(
     if (expectedSlot === undefined) {
       errors.push(`${field}: slot is outside the recommended campaign design`);
     } else {
-      if (specimen.slotId !== expectedSlot.slotId) {
-        errors.push(`${field}: expected frozen slot ${expectedSlot.slotId}`);
-      }
-      if (specimen.cohort !== expectedSlot.cohort) {
-        errors.push(`${field}: cohort must remain ${expectedSlot.cohort}`);
-      }
+      if (specimen.slotId !== expectedSlot.slotId) errors.push(`${field}: expected frozen slot ${expectedSlot.slotId}`);
+      if (specimen.cohort !== expectedSlot.cohort) errors.push(`${field}: cohort must remain ${expectedSlot.cohort}`);
       if (expectedSlot.cohort === "release-core" && specimen.material !== expectedSlot.suggestedMaterial) {
         errors.push(`${field}: release-core material must remain ${expectedSlot.suggestedMaterial}`);
       }
@@ -132,14 +141,15 @@ export function buildEmpiricalCampaignFromDraft(
     if (!Number.isInteger(specimen.targetSessions) || specimen.targetSessions <= 0) {
       errors.push(`${field}: target sessions must be a positive integer`);
     }
-    const normalized = specimen.specimenId.trim().toLocaleLowerCase("en-US");
-    if (normalized.length > 0) {
-      if (seen.has(normalized)) errors.push(`${field}: duplicate specimen ID ${specimen.specimenId.trim()}`);
-      seen.add(normalized);
+    const normalizedId = normalized(specimen.specimenId);
+    if (normalizedId.length > 0) {
+      if (seen.has(normalizedId)) errors.push(`${field}: duplicate specimen ID ${specimen.specimenId.trim()}`);
+      seen.add(normalizedId);
     }
   });
+  enforceDistinctCoreFamilies(draft, errors);
 
-  if (errors.length > 0) return { ok: false, errors };
+  if (errors.length > 0) return { ok: false, errors: [...new Set(errors)] };
 
   const candidate: EmpiricalCampaignV1 = {
     schemaVersion: 1,
