@@ -1,4 +1,4 @@
-import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
+import type { AcousticFingerprintV1, AcousticFingerprintAlgorithmVersion } from "@everything-rings/dsp";
 import { centsDistance } from "./recurrence";
 
 export interface AcousticObjectObservationV1 {
@@ -36,7 +36,7 @@ export interface AcousticObjectModelV1 {
   readonly objectModelVersion: "acoustic-object-model-1";
   readonly specimenId: string;
   readonly observationCount: number;
-  readonly fingerprintAlgorithmVersions: readonly string[];
+  readonly fingerprintAlgorithmVersions: readonly AcousticFingerprintAlgorithmVersion[];
   readonly sampleRates: readonly number[];
   readonly modes: readonly AcousticObjectModeEstimateV1[];
 }
