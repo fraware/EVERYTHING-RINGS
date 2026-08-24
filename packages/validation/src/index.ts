@@ -45,6 +45,18 @@ export {
   type ResonanceAtlasSnapshotV1,
 } from "./atlas";
 export {
+  applyAtlasSpecimenMerge,
+  createAtlasSpecimenMerge,
+  emptyAtlasRegistry,
+  publishAtlasRecord,
+  searchAtlas,
+  snapshotAtlasRegistry,
+  type AtlasRegistryStateV1,
+  type AtlasSearchQueryV1,
+  type AtlasSearchResultV1,
+  type AtlasSpecimenMergeV1,
+} from "./atlas-registry";
+export {
   deriveEvidenceRecurrence,
   deriveMedianModalDriftCents,
   medianFinite,
