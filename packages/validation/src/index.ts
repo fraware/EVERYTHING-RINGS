@@ -24,6 +24,18 @@ export {
   type EmpiricalCampaignV1,
 } from "./campaign";
 export {
+  createGateBPlan,
+  createGateCPlan,
+  evaluateCanonicalGateB,
+  evaluateCanonicalGateC,
+  type CanonicalGateBResult,
+  type CanonicalGateCResult,
+  type GateBPlanV1,
+  type GateCDevicePlan,
+  type GateCPlanV1,
+  type PlannedReviewTarget,
+} from "./review-plans";
+export {
   deriveEvidenceRecurrence,
   deriveMedianModalDriftCents,
   medianFinite,
