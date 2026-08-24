@@ -7,6 +7,7 @@ import type {
   ReviewTarget,
 } from "./types";
 import { evaluateGateBRelease, evaluateGateCRelease } from "./evaluate";
+import { stableSha256Hex } from "./stable-sha256";
 
 export interface PlannedReviewTarget extends ReviewTarget {
   readonly specimenId: string;
@@ -71,25 +72,18 @@ function canonicalize(value: unknown): string {
   return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalize(record[key])}`).join(",")}}`;
 }
 
-async function sha256Text(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+function verdictDigest(value: unknown): string {
+  return `sha256:${stableSha256Hex(canonicalize(value))}`;
 }
 
-async function verdictDigest(value: unknown): Promise<string> {
-  return `sha256:${await sha256Text(canonicalize(value))}`;
-}
-
-async function rankTargets(
+function rankTargets(
   domain: string,
   targets: readonly PlannedReviewTarget[],
-): Promise<readonly PlannedReviewTarget[]> {
-  const ranked = await Promise.all(targets.map(async (target) => ({
+): readonly PlannedReviewTarget[] {
+  return targets.map((target) => ({
     target,
-    digest: await sha256Text(`${domain}|${normalize(target.specimenId)}|${target.sessionId}|${target.attemptId}`),
-  })));
-  ranked.sort((left, right) => left.digest.localeCompare(right.digest));
-  return ranked.map(({ target }) => target);
+    digest: stableSha256Hex(`${domain}|${normalize(target.specimenId)}|${target.sessionId}|${target.attemptId}`),
+  })).sort((left, right) => left.digest.localeCompare(right.digest)).map(({ target }) => target);
 }
 
 function gateATargets(gateA: GateAReleaseVerdict): PlannedReviewTarget[] {
@@ -120,13 +114,13 @@ function assertFixedPair(values: readonly string[], field: string): readonly [st
   return [values[0]!.trim(), values[1]!.trim()];
 }
 
-export async function createGateBPlan(
+export function createGateBPlan(
   gateA: GateAReleaseVerdict,
   reviewerIds: readonly string[],
-): Promise<GateBPlanV1> {
+): GateBPlanV1 {
   if (!gateA.passed || gateA.softwareRevision === null) throw new Error("Gate A must pass before Gate B planning");
   const reviewers = assertFixedPair(reviewerIds, "reviewerIds");
-  const all = uniqueSpecimenTargets(await rankTargets("gate-b-target-v1", gateATargets(gateA)));
+  const all = uniqueSpecimenTargets(rankTargets("gate-b-target-v1", gateATargets(gateA)));
   const byMaterial = new Map(gateA.sessions
     .filter((session) => session.passed)
     .map((session) => [normalize(session.specimenId), session.material] as const));
@@ -145,17 +139,17 @@ export async function createGateBPlan(
     schemaVersion: 1,
     planContractVersion: "gate-b-plan-1",
     gateARevision: gateA.softwareRevision,
-    gateAVerdictSha256: await verdictDigest(gateA),
+    gateAVerdictSha256: verdictDigest(gateA),
     reviewerIds: reviewers,
     targets: selected,
   };
 }
 
-export async function createGateCPlan(
+export function createGateCPlan(
   gateB: GateBReleaseVerdict,
   reviewerIds: readonly string[],
   devices: readonly GateCDevicePlan[],
-): Promise<GateCPlanV1> {
+): GateCPlanV1 {
   if (!gateB.passed) throw new Error("Gate B must pass before Gate C planning");
   const reviewers = assertFixedPair(reviewerIds, "reviewerIds");
   if (devices.length !== 2) throw new Error("Gate C planning requires exactly two devices");
@@ -174,28 +168,28 @@ export async function createGateCPlan(
       sessionId: object.selectedTarget!.sessionId,
       attemptId: object.selectedTarget!.attemptId,
     }));
-  const ranked = await rankTargets("gate-c-target-v1", uniqueSpecimenTargets(passingTargets));
+  const ranked = rankTargets("gate-c-target-v1", uniqueSpecimenTargets(passingTargets));
   const targets = ranked.slice(0, 4);
   if (targets.length !== 4) throw new Error("Gate C planning requires four passing Gate B specimens");
   return {
     schemaVersion: 1,
     planContractVersion: "gate-c-plan-1",
-    gateBVerdictSha256: await verdictDigest(gateB),
+    gateBVerdictSha256: verdictDigest(gateB),
     reviewerIds: reviewers,
     devices: [devices[0]!, devices[1]!],
     targets,
   };
 }
 
-export async function evaluateCanonicalGateB(
+export function evaluateCanonicalGateB(
   plan: GateBPlanV1,
   gateA: GateAReleaseVerdict,
   reviews: readonly GateBReview[],
-): Promise<CanonicalGateBResult> {
+): CanonicalGateBResult {
   const reasons: string[] = [];
   if (!gateA.passed) reasons.push("Gate A has not passed");
   if (gateA.softwareRevision !== plan.gateARevision) reasons.push("Gate B plan revision does not match Gate A");
-  if (await verdictDigest(gateA) !== plan.gateAVerdictSha256) reasons.push("Gate B plan does not bind the exact Gate A verdict");
+  if (verdictDigest(gateA) !== plan.gateAVerdictSha256) reasons.push("Gate B plan does not bind the exact Gate A verdict");
   if (plan.targets.length !== 5) reasons.push("Gate B plan must contain exactly five targets");
   const expectedReviewers = new Set(plan.reviewerIds.map(normalize));
   const expectedTargets = new Map(plan.targets.map((target) => [targetKey(target), target] as const));
@@ -225,14 +219,14 @@ export async function evaluateCanonicalGateB(
   };
 }
 
-export async function evaluateCanonicalGateC(
+export function evaluateCanonicalGateC(
   plan: GateCPlanV1,
   gateB: GateBReleaseVerdict,
   reviews: readonly GateCReview[],
-): Promise<CanonicalGateCResult> {
+): CanonicalGateCResult {
   const reasons: string[] = [];
   if (!gateB.passed) reasons.push("Gate B has not passed");
-  if (await verdictDigest(gateB) !== plan.gateBVerdictSha256) reasons.push("Gate C plan does not bind the exact Gate B verdict");
+  if (verdictDigest(gateB) !== plan.gateBVerdictSha256) reasons.push("Gate C plan does not bind the exact Gate B verdict");
   if (plan.targets.length !== 4) reasons.push("Gate C plan must contain exactly four targets");
   const expectedReviewers = new Set(plan.reviewerIds.map(normalize));
   const expectedDevices = new Map(plan.devices.map((device) => [normalize(device.deviceId), device] as const));
