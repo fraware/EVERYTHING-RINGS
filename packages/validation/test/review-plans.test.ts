@@ -22,7 +22,7 @@ function sixObjects() {
   ];
 }
 
-function gateBReviews(plan: Awaited<ReturnType<typeof createGateBPlan>>): GateBReview[] {
+function gateBReviews(plan: ReturnType<typeof createGateBPlan>): GateBReview[] {
   return plan.targets.flatMap((target) => plan.reviewerIds.map((reviewerId, index) => ({
     reviewId: `b-${target.specimenId}-${index}`,
     reviewerId,
@@ -38,7 +38,7 @@ function gateBReviews(plan: Awaited<ReturnType<typeof createGateBPlan>>): GateBR
   })));
 }
 
-function gateCReviews(plan: Awaited<ReturnType<typeof createGateCPlan>>): GateCReview[] {
+function gateCReviews(plan: ReturnType<typeof createGateCPlan>): GateCReview[] {
   return plan.targets.flatMap((target) => plan.reviewerIds.flatMap((reviewerId) => plan.devices.map((device) => ({
     reviewId: `c-${target.specimenId}-${reviewerId}-${device.deviceId}`,
     reviewerId,
@@ -55,10 +55,10 @@ function gateCReviews(plan: Awaited<ReturnType<typeof createGateCPlan>>): GateCR
 }
 
 describe("canonical post-collection plans", () => {
-  it("selects exactly five Gate B targets including metal, glass, and ceramic", async () => {
+  it("selects exactly five Gate B targets including metal, glass, and ceramic", () => {
     const gateA = evaluateGateARelease(sixObjects());
     expect(gateA.passed).toBe(true);
-    const plan = await createGateBPlan(gateA, ["reviewer-a", "reviewer-b"]);
+    const plan = createGateBPlan(gateA, ["reviewer-a", "reviewer-b"]);
     expect(plan.targets).toHaveLength(5);
     const materialBySpecimen = new Map(gateA.sessions.map((session) => [session.specimenId, session.material]));
     const materials = new Set(plan.targets.map((target) => materialBySpecimen.get(target.specimenId)));
@@ -67,9 +67,9 @@ describe("canonical post-collection plans", () => {
     expect(materials.has("ceramic")).toBe(true);
   });
 
-  it("rejects Gate B when one fixed-panel judgment is missing", async () => {
+  it("rejects Gate B when one fixed-panel judgment is missing", () => {
     const gateA = evaluateGateARelease(sixObjects());
-    const plan = await createGateBPlan(gateA, ["reviewer-a", "reviewer-b"]);
+    const plan = createGateBPlan(gateA, ["reviewer-a", "reviewer-b"]);
     const reviews = gateBReviews(plan);
     expect(evaluateCanonicalGateB(plan, gateA, reviews).passed).toBe(true);
     const missing = reviews.slice(0, -1);
@@ -78,14 +78,14 @@ describe("canonical post-collection plans", () => {
     expect(result.observedJudgmentCount).toBe(9);
   });
 
-  it("requires the full four-target by two-reviewer by two-device Gate C matrix", async () => {
+  it("requires the full four-target by two-reviewer by two-device Gate C matrix", () => {
     const gateA = evaluateGateARelease(sixObjects());
-    const gateBPlan = await createGateBPlan(gateA, ["reviewer-a", "reviewer-b"]);
+    const gateBPlan = createGateBPlan(gateA, ["reviewer-a", "reviewer-b"]);
     const gateBReviewsAll = gateBReviews(gateBPlan);
     const canonicalB = evaluateCanonicalGateB(gateBPlan, gateA, gateBReviewsAll);
     expect(canonicalB.passed).toBe(true);
 
-    const gateCPlan = await createGateCPlan(canonicalB.verdict, ["reviewer-c", "reviewer-d"], [
+    const gateCPlan = createGateCPlan(canonicalB.verdict, ["reviewer-c", "reviewer-d"], [
       { deviceId: "desktop-1", deviceClass: "desktop" },
       { deviceId: "phone-1", deviceClass: "mobile" },
     ]);
@@ -99,13 +99,13 @@ describe("canonical post-collection plans", () => {
     expect(result.observedJudgmentCount).toBe(15);
   });
 
-  it("rejects a Gate C plan without a mobile device", async () => {
+  it("rejects a Gate C plan without a mobile device", () => {
     const gateA = evaluateGateARelease(sixObjects());
-    const bPlan = await createGateBPlan(gateA, ["reviewer-a", "reviewer-b"]);
+    const bPlan = createGateBPlan(gateA, ["reviewer-a", "reviewer-b"]);
     const bVerdict = evaluateGateBRelease(gateA, gateBReviews(bPlan));
-    await expect(createGateCPlan(bVerdict, ["reviewer-c", "reviewer-d"], [
+    expect(() => createGateCPlan(bVerdict, ["reviewer-c", "reviewer-d"], [
       { deviceId: "desktop-1", deviceClass: "desktop" },
       { deviceId: "desktop-2", deviceClass: "desktop" },
-    ])).rejects.toThrow(/mobile/);
+    ])).toThrow(/mobile/);
   });
 });
