@@ -57,8 +57,8 @@ function linearPredictionCoefficients(samples: readonly number[], order: number)
     const target = -samples[n]!;
     for (let i = 0; i < order; i += 1) {
       const xi = samples[n - i - 1]!;
-      rhs[i] += xi * target;
-      for (let j = 0; j < order; j += 1) normal[i]![j] += xi * samples[n - j - 1]!;
+      rhs[i] = rhs[i]! + xi * target;
+      for (let j = 0; j < order; j += 1) normal[i]![j] = normal[i]![j]! + xi * samples[n - j - 1]!;
     }
   }
   const trace = normal.reduce((sum, row, index) => sum + Math.abs(row[index] ?? 0), 0);
