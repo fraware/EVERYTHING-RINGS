@@ -1,0 +1,70 @@
+name: digital-twin-qualification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/digital-twin-qualification.yml"
+      - "packages/acquisition/**"
+      - "packages/dsp/**"
+      - "packages/fingerprint/**"
+      - "packages/instrument/**"
+      - "packages/synth/**"
+      - "packages/validation/**"
+      - "apps/web/**"
+      - "scripts/**"
+      - "docs/DIGITAL_TWIN_QUALIFICATION.md"
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    env:
+      VITE_SOFTWARE_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Test including digital twins
+        run: pnpm test
+      - name: Build
+        run: pnpm build
+      - name: Browser qualification
+        run: bash scripts/browser-smoke.sh
+      - name: Emit qualification report
+        run: |
+          cat > /tmp/everything-rings-digital-twin-qualification.json <<EOF
+          {
+            "schemaVersion": 1,
+            "qualificationContractVersion": "digital-twin-qualification-1",
+            "softwareRevision": "${GITHUB_SHA}",
+            "releaseGateEquivalent": false,
+            "physicalMicrophonePathTested": false,
+            "physicalObjectTested": false,
+            "layers": [
+              "typecheck",
+              "unit-tests",
+              "digital-twin-acoustic-stress",
+              "canonical-review-governance",
+              "build",
+              "browser-e2e"
+            ],
+            "claim": "software qualification under deterministic synthetic acoustic inputs only"
+          }
+          EOF
+          cat /tmp/everything-rings-digital-twin-qualification.json
+      - name: Upload qualification report
+        uses: actions/upload-artifact@v4
+        with:
+          name: digital-twin-qualification-${{ github.sha }}
+          path: /tmp/everything-rings-digital-twin-qualification.json
+          if-no-files-found: error
