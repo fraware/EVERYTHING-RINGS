@@ -75,6 +75,7 @@ describe("research repository integrity", () => {
     expect(integrity.measurementCount).toBe(1);
     expect(integrity.derivationCount).toBe(1);
     expect(integrity.atlasRecordCount).toBe(1);
+    expect(integrity.atlasMergeCount).toBe(0);
   });
 
   it("rejects derivations before their immutable measurement root exists", async () => {
@@ -101,5 +102,22 @@ describe("research repository integrity", () => {
       measurements: [{ measurementId: m.measurementId, derivationIds: [missingDerivation] }],
     });
     await expect(publishRepositoryAtlasRecord(repository, record)).rejects.toThrow(/absent/);
+  });
+
+  it("detects post-ingest Atlas content tampering during whole-repository verification", async () => {
+    const m = await measurement();
+    let repository = await ingestMeasurement(emptyResearchRepository(), m);
+    const record = await createAtlasRecord({
+      createdAt: "2026-08-24T15:32:00.000Z",
+      contributor: null,
+      specimen: { specimenId: m.specimenId, label: "Original", objectFamily: "reference", material: "other", publicDescription: null },
+      measurements: [{ measurementId: m.measurementId, derivationIds: [] }],
+    });
+    repository = await publishRepositoryAtlasRecord(repository, record);
+    const tamperedRecord = { ...record, specimen: { ...record.specimen, label: "Tampered" } };
+    const tampered = { ...repository, atlas: { ...repository.atlas, records: [tamperedRecord] } };
+    const integrity = await verifyResearchRepositoryIntegrity(tampered);
+    expect(integrity.valid).toBe(false);
+    expect(integrity.reasons.some((reason) => reason.includes("failed content verification"))).toBe(true);
   });
 });

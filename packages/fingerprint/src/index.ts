@@ -48,6 +48,7 @@ export {
   type SpatialModalSampleV1,
   type SpatialModalSoundFieldV1,
   type SpatialPointV1,
+  type SpatialPredictedFingerprintV1,
 } from "./modal-field";
 export {
   benchmarkSonicTwinRetrieval,
@@ -70,13 +71,17 @@ export {
 export {
   calibratedPredictions,
   evaluateCalibration,
+  fitAndEvaluateHeldOutCalibration,
   fitIsotonicCalibration,
   predictCalibratedProbability,
   riskCoverageCurve,
   type CalibratedPredictionV1,
   type CalibrationMetricsV1,
+  type CalibrationPartition,
+  type HeldOutCalibrationEvaluationV1,
   type IsotonicCalibrationBinV1,
   type LabeledSimilarityScoreV1,
+  type PartitionedSimilarityScoreV1,
   type RiskCoveragePointV1,
   type SonicTwinCalibrationModelV1,
 } from "./calibration";

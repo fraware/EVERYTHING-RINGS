@@ -4,10 +4,17 @@ on:
   pull_request:
     branches:
       - post-freeze-development
+  push:
+    branches:
+      - post-freeze-development
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: full-vision-software-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
   VITE_SOFTWARE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -15,9 +22,10 @@ env:
 jobs:
   qualify:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: 22
       - name: Enable Corepack
@@ -37,8 +45,9 @@ jobs:
           mkdir -p qualification
           cat > qualification/full-vision-software.json <<EOF
           {
-            "qualificationContractVersion": "full-vision-software-qualification-1",
+            "qualificationContractVersion": "full-vision-software-qualification-2",
             "sourceRevision": "${VITE_SOFTWARE_REVISION}",
+            "workflowRunId": "github-run:${{ github.run_id }}",
             "qualifiedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "softwareOnly": true,
             "physicalObjectTested": false,
@@ -59,24 +68,30 @@ jobs:
               "modal-reconstruction",
               "playable-instrument",
               "measurement-provenance",
+              "artifact-integrity",
               "nuisance-characterization",
               "acoustic-object-model",
+              "spatial-modal-field",
               "verification-baseline",
               "specimen-retrieval",
-              "data-bound-calibration",
+              "held-out-data-bound-calibration",
               "risk-coverage",
+              "algorithm-promotion-governance",
+              "research-material-inference",
               "station-calibration-contract",
               "atlas-registry",
               "atlas-search",
               "atlas-snapshots",
               "atlas-collections-and-graph",
+              "atlas-service-conformance",
+              "machine-readable-assurance",
               "browser-twin-lab",
               "browser-atlas-lab"
             ]
           }
           EOF
       - name: Upload qualification report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: full-vision-software-qualification-${{ env.VITE_SOFTWARE_REVISION }}
           path: qualification/full-vision-software.json

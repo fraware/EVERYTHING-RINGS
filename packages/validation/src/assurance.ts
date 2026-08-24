@@ -21,8 +21,12 @@ export interface CapabilityClaimV1 {
   readonly maturity: "implemented" | "software-qualified" | "empirically-qualified";
 }
 
+function isContentDigest(id: string): boolean {
+  return /^sha256:[0-9a-f]{64}$/.test(id);
+}
+
 function assertEvidenceId(id: string): void {
-  if (!/^sha256:[0-9a-f]{64}$/.test(id) && !/^[0-9a-f]{40}$/.test(id) && !/^github-run:\d+$/.test(id)) {
+  if (!isContentDigest(id) && !/^[0-9a-f]{40}$/.test(id) && !/^github-run:\d+$/.test(id)) {
     throw new Error("assurance evidenceId must be a SHA-256 digest, Git revision, or github-run:<id>");
   }
 }
@@ -54,8 +58,15 @@ export async function createCapabilityClaim(
 }
 
 export async function verifyCapabilityClaim(claim: CapabilityClaimV1): Promise<boolean> {
+  if (claim.schemaVersion !== 1 || claim.claimContractVersion !== "capability-claim-1") return false;
+  if (!isContentDigest(claim.claimId) || !Number.isFinite(Date.parse(claim.createdAt))) return false;
+  if (claim.capability.trim().length === 0 || claim.proposition.trim().length === 0 || claim.scope.trim().length === 0 || claim.evidence.length === 0) return false;
+  if (!claim.evidence.every((reference) => {
+    try { assertEvidenceId(reference.evidenceId); } catch { return false; }
+    return reference.description.trim().length > 0;
+  })) return false;
   const { claimId, ...payload } = claim;
-  return /^sha256:[0-9a-f]{64}$/.test(claimId) && claimId === await contentDigest(payload);
+  return claimId === await contentDigest(payload);
 }
 
 export interface SoftwareQualificationManifestV1 {
@@ -78,12 +89,17 @@ export async function createSoftwareQualificationManifest(
   if (!/^[0-9a-f]{40}$/.test(input.sourceRevision)) throw new Error("software qualification sourceRevision must be exact 40-hex Git revision");
   if (!Number.isFinite(Date.parse(input.createdAt))) throw new Error("software qualification createdAt is invalid");
   if (input.testRunIds.length === 0) throw new Error("software qualification requires at least one test run");
+  if (input.capabilityClaimIds.length === 0) throw new Error("software qualification requires at least one capability claim");
   input.testRunIds.forEach((id) => { if (!/^github-run:\d+$/.test(id)) throw new Error("testRunIds must use github-run:<id>"); });
-  input.capabilityClaimIds.forEach((id) => assertEvidenceId(id));
+  input.capabilityClaimIds.forEach((id) => { if (!isContentDigest(id)) throw new Error("capabilityClaimIds must be SHA-256 claim digests"); });
+  const testRunIds = [...new Set(input.testRunIds)].sort();
+  const capabilityClaimIds = [...new Set(input.capabilityClaimIds)].sort();
+  if (testRunIds.length !== input.testRunIds.length) throw new Error("software qualification testRunIds must be unique");
+  if (capabilityClaimIds.length !== input.capabilityClaimIds.length) throw new Error("software qualification capabilityClaimIds must be unique");
   const payload = {
     ...input,
-    testRunIds: [...input.testRunIds].sort(),
-    capabilityClaimIds: [...input.capabilityClaimIds].sort(),
+    testRunIds,
+    capabilityClaimIds,
     schemaVersion: 1 as const,
     qualificationContractVersion: "full-vision-software-manifest-1" as const,
     physicalObjectTested: false as const,
@@ -92,4 +108,16 @@ export async function createSoftwareQualificationManifest(
     releaseGateEquivalent: false as const,
   };
   return { ...payload, manifestId: await contentDigest(payload) };
+}
+
+export async function verifySoftwareQualificationManifest(manifest: SoftwareQualificationManifestV1): Promise<boolean> {
+  if (manifest.schemaVersion !== 1 || manifest.qualificationContractVersion !== "full-vision-software-manifest-1") return false;
+  if (!isContentDigest(manifest.manifestId) || !/^[0-9a-f]{40}$/.test(manifest.sourceRevision)) return false;
+  if (!Number.isFinite(Date.parse(manifest.createdAt)) || manifest.testRunIds.length === 0 || manifest.capabilityClaimIds.length === 0) return false;
+  if (!manifest.testRunIds.every((id) => /^github-run:\d+$/.test(id))) return false;
+  if (!manifest.capabilityClaimIds.every(isContentDigest)) return false;
+  if (new Set(manifest.testRunIds).size !== manifest.testRunIds.length || new Set(manifest.capabilityClaimIds).size !== manifest.capabilityClaimIds.length) return false;
+  if (manifest.physicalObjectTested !== false || manifest.humanPerceptualValidationPerformed !== false || manifest.realPlaybackTransducerValidated !== false || manifest.releaseGateEquivalent !== false) return false;
+  const { manifestId, ...payload } = manifest;
+  return manifestId === await contentDigest(payload);
 }

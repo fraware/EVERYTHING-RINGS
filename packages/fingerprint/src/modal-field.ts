@@ -1,4 +1,4 @@
-import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
+import type { AcousticFingerprintV1, AcousticMode, AcousticFingerprintAlgorithmVersion } from "@everything-rings/dsp";
 import { centsDistance } from "./recurrence";
 import { buildAcousticObjectModel, type AcousticObjectModelV1 } from "./object-model";
 
@@ -120,10 +120,27 @@ export interface SpatialModalFieldQueryV1 {
   readonly durationSeconds?: number;
 }
 
+/**
+ * A spatial-field prediction is a derived model output, not a fresh acoustic
+ * measurement. It deliberately cannot be mistaken for an evidence-eligible
+ * AcousticFingerprintV1 because it carries no canonical algorithmVersion.
+ */
+export interface SpatialPredictedFingerprintV1 {
+  readonly schemaVersion: 1;
+  readonly predictionContractVersion: "spatial-predicted-fingerprint-1";
+  readonly evidenceEligible: false;
+  readonly sourceFingerprintAlgorithmVersions: readonly AcousticFingerprintAlgorithmVersion[];
+  readonly specimenId: string;
+  readonly sampleRate: number;
+  readonly durationSeconds: number;
+  readonly strikePoint: SpatialPointV1;
+  readonly modes: readonly AcousticMode[];
+}
+
 export function fingerprintAtSpatialPoint(
   field: SpatialModalSoundFieldV1,
   query: SpatialModalFieldQueryV1,
-): AcousticFingerprintV1 {
+): SpatialPredictedFingerprintV1 {
   assertPoint(query.point);
   const interpolationPower = query.interpolationPower ?? 2;
   if (!(interpolationPower > 0) || !Number.isFinite(interpolationPower)) throw new Error("interpolationPower must be finite and positive");
@@ -131,12 +148,18 @@ export function fingerprintAtSpatialPoint(
   const maximumAmplitude = Math.max(0, ...amplitudes);
   const sampleRate = query.sampleRate ?? field.objectModel.sampleRates[0] ?? 48_000;
   const durationSeconds = query.durationSeconds ?? 2;
+  if (!(sampleRate > 0) || !Number.isFinite(sampleRate)) throw new Error("spatial predicted sampleRate must be finite and positive");
+  if (!(durationSeconds > 0) || !Number.isFinite(durationSeconds)) throw new Error("spatial predicted durationSeconds must be finite and positive");
   return {
-    version: 1,
-    algorithmVersion: field.objectModel.fingerprintAlgorithmVersions[0] as AcousticFingerprintV1["algorithmVersion"],
+    schemaVersion: 1,
+    predictionContractVersion: "spatial-predicted-fingerprint-1",
+    evidenceEligible: false,
+    sourceFingerprintAlgorithmVersions: [...field.objectModel.fingerprintAlgorithmVersions],
+    specimenId: field.specimenId,
     sampleRate,
     durationSeconds,
-    modes: field.modes.flatMap((mode, index) => {
+    strikePoint: { ...query.point },
+    modes: field.modes.flatMap((mode, index): AcousticMode[] => {
       const amplitude = amplitudes[index] ?? 0;
       if (!(amplitude > 0) || !(maximumAmplitude > 0)) return [];
       const relativeAmplitude = amplitude / maximumAmplitude;

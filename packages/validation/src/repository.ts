@@ -1,9 +1,10 @@
 import {
   publishAtlasRecord,
+  verifyAtlasSpecimenMerge,
   type AtlasRegistryStateV1,
   emptyAtlasRegistry,
 } from "./atlas-registry";
-import type { ResonanceAtlasRecordV1 } from "./atlas";
+import { verifyAtlasRecord, type ResonanceAtlasRecordV1 } from "./atlas";
 import {
   verifyDerivationRecord,
   verifyMeasurementRecord,
@@ -61,6 +62,7 @@ export async function publishRepositoryAtlasRecord(
   state: ResearchRepositoryStateV1,
   record: ResonanceAtlasRecordV1,
 ): Promise<ResearchRepositoryStateV1> {
+  if (!await verifyAtlasRecord(record)) throw new Error("Atlas record failed content verification");
   for (const reference of record.measurements) {
     if (!state.measurements.some((measurement) => measurement.measurementId === reference.measurementId)) {
       throw new Error(`Atlas measurement ${reference.measurementId} is absent from repository`);
@@ -81,19 +83,32 @@ export interface ResearchRepositoryIntegrityV1 {
   readonly measurementCount: number;
   readonly derivationCount: number;
   readonly atlasRecordCount: number;
+  readonly atlasMergeCount: number;
   readonly reasons: readonly string[];
+}
+
+function normalize(value: string): string {
+  return value.trim().toLocaleLowerCase("en-US");
 }
 
 export async function verifyResearchRepositoryIntegrity(
   state: ResearchRepositoryStateV1,
 ): Promise<ResearchRepositoryIntegrityV1> {
   const reasons: string[] = [];
+  if (state.schemaVersion !== 1 || state.repositoryContractVersion !== "everything-rings-research-repository-1") {
+    reasons.push("research repository contract metadata is invalid");
+  }
+  if (state.atlas.schemaVersion !== 1 || state.atlas.registryContractVersion !== "resonance-atlas-registry-1") {
+    reasons.push("Atlas registry contract metadata is invalid");
+  }
+
   const measurementIds = new Set<string>();
   for (const measurement of state.measurements) {
     if (measurementIds.has(measurement.measurementId)) reasons.push(`duplicate measurement ${measurement.measurementId}`);
     measurementIds.add(measurement.measurementId);
     if (!await verifyMeasurementRecord(measurement)) reasons.push(`measurement ${measurement.measurementId} failed content verification`);
   }
+
   const derivationIds = new Set<string>();
   for (const derivation of state.derivations) {
     if (derivationIds.has(derivation.derivationId)) reasons.push(`duplicate derivation ${derivation.derivationId}`);
@@ -101,8 +116,18 @@ export async function verifyResearchRepositoryIntegrity(
     if (!await verifyDerivationRecord(derivation)) reasons.push(`derivation ${derivation.derivationId} failed content verification`);
     if (!measurementIds.has(derivation.measurementId)) reasons.push(`derivation ${derivation.derivationId} has missing root measurement`);
   }
+
+  const atlasRecordIds = new Set<string>();
+  const measurementOwners = new Map<string, string>();
   for (const record of state.atlas.records) {
+    if (atlasRecordIds.has(record.atlasRecordId)) reasons.push(`duplicate Atlas record ${record.atlasRecordId}`);
+    atlasRecordIds.add(record.atlasRecordId);
+    if (!await verifyAtlasRecord(record)) reasons.push(`Atlas record ${record.atlasRecordId} failed content verification`);
+    const owner = normalize(record.specimen.specimenId);
     for (const reference of record.measurements) {
+      const priorOwner = measurementOwners.get(reference.measurementId);
+      if (priorOwner !== undefined && priorOwner !== owner) reasons.push(`Atlas measurement ${reference.measurementId} is assigned to multiple specimens`);
+      measurementOwners.set(reference.measurementId, owner);
       if (!measurementIds.has(reference.measurementId)) reasons.push(`Atlas record ${record.atlasRecordId} references missing measurement ${reference.measurementId}`);
       for (const derivationId of reference.derivationIds) {
         const derivation = state.derivations.find((candidate) => candidate.derivationId === derivationId);
@@ -111,11 +136,27 @@ export async function verifyResearchRepositoryIntegrity(
       }
     }
   }
+
+  const mergeIds = new Set<string>();
+  const mergeAliases = new Set<string>();
+  for (const merge of state.atlas.specimenMerges) {
+    if (mergeIds.has(merge.mergeId)) reasons.push(`duplicate Atlas merge ${merge.mergeId}`);
+    mergeIds.add(merge.mergeId);
+    if (!await verifyAtlasSpecimenMerge(merge)) reasons.push(`Atlas merge ${merge.mergeId} failed content verification`);
+    const alias = normalize(merge.aliasSpecimenId);
+    if (mergeAliases.has(alias)) reasons.push(`Atlas specimen ${alias} has multiple canonical merges`);
+    mergeAliases.add(alias);
+    for (const recordId of merge.supportingRecordIds) {
+      if (!atlasRecordIds.has(recordId)) reasons.push(`Atlas merge ${merge.mergeId} references missing record ${recordId}`);
+    }
+  }
+
   return {
     valid: reasons.length === 0,
     measurementCount: state.measurements.length,
     derivationCount: state.derivations.length,
     atlasRecordCount: state.atlas.records.length,
+    atlasMergeCount: state.atlas.specimenMerges.length,
     reasons: [...new Set(reasons)],
   };
 }

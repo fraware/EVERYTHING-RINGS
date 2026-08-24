@@ -5,12 +5,10 @@ import {
   benchmarkSonicTwinRetrieval,
   buildAcousticObjectModel,
   buildSonicTwinIndex,
-  calibratedPredictions,
   compareFingerprintToObjectModel,
-  evaluateCalibration,
-  fitIsotonicCalibration,
-  riskCoverageCurve,
+  fitAndEvaluateHeldOutCalibration,
   type AcousticObjectObservationV1,
+  type PartitionedSimilarityScoreV1,
 } from "@everything-rings/fingerprint";
 import { renderPlayableNote } from "@everything-rings/instrument";
 import {
@@ -22,7 +20,7 @@ import {
   createMeasurementRecord,
   createStationCalibrationProtocol,
   emptyResearchRepository,
-  evaluateStationCalibration,
+  evaluateVerifiedStationCalibration,
   ingestDerivation,
   ingestMeasurement,
   publishRepositoryAtlasRecord,
@@ -95,7 +93,7 @@ function peak(samples: Float32Array): number {
 }
 
 describe("EVERYTHING RINGS full-vision software system", () => {
-  it("qualifies digital capture through object models, retrieval, calibration, station checks, provenance, Atlas, graph, and playable output", async () => {
+  it("qualifies digital capture through held-out calibration, station checks, provenance, Atlas, graph, and playable output", async () => {
     const observations: AcousticObjectObservationV1[] = [];
     for (const specimen of SPECIMENS) {
       for (let replicate = 0; replicate < 3; replicate += 1) {
@@ -118,21 +116,28 @@ describe("EVERYTHING RINGS full-vision software system", () => {
     expect(retrieval.recallAt1).toBe(1);
     expect(retrieval.meanReciprocalRank).toBe(1);
 
-    const labeledScores = heldOutQueries.flatMap((query) => index.entries.map((entry) => {
+    const labeledScores: PartitionedSimilarityScoreV1[] = heldOutQueries.flatMap((query, queryIndex) => index.entries.map((entry) => {
       const comparison = compareFingerprintToObjectModel(query.fingerprint, entry.model);
       return {
         pairId: `${query.queryId}::${entry.specimenId}`,
+        groupId: query.trueSpecimenId,
+        partition: queryIndex < 2 ? "calibration" as const : "evaluation" as const,
         score: comparison.evidenceScore,
         samePhysicalSpecimen: query.trueSpecimenId === entry.specimenId,
       };
     }));
-    const calibration = fitIsotonicCalibration(labeledScores, "full-vision-digital-twin-system-1");
-    const predictions = calibratedPredictions(calibration, labeledScores);
-    const calibrationMetrics = evaluateCalibration(predictions, 5);
-    expect(calibrationMetrics.rocAuc).not.toBeNull();
-    expect(calibrationMetrics.rocAuc!).toBeGreaterThan(0.9);
-    const risk = riskCoverageCurve(predictions, [0, 0.2, 0.4]);
-    expect(risk[0]?.coverage).toBe(1);
+    const calibration = fitAndEvaluateHeldOutCalibration(
+      labeledScores,
+      "full-vision-digital-calibration-population-1",
+      "full-vision-digital-held-out-population-1",
+      5,
+      [0, 0.2, 0.4],
+    );
+    expect(calibration.calibrationGroups).toHaveLength(2);
+    expect(calibration.evaluationGroups).toHaveLength(1);
+    expect(calibration.metrics.rocAuc).not.toBeNull();
+    expect(calibration.metrics.rocAuc!).toBeGreaterThan(0.9);
+    expect(calibration.riskCoverage[0]?.coverage).toBe(1);
 
     const referenceModel = buildAcousticObjectModel(observations.filter((observation) => observation.specimenId === SPECIMENS[0]!.id));
     const stationProtocol = await createStationCalibrationProtocol({
@@ -144,7 +149,7 @@ describe("EVERYTHING RINGS full-vision software system", () => {
       maximumMedianFrequencyDistanceCents: 45,
       minimumMatchedModes: 3,
     });
-    const stationVerdict = evaluateStationCalibration(stationProtocol, {
+    const stationVerdict = await evaluateVerifiedStationCalibration(stationProtocol, {
       stationId: "digital-station-system-test",
       createdAt: "2026-08-24T16:01:00.000Z",
       specimenId: SPECIMENS[0]!.id,
@@ -174,7 +179,7 @@ describe("EVERYTHING RINGS full-vision software system", () => {
         measurementId: measurement.measurementId,
         kind: "similarity",
         algorithmVersion: "acoustic-object-model-1+sonic-twin-index-1",
-        configDigest: await contentDigest({ stationProtocol: stationProtocol.protocolId }),
+        configDigest: await contentDigest({ stationProtocol: stationProtocol.protocolId, calibration: calibration.model.trainingPopulation }),
         artifactDigest: await contentDigest({ ranking: index.entries.map((entry) => compareFingerprintToObjectModel(query.fingerprint, entry.model)) }),
         createdAt: `2026-08-24T16:2${indexValue}:00.000Z`,
       });
@@ -203,9 +208,10 @@ describe("EVERYTHING RINGS full-vision software system", () => {
       description: "Software qualification collection",
       atlasRecordIds,
     });
-    const graph = buildAtlasGraph(repository.atlas, [collection]);
+    const graph = await buildAtlasGraph(repository.atlas, [collection]);
     expect(graph.nodes.some((node) => node.kind === "collection")).toBe(true);
     expect(graph.edges.filter((edge) => edge.kind === "member-of")).toHaveLength(3);
+    expect(graph.edges.filter((edge) => edge.kind === "created-by")).toHaveLength(1);
     const snapshot = await snapshotAtlasRegistry(repository.atlas, "2026-08-24T16:41:00.000Z");
     expect(snapshot.recordIds).toHaveLength(3);
   });

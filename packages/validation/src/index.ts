@@ -46,6 +46,16 @@ export {
   type EverythingRingsArtifactKind,
 } from "./artifact-envelope";
 export {
+  createCapabilityClaim,
+  createSoftwareQualificationManifest,
+  verifyCapabilityClaim,
+  verifySoftwareQualificationManifest,
+  type AssuranceEvidenceReferenceV1,
+  type CapabilityClaimV1,
+  type EvidenceDomain,
+  type SoftwareQualificationManifestV1,
+} from "./assurance";
+export {
   createAtlasRecord,
   createAtlasSnapshot,
   verifyAtlasRecord,
@@ -62,6 +72,7 @@ export {
   publishAtlasRecord,
   searchAtlas,
   snapshotAtlasRegistry,
+  verifyAtlasSpecimenMerge,
   type AtlasRegistryStateV1,
   type AtlasSearchQueryV1,
   type AtlasSearchResultV1,
@@ -70,6 +81,7 @@ export {
 export {
   buildAtlasGraph,
   createAtlasCollection,
+  verifyAtlasCollection,
   type AtlasCollectionV1,
   type AtlasGraphEdgeKind,
   type AtlasGraphEdgeV1,
@@ -94,6 +106,8 @@ export {
 export {
   createStationCalibrationProtocol,
   evaluateStationCalibration,
+  evaluateVerifiedStationCalibration,
+  verifyStationCalibrationProtocol,
   type StationCalibrationObservationV1,
   type StationCalibrationProtocolV1,
   type StationCalibrationVerdictV1,

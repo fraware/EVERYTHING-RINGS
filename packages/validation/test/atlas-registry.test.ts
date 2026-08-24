@@ -8,6 +8,7 @@ import {
   publishAtlasRecord,
   searchAtlas,
   snapshotAtlasRegistry,
+  verifyAtlasSpecimenMerge,
 } from "../src";
 
 async function atlasRecord(specimenId: string, label: string, measurementSeed: string) {
@@ -61,7 +62,7 @@ describe("Resonance Atlas registry", () => {
     await expect(publishAtlasRecord(registry, second)).rejects.toThrow(/another specimen/);
   });
 
-  it("supports explicit evidence-backed specimen merges without rewriting historical records", async () => {
+  it("supports verified evidence-backed specimen merges without rewriting historical records", async () => {
     const first = await atlasRecord("alias-a", "Alias A", "a");
     const second = await atlasRecord("canonical-a", "Canonical A", "b");
     let registry = await publishAtlasRecord(emptyAtlasRegistry(), first);
@@ -73,10 +74,28 @@ describe("Resonance Atlas registry", () => {
       rationale: "software test of explicit merge policy",
       supportingRecordIds: [first.atlasRecordId, second.atlasRecordId],
     });
-    registry = applyAtlasSpecimenMerge(registry, merge);
+    expect(await verifyAtlasSpecimenMerge(merge)).toBe(true);
+    registry = await applyAtlasSpecimenMerge(registry, merge);
     expect(registry.records).toHaveLength(2);
     expect(registry.specimenMerges).toHaveLength(1);
     const alias = searchAtlas(registry, { text: "Alias" })[0];
     expect(alias?.canonicalSpecimenId).toBe("canonical-a");
+  });
+
+  it("rejects a content-tampered merge", async () => {
+    const first = await atlasRecord("alias-a", "Alias A", "a");
+    const second = await atlasRecord("canonical-a", "Canonical A", "b");
+    let registry = await publishAtlasRecord(emptyAtlasRegistry(), first);
+    registry = await publishAtlasRecord(registry, second);
+    const merge = await createAtlasSpecimenMerge({
+      createdAt: "2026-08-24T16:05:00.000Z",
+      aliasSpecimenId: "alias-a",
+      canonicalSpecimenId: "canonical-a",
+      rationale: "original rationale",
+      supportingRecordIds: [first.atlasRecordId, second.atlasRecordId],
+    });
+    const tampered = { ...merge, rationale: "mutated after signing" };
+    expect(await verifyAtlasSpecimenMerge(tampered)).toBe(false);
+    await expect(applyAtlasSpecimenMerge(registry, tampered)).rejects.toThrow(/content verification/);
   });
 });

@@ -21,7 +21,7 @@ function fp(amplitudes: readonly number[]): AcousticFingerprintV1 {
 }
 
 describe("spatial modal sound field", () => {
-  it("preserves global modal frequencies while spatially interpolating excitation amplitudes", () => {
+  it("preserves modal structure while keeping spatial predictions outside measurement evidence", () => {
     const field = buildSpatialModalSoundField([
       { observationId: "left", specimenId: "specimen-field", strikePoint: { x: 0, y: 0, z: 0 }, fingerprint: fp([1, 0.2, 0.1]) },
       { observationId: "right", specimenId: "specimen-field", strikePoint: { x: 1, y: 0, z: 0 }, fingerprint: fp([0.1, 1, 0.4]) },
@@ -33,6 +33,10 @@ describe("spatial modal sound field", () => {
     const left = fingerprintAtSpatialPoint(field, { point: { x: 0, y: 0, z: 0 } });
     const right = fingerprintAtSpatialPoint(field, { point: { x: 1, y: 0, z: 0 } });
     const center = fingerprintAtSpatialPoint(field, { point: { x: 0.5, y: 0.4, z: 0 } });
+    expect(left.evidenceEligible).toBe(false);
+    expect(left.predictionContractVersion).toBe("spatial-predicted-fingerprint-1");
+    expect(left.sourceFingerprintAlgorithmVersions).toContain("er-dsp-2");
+    expect("algorithmVersion" in left).toBe(false);
     expect(left.modes[0]!.relativeAmplitude).toBe(1);
     expect(right.modes[1]!.relativeAmplitude).toBe(1);
     expect(center.modes.every((mode) => Number.isFinite(mode.relativeAmplitude))).toBe(true);

@@ -43,6 +43,19 @@ export async function createStationCalibrationProtocol(
   return { ...payload, protocolId: await contentDigest(payload) };
 }
 
+export async function verifyStationCalibrationProtocol(protocol: StationCalibrationProtocolV1): Promise<boolean> {
+  if (protocol.schemaVersion !== 1 || protocol.stationCalibrationContractVersion !== "station-calibration-1") return false;
+  if (!/^sha256:[0-9a-f]{64}$/.test(protocol.protocolId) || !/^sha256:[0-9a-f]{64}$/.test(protocol.referenceObjectModelDigest)) return false;
+  if (!Number.isFinite(Date.parse(protocol.createdAt)) || protocol.referencePopulation.trim().length === 0) return false;
+  if (protocol.referenceSpecimenId.trim().toLocaleLowerCase("en-US") !== protocol.referenceObjectModel.specimenId.trim().toLocaleLowerCase("en-US")) return false;
+  if (!(protocol.minimumCoverage > 0 && protocol.minimumCoverage <= 1)) return false;
+  if (!(protocol.maximumMedianFrequencyDistanceCents > 0) || !Number.isFinite(protocol.maximumMedianFrequencyDistanceCents)) return false;
+  if (!Number.isInteger(protocol.minimumMatchedModes) || protocol.minimumMatchedModes <= 0) return false;
+  if (protocol.referenceObjectModelDigest !== await contentDigest(protocol.referenceObjectModel)) return false;
+  const { protocolId, ...payload } = protocol;
+  return protocolId === await contentDigest(payload);
+}
+
 export interface StationCalibrationObservationV1 {
   readonly stationId: string;
   readonly createdAt: string;
@@ -61,6 +74,7 @@ export interface StationCalibrationVerdictV1 {
   readonly reasons: readonly string[];
 }
 
+/** Diagnostic evaluator. Use evaluateVerifiedStationCalibration for authoritative station qualification. */
 export function evaluateStationCalibration(
   protocol: StationCalibrationProtocolV1,
   observation: StationCalibrationObservationV1,
@@ -87,4 +101,12 @@ export function evaluateStationCalibration(
     comparison,
     reasons,
   };
+}
+
+export async function evaluateVerifiedStationCalibration(
+  protocol: StationCalibrationProtocolV1,
+  observation: StationCalibrationObservationV1,
+): Promise<StationCalibrationVerdictV1> {
+  if (!await verifyStationCalibrationProtocol(protocol)) throw new Error("station calibration protocol failed content verification");
+  return evaluateStationCalibration(protocol, observation);
 }

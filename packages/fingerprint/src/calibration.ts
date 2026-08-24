@@ -37,6 +37,11 @@ function blockProbability(block: MutableBlock): number {
   return block.positiveCount / block.sampleCount;
 }
 
+function assertBinarySupport(samples: readonly LabeledSimilarityScoreV1[], label: string): void {
+  if (!samples.some((sample) => sample.samePhysicalSpecimen)) throw new Error(`${label} requires at least one positive example`);
+  if (!samples.some((sample) => !sample.samePhysicalSpecimen)) throw new Error(`${label} requires at least one negative example`);
+}
+
 export function fitIsotonicCalibration(
   samples: readonly LabeledSimilarityScoreV1[],
   trainingPopulation: string,
@@ -206,4 +211,85 @@ export function riskCoverageCurve(
       coveredCount: covered.length,
     };
   });
+}
+
+export type CalibrationPartition = "calibration" | "evaluation";
+
+export interface PartitionedSimilarityScoreV1 extends LabeledSimilarityScoreV1 {
+  readonly groupId: string;
+  readonly partition: CalibrationPartition;
+}
+
+export interface HeldOutCalibrationEvaluationV1 {
+  readonly schemaVersion: 1;
+  readonly evaluationVersion: "sonic-twin-held-out-calibration-1";
+  readonly calibrationPopulation: string;
+  readonly evaluationPopulation: string;
+  readonly calibrationGroups: readonly string[];
+  readonly evaluationGroups: readonly string[];
+  readonly calibrationSampleCount: number;
+  readonly evaluationSampleCount: number;
+  readonly model: SonicTwinCalibrationModelV1;
+  readonly predictions: readonly CalibratedPredictionV1[];
+  readonly metrics: CalibrationMetricsV1;
+  readonly riskCoverage: readonly RiskCoveragePointV1[];
+}
+
+/**
+ * Fits probability calibration only on the calibration partition and reports
+ * metrics only on group-disjoint evaluation samples. A group is normally a
+ * physical specimen or held-out query identity; it may not cross partitions.
+ */
+export function fitAndEvaluateHeldOutCalibration(
+  samples: readonly PartitionedSimilarityScoreV1[],
+  calibrationPopulation: string,
+  evaluationPopulation: string,
+  binCount = 10,
+  riskThresholds: readonly number[] = [0, 0.1, 0.2, 0.3, 0.4, 0.49],
+): HeldOutCalibrationEvaluationV1 {
+  if (calibrationPopulation.trim().length === 0 || evaluationPopulation.trim().length === 0) {
+    throw new Error("held-out calibration requires named calibration and evaluation populations");
+  }
+  const seenPairIds = new Set<string>();
+  const calibrationGroups = new Set<string>();
+  const evaluationGroups = new Set<string>();
+  for (const sample of samples) {
+    assertScore(sample.score);
+    if (sample.pairId.trim().length === 0 || sample.groupId.trim().length === 0) throw new Error("held-out calibration requires pairId and groupId");
+    if (seenPairIds.has(sample.pairId)) throw new Error(`duplicate held-out calibration pairId ${sample.pairId}`);
+    seenPairIds.add(sample.pairId);
+    const group = sample.groupId.trim().toLocaleLowerCase("en-US");
+    (sample.partition === "calibration" ? calibrationGroups : evaluationGroups).add(group);
+  }
+  for (const group of calibrationGroups) {
+    if (evaluationGroups.has(group)) throw new Error(`calibration leakage: group ${group} appears in both partitions`);
+  }
+
+  const calibrationSamples = samples.filter((sample) => sample.partition === "calibration");
+  const evaluationSamples = samples.filter((sample) => sample.partition === "evaluation");
+  if (calibrationSamples.length === 0 || evaluationSamples.length === 0) throw new Error("held-out calibration requires non-empty calibration and evaluation partitions");
+  assertBinarySupport(calibrationSamples, "calibration partition");
+  assertBinarySupport(evaluationSamples, "evaluation partition");
+
+  const strip = (sample: PartitionedSimilarityScoreV1): LabeledSimilarityScoreV1 => ({
+    pairId: sample.pairId,
+    score: sample.score,
+    samePhysicalSpecimen: sample.samePhysicalSpecimen,
+  });
+  const model = fitIsotonicCalibration(calibrationSamples.map(strip), calibrationPopulation);
+  const predictions = calibratedPredictions(model, evaluationSamples.map(strip));
+  return {
+    schemaVersion: 1,
+    evaluationVersion: "sonic-twin-held-out-calibration-1",
+    calibrationPopulation: calibrationPopulation.trim(),
+    evaluationPopulation: evaluationPopulation.trim(),
+    calibrationGroups: [...calibrationGroups].sort(),
+    evaluationGroups: [...evaluationGroups].sort(),
+    calibrationSampleCount: calibrationSamples.length,
+    evaluationSampleCount: evaluationSamples.length,
+    model,
+    predictions,
+    metrics: evaluateCalibration(predictions, binCount),
+    riskCoverage: riskCoverageCurve(predictions, riskThresholds),
+  };
 }

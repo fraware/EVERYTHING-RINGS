@@ -80,6 +80,19 @@ export async function createAtlasSpecimenMerge(
   return { ...payload, mergeId: await contentDigest(payload) };
 }
 
+export async function verifyAtlasSpecimenMerge(merge: AtlasSpecimenMergeV1): Promise<boolean> {
+  if (merge.schemaVersion !== 1 || merge.mergeContractVersion !== "atlas-specimen-merge-1") return false;
+  if (!/^sha256:[0-9a-f]{64}$/.test(merge.mergeId)) return false;
+  if (!Number.isFinite(Date.parse(merge.createdAt))) return false;
+  if (normalized(merge.aliasSpecimenId).length === 0 || normalized(merge.canonicalSpecimenId).length === 0) return false;
+  if (normalized(merge.aliasSpecimenId) === normalized(merge.canonicalSpecimenId)) return false;
+  if (merge.rationale.trim().length === 0 || merge.supportingRecordIds.length === 0) return false;
+  if (new Set(merge.supportingRecordIds).size !== merge.supportingRecordIds.length) return false;
+  if (!merge.supportingRecordIds.every((id) => /^sha256:[0-9a-f]{64}$/.test(id))) return false;
+  const { mergeId, ...payload } = merge;
+  return mergeId === await contentDigest(payload);
+}
+
 function resolveCanonicalSpecimenId(state: AtlasRegistryStateV1, specimenId: string): string {
   let current = normalized(specimenId);
   const visited = new Set<string>();
@@ -92,11 +105,15 @@ function resolveCanonicalSpecimenId(state: AtlasRegistryStateV1, specimenId: str
   }
 }
 
-export function applyAtlasSpecimenMerge(
+export async function applyAtlasSpecimenMerge(
   state: AtlasRegistryStateV1,
   merge: AtlasSpecimenMergeV1,
-): AtlasRegistryStateV1 {
+): Promise<AtlasRegistryStateV1> {
+  if (!await verifyAtlasSpecimenMerge(merge)) throw new Error("Atlas specimen merge failed content verification");
   if (state.specimenMerges.some((existing) => existing.mergeId === merge.mergeId)) return state;
+  if (state.specimenMerges.some((existing) => normalized(existing.aliasSpecimenId) === normalized(merge.aliasSpecimenId))) {
+    throw new Error("Atlas alias specimen already has a canonical merge");
+  }
   const records = new Set(state.records.map((record) => record.atlasRecordId));
   for (const recordId of merge.supportingRecordIds) {
     if (!records.has(recordId)) throw new Error(`merge supporting record ${recordId} is absent from the registry`);
@@ -104,7 +121,7 @@ export function applyAtlasSpecimenMerge(
   const knownSpecimens = new Set(state.records.map((record) => normalized(record.specimen.specimenId)));
   if (!knownSpecimens.has(normalized(merge.aliasSpecimenId))) throw new Error("merge alias specimen is absent from the registry");
   if (!knownSpecimens.has(normalized(merge.canonicalSpecimenId))) throw new Error("merge canonical specimen is absent from the registry");
-  const candidate = { ...state, specimenMerges: [...state.specimenMerges, merge] };
+  const candidate = { ...state, specimenMerges: [...state.specimenMerges, merge].sort((left, right) => left.mergeId.localeCompare(right.mergeId)) };
   resolveCanonicalSpecimenId(candidate, merge.aliasSpecimenId);
   return candidate;
 }
@@ -158,5 +175,11 @@ export async function snapshotAtlasRegistry(
   createdAt: string,
 ): Promise<ResonanceAtlasSnapshotV1> {
   if (state.records.length === 0) throw new Error("cannot snapshot an empty Atlas registry");
+  for (const record of state.records) {
+    if (!await verifyAtlasRecord(record)) throw new Error(`cannot snapshot invalid Atlas record ${record.atlasRecordId}`);
+  }
+  for (const merge of state.specimenMerges) {
+    if (!await verifyAtlasSpecimenMerge(merge)) throw new Error(`cannot snapshot invalid Atlas merge ${merge.mergeId}`);
+  }
   return createAtlasSnapshot(state.records.map((record) => record.atlasRecordId), createdAt);
 }
