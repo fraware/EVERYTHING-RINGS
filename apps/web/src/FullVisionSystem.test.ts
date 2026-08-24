@@ -79,7 +79,7 @@ function fingerprintFromCapture(capture: AudioCapture): AcousticFingerprintV1 {
   const quality = assessCaptureQuality(capture);
   expect(quality.ok).toBe(true);
   const ringdown = extractImpactRingdown(capture.samples, capture.sampleRate, capture.triggerSample);
-  const result = analyzeImpact(ringdown.samples, ringdown.sampleRate);
+  const result = analyzeImpact(ringdown.samples, capture.sampleRate);
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error(result.reason);
   expect(result.fingerprint.modes.length).toBeGreaterThanOrEqual(3);
