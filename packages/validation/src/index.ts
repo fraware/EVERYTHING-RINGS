@@ -57,6 +57,16 @@ export {
   type AtlasSpecimenMergeV1,
 } from "./atlas-registry";
 export {
+  buildAtlasGraph,
+  createAtlasCollection,
+  type AtlasCollectionV1,
+  type AtlasGraphEdgeKind,
+  type AtlasGraphEdgeV1,
+  type AtlasGraphNodeKind,
+  type AtlasGraphNodeV1,
+  type AtlasGraphSnapshotV1,
+} from "./atlas-network";
+export {
   emptyResearchRepository,
   ingestDerivation,
   ingestMeasurement,
