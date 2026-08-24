@@ -45,6 +45,14 @@ export {
   type PlannedReviewTarget,
 } from "./review-plans";
 export {
+  parseGateBPlan,
+  parseGateBPlanJson,
+  parseGateCPlan,
+  parseGateCPlanJson,
+  type GateBPlanParseResult,
+  type GateCPlanParseResult,
+} from "./review-plan-parse";
+export {
   deriveEvidenceRecurrence,
   deriveMedianModalDriftCents,
   medianFinite,
