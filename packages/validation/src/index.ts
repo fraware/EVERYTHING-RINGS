@@ -67,6 +67,11 @@ export {
   type AtlasGraphSnapshotV1,
 } from "./atlas-network";
 export {
+  MemoryResonanceAtlasServiceV1,
+  verifyAtlasServiceConformance,
+  type ResonanceAtlasServiceV1,
+} from "./atlas-service";
+export {
   emptyResearchRepository,
   ingestDerivation,
   ingestMeasurement,
