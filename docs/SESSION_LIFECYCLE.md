@@ -1,48 +1,37 @@
-# Consumer session lifecycle
+# Empirical session lifecycle
 
-The consumer microphone session uses explicit ownership for every asynchronous startup. This is a product reliability and privacy boundary on `post-freeze-development`; it does not change acquisition thresholds, fingerprint estimation, validation evidence, or empirical gate semantics.
+The frozen empirical acquisition path uses explicit ownership for every asynchronous microphone startup. This is a measurement-integrity and privacy boundary. It does not change acquisition-quality thresholds, fingerprint estimation, validation evidence, campaign accounting, or Gate A/B/C scoring semantics.
 
 ## Ownership model
 
-Every `start()` receives a monotonically increasing lifecycle generation. `stop()`, unmount, a new `start()`, or a shared-link route transition invalidates the previous generation before resources are released.
+Every `start()` receives a monotonically increasing lifecycle generation. A later `start()`, explicit `stop()`, page departure, or component unmount invalidates the previous generation before resources are released.
 
-A callback is allowed to change consumer state only when both conditions hold:
+Capture-worklet, analysis-worker, and realtime timing callbacks may change application state only when both their generation and their exact resource object remain current. Events queued by an older session are therefore inert after that session loses ownership.
 
-1. its lifecycle generation is still current;
-2. its exact `SessionResources` object is still the active resource owner.
-
-Capture-worklet messages, analysis-worker success/failure/error messages, and realtime instrument timing callbacks therefore cannot re-enter the UI after their session has been superseded.
-
-React render state is not used as the source of truth for lifecycle decisions. The hook maintains a synchronous state reference so a callback captured by an earlier render can still distinguish an active session from an already-idle one.
+Lifecycle decisions use a synchronous state reference instead of a stale React render closure.
 
 ## Startup resources
 
-Microphone acquisition, `AudioContext.resume()`, capture-graph creation, and analysis-worker construction occur before a session becomes active. These partial resources are tracked by `OpeningSessionResources`.
+Microphone acquisition, `AudioContext` creation/resume, capture-graph creation, and analysis-worker construction are owned by `OpeningSessionResources` until a complete startup is transferred atomically to the active session.
 
-Cancellation disposes whatever exists immediately. If a delayed operation returns after cancellation, attaching that late resource to the already-disposed startup scope releases it immediately. This covers a microphone stream resolving after cancel as well as graph/worker resources that complete after their generation has lost ownership.
-
-Startup cancellation is silent. A rejection from a superseded generation must not be converted into a microphone failure message.
+Cancellation releases every partial resource already present. A microphone, graph, context, or worker that resolves after cancellation is rejected by the disposed startup scope and cleaned immediately. Cancellation of a superseded startup is silent and must not surface as a microphone-start failure.
 
 ## Active resources
 
-Disposal clears event handlers before disconnecting resources, then stops sample playback and realtime notes, disconnects the graph, stops all microphone tracks, terminates the analysis worker, and closes the audio context.
+Teardown is failure-isolated. Event handlers are cleared and each playback, worklet, graph, microphone-track, worker, and audio-context cleanup is attempted independently so one unavailable browser primitive cannot prevent release of the others.
 
-Queued events are still guarded by lifecycle generation and exact resource identity, so cleanup does not rely on event-handler removal alone.
+`pagehide` stops the complete acquisition session, including microphone tracks, worker, graph, and `AudioContext`. Hidden-page visibility changes silence output but do not themselves reinterpret an in-flight measurement; a real page departure owns the destructive stop boundary.
 
-`pagehide` stops the complete consumer session. A page transition therefore cannot leave microphone capture or an `AudioContext` owned by the departing page.
+## Empirical invariant
+
+A planned physical attempt is accepted only from the currently owned session. Stale capture or analysis callbacks from a cancelled, departed, or superseded session cannot populate a newer session or alter its qualified-attempt ledger.
+
+The lifecycle layer changes resource ownership only. It does not modify what constitutes an acquisition-quality-passing attempt or any analytical result.
 
 ## Validation
 
-Deterministic unit coverage exercises:
+Deterministic unit tests cover generation invalidation, exact-resource ownership, stale queued callbacks, late microphone cleanup, partial startup cleanup, late graph/worker cleanup, and one-time startup-to-active ownership transfer.
 
-- generation invalidation and start → cancel → start ownership;
-- exact-resource callback ownership;
-- queued callback no-op after invalidation;
-- late microphone cleanup after cancellation;
-- partial microphone/context cleanup;
-- late graph/worker cleanup;
-- one-time transfer from startup ownership to active-session ownership.
+The empirical browser journey covers unresolved microphone start → cancel → late-stream cleanup → fresh session ownership → cancel → unresolved start → `pagehide` → late-stream cleanup → active session → `pagehide` → microphone teardown, with no stale microphone-failure state.
 
-The browser lifecycle journey additionally exercises an unresolved microphone request, cancellation before resolution, cleanup of the late stream, a fresh subsequent session owner, cancellation of that owner, and a shared-link route superseding another unresolved startup without stale microphone failure UI.
-
-The complete existing consumer, history, Acoustic Capsule, permission, mobile, build, typecheck, and test matrix remains the integration gate.
+The complete empirical install, typecheck, test, build, route, acquisition, permission, mobile, and post-collection review matrix remains required for any freeze that includes this lifecycle implementation.

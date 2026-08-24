@@ -9,6 +9,11 @@ export {
   analyzeImpactWithConfig,
 } from "./analysis/analyze-impact";
 export {
+  estimateDampedModesPronyResearch,
+  type PronyResearchResultV1,
+  type ResearchDampedModeEstimateV1,
+} from "./analysis/prony-research";
+export {
   DEFAULT_DECAY_FIT_CONFIG,
   type DecayEstimate,
   type DecayFitConfig,

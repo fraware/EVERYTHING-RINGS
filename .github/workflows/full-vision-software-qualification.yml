@@ -1,0 +1,98 @@
+name: full-vision-software-qualification
+
+on:
+  pull_request:
+    branches:
+      - post-freeze-development
+  push:
+    branches:
+      - post-freeze-development
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-vision-software-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  VITE_SOFTWARE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck all workspaces
+        run: pnpm typecheck
+      - name: Run all software and digital-twin tests
+        run: pnpm test
+      - name: Build all workspaces
+        run: pnpm build
+      - name: Browser and lifecycle qualification
+        run: bash scripts/browser-smoke.sh
+      - name: Emit machine-readable qualification report
+        run: |
+          mkdir -p qualification
+          cat > qualification/full-vision-software.json <<EOF
+          {
+            "qualificationContractVersion": "full-vision-software-qualification-2",
+            "sourceRevision": "${VITE_SOFTWARE_REVISION}",
+            "workflowRunId": "github-run:${{ github.run_id }}",
+            "qualifiedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "softwareOnly": true,
+            "physicalObjectTested": false,
+            "humanPerceptualValidationPerformed": false,
+            "realPlaybackTransducerValidated": false,
+            "releaseGateEquivalent": false,
+            "checks": {
+              "frozenDependencyInstall": "pass",
+              "typecheck": "pass",
+              "unitAndDigitalTwinTests": "pass",
+              "build": "pass",
+              "browserAndLifecycleQualification": "pass"
+            },
+            "capabilityFamilies": [
+              "acquisition-software-path",
+              "er-dsp-2",
+              "research-high-resolution-estimator",
+              "modal-reconstruction",
+              "playable-instrument",
+              "measurement-provenance",
+              "artifact-integrity",
+              "nuisance-characterization",
+              "acoustic-object-model",
+              "spatial-modal-field",
+              "verification-baseline",
+              "specimen-retrieval",
+              "held-out-data-bound-calibration",
+              "risk-coverage",
+              "algorithm-promotion-governance",
+              "research-material-inference",
+              "station-calibration-contract",
+              "atlas-registry",
+              "atlas-search",
+              "atlas-snapshots",
+              "atlas-collections-and-graph",
+              "atlas-service-conformance",
+              "machine-readable-assurance",
+              "browser-twin-lab",
+              "browser-atlas-lab"
+            ]
+          }
+          EOF
+      - name: Upload qualification report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: full-vision-software-qualification-${{ env.VITE_SOFTWARE_REVISION }}
+          path: qualification/full-vision-software.json
+          if-no-files-found: error

@@ -12,6 +12,10 @@ export {
   buildReleaseVerdictForRevision,
 } from "./current-release";
 export {
+  buildCanonicalReleaseVerdictForRevision,
+  type CanonicalReleaseVerdictV1,
+} from "./canonical-release";
+export {
   empiricalCampaignSignature,
   evaluateEmpiricalCampaign,
   parseEmpiricalCampaign,
@@ -23,6 +27,124 @@ export {
   type EmpiricalCampaignSpecimenStatus,
   type EmpiricalCampaignV1,
 } from "./campaign";
+export {
+  deriveCampaignCollectionOrder,
+  validateCampaignSelectionAgainstRegister,
+  validateCandidateRegister,
+  type CampaignCollectionOrderEntryV1,
+  type CampaignCollectionOrderV1,
+  type CandidateRegisterEntryV1,
+  type CandidateRegisterV1,
+} from "./precommitment";
+export {
+  createGateBPlan,
+  createGateCPlan,
+  evaluateCanonicalGateB,
+  evaluateCanonicalGateC,
+  type CanonicalGateBResult,
+  type CanonicalGateCResult,
+  type GateBPlanV1,
+  type GateCDevicePlan,
+  type GateCPlanV1,
+  type PlannedReviewTarget,
+} from "./review-plans";
+export {
+  parseGateBPlan,
+  parseGateBPlanJson,
+  parseGateCPlan,
+  parseGateCPlanJson,
+  type GateBPlanParseResult,
+  type GateCPlanParseResult,
+} from "./review-plan-parse";
+export {
+  contentDigest,
+  createDerivationRecord,
+  createMeasurementRecord,
+  verifyDerivationRecord,
+  verifyMeasurementRecord,
+  type DerivationKind,
+  type DerivationRecordV1,
+  type MeasurementRecordV1,
+  type MeasurementStationV1,
+} from "./provenance";
+export {
+  ArtifactMigrationRegistryV1,
+  createArtifactEnvelope,
+  parseArtifactEnvelope,
+  parseArtifactEnvelopeJson,
+  verifyArtifactEnvelope,
+  type ArtifactEnvelopeParseResult,
+  type ArtifactEnvelopeV1,
+  type ArtifactMigrationStepV1,
+  type EverythingRingsArtifactKind,
+} from "./artifact-envelope";
+export {
+  createCapabilityClaim,
+  createSoftwareQualificationManifest,
+  verifyCapabilityClaim,
+  verifySoftwareQualificationManifest,
+  type AssuranceEvidenceReferenceV1,
+  type CapabilityClaimV1,
+  type EvidenceDomain,
+  type SoftwareQualificationManifestV1,
+} from "./assurance";
+export {
+  createAtlasRecord,
+  createAtlasSnapshot,
+  verifyAtlasRecord,
+  type AtlasContributorV1,
+  type AtlasMeasurementReferenceV1,
+  type AtlasSpecimenV1,
+  type ResonanceAtlasRecordV1,
+  type ResonanceAtlasSnapshotV1,
+} from "./atlas";
+export {
+  applyAtlasSpecimenMerge,
+  createAtlasSpecimenMerge,
+  emptyAtlasRegistry,
+  publishAtlasRecord,
+  searchAtlas,
+  snapshotAtlasRegistry,
+  verifyAtlasSpecimenMerge,
+  type AtlasRegistryStateV1,
+  type AtlasSearchQueryV1,
+  type AtlasSearchResultV1,
+  type AtlasSpecimenMergeV1,
+} from "./atlas-registry";
+export {
+  buildAtlasGraph,
+  createAtlasCollection,
+  verifyAtlasCollection,
+  type AtlasCollectionV1,
+  type AtlasGraphEdgeKind,
+  type AtlasGraphEdgeV1,
+  type AtlasGraphNodeKind,
+  type AtlasGraphNodeV1,
+  type AtlasGraphSnapshotV1,
+} from "./atlas-network";
+export {
+  MemoryResonanceAtlasServiceV1,
+  verifyAtlasServiceConformance,
+  type ResonanceAtlasServiceV1,
+} from "./atlas-service";
+export {
+  emptyResearchRepository,
+  ingestDerivation,
+  ingestMeasurement,
+  publishRepositoryAtlasRecord,
+  verifyResearchRepositoryIntegrity,
+  type ResearchRepositoryIntegrityV1,
+  type ResearchRepositoryStateV1,
+} from "./repository";
+export {
+  createStationCalibrationProtocol,
+  evaluateStationCalibration,
+  evaluateVerifiedStationCalibration,
+  verifyStationCalibrationProtocol,
+  type StationCalibrationObservationV1,
+  type StationCalibrationProtocolV1,
+  type StationCalibrationVerdictV1,
+} from "./station-calibration";
 export {
   deriveEvidenceRecurrence,
   deriveMedianModalDriftCents,

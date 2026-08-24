@@ -1,0 +1,11 @@
+# Default ownership until subsystem maintainers are added.
+* @fraware
+
+# Empirical protocols and release authority require explicit owner review.
+/docs/GATE_*.md @fraware
+/docs/EMPIRICAL_CAMPAIGN.md @fraware
+/packages/validation/ @fraware
+/packages/dsp/ @fraware
+/apps/web/src/ReleaseApp.tsx @fraware
+/apps/web/src/CampaignAuthorApp.tsx @fraware
+/apps/web/src/CampaignCollectionApp.tsx @fraware
