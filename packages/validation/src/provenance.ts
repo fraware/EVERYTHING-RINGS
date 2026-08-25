@@ -30,6 +30,41 @@ export interface MeasurementRecordV1 {
 
 export type DerivationKind = "renderer" | "instrument" | "similarity" | "embedding" | "visualization" | "atlas-record";
 
+/** V2 multi-source kinds. V1 `DerivationKind` remains the closed single-measurement set. */
+export type DerivationKindV2 =
+  | DerivationKind
+  | "object-model"
+  | "calibration"
+  | "index"
+  | "snapshot";
+
+export const DERIVATION_RECORD_V2_CONTRACT_VERSION = "derivation-record-2" as const;
+
+const DERIVATION_KINDS_V1: ReadonlySet<DerivationKind> = new Set([
+  "renderer",
+  "instrument",
+  "similarity",
+  "embedding",
+  "visualization",
+  "atlas-record",
+]);
+
+const DERIVATION_KINDS_V2: ReadonlySet<DerivationKindV2> = new Set([
+  ...DERIVATION_KINDS_V1,
+  "object-model",
+  "calibration",
+  "index",
+  "snapshot",
+]);
+
+export function isDerivationKind(value: string): value is DerivationKind {
+  return DERIVATION_KINDS_V1.has(value as DerivationKind);
+}
+
+export function isDerivationKindV2(value: string): value is DerivationKindV2 {
+  return DERIVATION_KINDS_V2.has(value as DerivationKindV2);
+}
+
 export interface DerivationRecordV1 {
   readonly schemaVersion: 1;
   readonly derivationContractVersion: "derivation-record-1";
@@ -108,3 +143,126 @@ export async function verifyDerivationRecord(record: DerivationRecordV1): Promis
   const { derivationId, ...payload } = record;
   return derivationId === await contentDigest(payload);
 }
+
+const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/;
+
+export function isContentDigest(value: string): boolean {
+  return SHA256_DIGEST.test(value);
+}
+
+export function canonicalizeContentDigests(ids: readonly string[], field: string): string[] {
+  for (const id of ids) {
+    if (!SHA256_DIGEST.test(id)) throw new Error(`${field} must be a sha256 content digest`);
+  }
+  const unique = [...new Set(ids)];
+  if (unique.length !== ids.length) throw new Error(`${field} must not contain duplicates`);
+  return unique.sort((left, right) => left.localeCompare(right, "en-US"));
+}
+
+export interface DerivationRecordV2 {
+  readonly schemaVersion: 2;
+  readonly derivationContractVersion: "derivation-record-2";
+  readonly derivationId: string;
+  readonly kind: DerivationKindV2;
+  readonly algorithmVersion: string;
+  readonly configDigest: string;
+  readonly sourceMeasurementIds: readonly string[];
+  readonly sourceDerivationIds: readonly string[];
+  readonly sourceDatasetSnapshotIds: readonly string[];
+  readonly artifactDigest: string;
+  readonly createdAt: string;
+}
+
+function assertDerivationV2Sources(
+  kind: DerivationKindV2,
+  sourceMeasurementIds: readonly string[],
+  sourceDerivationIds: readonly string[],
+  sourceDatasetSnapshotIds: readonly string[],
+): void {
+  const total = sourceMeasurementIds.length + sourceDerivationIds.length + sourceDatasetSnapshotIds.length;
+  if (total === 0) throw new Error("derivation V2 requires at least one source artifact");
+  if (kind === "object-model" && sourceMeasurementIds.length === 0) {
+    throw new Error("object-model derivation requires sourceMeasurementIds");
+  }
+  if (kind === "calibration" && sourceMeasurementIds.length === 0 && sourceDerivationIds.length === 0) {
+    throw new Error("calibration derivation requires sourceMeasurementIds or sourceDerivationIds");
+  }
+  if (kind === "index" && sourceDatasetSnapshotIds.length === 0 && sourceDerivationIds.length === 0) {
+    throw new Error("index derivation requires sourceDatasetSnapshotIds or sourceDerivationIds");
+  }
+  if (kind === "snapshot" && sourceDatasetSnapshotIds.length === 0 && sourceDerivationIds.length === 0) {
+    throw new Error("snapshot derivation requires sourceDatasetSnapshotIds or sourceDerivationIds");
+  }
+}
+
+export async function createDerivationRecordV2(
+  input: Omit<DerivationRecordV2, "schemaVersion" | "derivationContractVersion" | "derivationId">,
+): Promise<DerivationRecordV2> {
+  if (!isDerivationKindV2(input.kind)) throw new Error("derivation V2 kind is invalid");
+  if (input.algorithmVersion.trim().length === 0) throw new Error("derivation algorithmVersion is required");
+  if (!SHA256_DIGEST.test(input.configDigest)) throw new Error("derivation configDigest is invalid");
+  if (!SHA256_DIGEST.test(input.artifactDigest)) throw new Error("derivation artifactDigest is invalid");
+  if (!Number.isFinite(Date.parse(input.createdAt))) throw new Error("derivation createdAt is invalid");
+  const sourceMeasurementIds = canonicalizeContentDigests(input.sourceMeasurementIds, "sourceMeasurementIds");
+  const sourceDerivationIds = canonicalizeContentDigests(input.sourceDerivationIds, "sourceDerivationIds");
+  const sourceDatasetSnapshotIds = canonicalizeContentDigests(input.sourceDatasetSnapshotIds, "sourceDatasetSnapshotIds");
+  assertDerivationV2Sources(input.kind, sourceMeasurementIds, sourceDerivationIds, sourceDatasetSnapshotIds);
+  const payload = {
+    algorithmVersion: input.algorithmVersion.trim(),
+    artifactDigest: input.artifactDigest,
+    configDigest: input.configDigest,
+    createdAt: input.createdAt,
+    derivationContractVersion: DERIVATION_RECORD_V2_CONTRACT_VERSION,
+    kind: input.kind,
+    schemaVersion: 2 as const,
+    sourceDatasetSnapshotIds,
+    sourceDerivationIds,
+    sourceMeasurementIds,
+  };
+  return { ...payload, derivationId: await contentDigest(payload) };
+}
+
+export async function verifyDerivationRecordV2(record: DerivationRecordV2): Promise<boolean> {
+  if (record.schemaVersion !== 2 || record.derivationContractVersion !== DERIVATION_RECORD_V2_CONTRACT_VERSION) return false;
+  if (!isDerivationKindV2(record.kind) || record.algorithmVersion.trim().length === 0) return false;
+  if (!SHA256_DIGEST.test(record.derivationId) || !SHA256_DIGEST.test(record.configDigest) || !SHA256_DIGEST.test(record.artifactDigest)) return false;
+  if (!Number.isFinite(Date.parse(record.createdAt))) return false;
+  try {
+    const sourceMeasurementIds = canonicalizeContentDigests(record.sourceMeasurementIds, "sourceMeasurementIds");
+    const sourceDerivationIds = canonicalizeContentDigests(record.sourceDerivationIds, "sourceDerivationIds");
+    const sourceDatasetSnapshotIds = canonicalizeContentDigests(record.sourceDatasetSnapshotIds, "sourceDatasetSnapshotIds");
+    if (
+      sourceMeasurementIds.join("\0") !== record.sourceMeasurementIds.join("\0")
+      || sourceDerivationIds.join("\0") !== record.sourceDerivationIds.join("\0")
+      || sourceDatasetSnapshotIds.join("\0") !== record.sourceDatasetSnapshotIds.join("\0")
+    ) return false;
+    assertDerivationV2Sources(record.kind, sourceMeasurementIds, sourceDerivationIds, sourceDatasetSnapshotIds);
+  } catch {
+    return false;
+  }
+  const { derivationId, ...payload } = record;
+  return derivationId === await contentDigest(payload);
+}
+
+/** Official V2 content-addressing vector. Arrays are stored sorted; permutation of inputs must not change derivationId. */
+export const DERIVATION_RECORD_V2_TEST_VECTOR = {
+  contractVersion: DERIVATION_RECORD_V2_CONTRACT_VERSION,
+  input: {
+    kind: "object-model" as const,
+    algorithmVersion: "acoustic-object-model-1",
+    configDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    sourceMeasurementIds: [
+      "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    ],
+    sourceDerivationIds: [] as const,
+    sourceDatasetSnapshotIds: [] as const,
+    artifactDigest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    createdAt: "2026-08-25T00:00:00.000Z",
+  },
+  canonicalSourceMeasurementIds: [
+    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  ],
+  expectedDerivationId: "sha256:744c87f7f16b5d8db558ace3ebd570b52d72f07abba3dd3df0351b85e5afcdb0",
+} as const;
