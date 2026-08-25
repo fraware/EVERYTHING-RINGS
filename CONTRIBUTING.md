@@ -1,6 +1,6 @@
 # Contributing
 
-EVERYTHING RINGS combines a consumer acoustic instrument with empirical measurement and validation infrastructure. Contributions are welcome, but changes must preserve the distinction between product behavior, research diagnostics, and evidence-eligible empirical contracts.
+EVERYTHING RINGS combines a consumer acoustic instrument with empirical measurement, research, provenance, and validation infrastructure. Contributions are welcome, but changes must preserve the distinction between product behavior, research diagnostics, and evidence-eligible empirical contracts.
 
 ## Development setup
 
@@ -23,7 +23,7 @@ Consumer UI, local history, sharing, visualization, and other non-empirical feat
 
 ### Research/diagnostic changes
 
-Alternative DSP configurations, digital twins, external datasets, similarity baselines, and future embeddings must clearly state whether their output is evidence-eligible. Custom analysis configurations must not claim an `er-dsp-*` canonical algorithm version unless a new algorithm contract is explicitly versioned.
+Alternative DSP configurations, digital twins, external datasets, similarity baselines, material/spatial models, and future embeddings must clearly state whether their output is evidence-eligible. Custom analysis configurations must not claim an `er-dsp-*` canonical algorithm version unless a new algorithm contract is explicitly versioned.
 
 ### Empirical-contract changes
 
@@ -43,8 +43,12 @@ Keep machine contracts, documentation, and advertised claims synchronized. A nea
 
 ## Privacy
 
-Do not commit microphone PCM, private Gate B listening companions, device identifiers that should remain local, secrets, or user-private artifacts. Synthetic/digital-twin signals are acceptable when clearly labeled non-physical.
+Do not commit microphone PCM, private Gate B listening companions, secrets, user-private artifacts, or device identifiers that should remain local. Synthetic/digital-twin signals are acceptable when clearly labeled non-physical.
+
+Public Atlas artifacts must satisfy their versioned privacy and consent contracts. A content digest proves byte identity; it does not prove that an asserted physical-object identity or material label is true.
 
 ## Licensing
 
-The repository currently has an open issue to choose an explicit project license. Until that decision is made, public repository visibility should not be interpreted as a grant of reuse rights beyond GitHub's platform terms. Contribution licensing language will be finalized with the repository license decision.
+The software repository is licensed under the [MIT License](LICENSE). Unless a contribution explicitly states otherwise and is accepted under separate terms, software contributions are made under the same license.
+
+Datasets, trained models, benchmark corpora, media, and future physical-corpus artifacts may carry separate licenses or usage terms. The repository's MIT software license does not automatically grant rights to separately identified data or third-party content.
