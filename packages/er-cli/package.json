@@ -1,0 +1,26 @@
+{
+  "name": "@everything-rings/er-cli",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "er": "./bin/er.mjs"
+  },
+  "exports": {
+    ".": "./src/cli.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "er": "node ./bin/er.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@everything-rings/validation": "workspace:*",
+    "tsx": "^4.20.0"
+  }
+}
