@@ -24,8 +24,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22
       - name: Enable Corepack
@@ -91,8 +91,42 @@ jobs:
           }
           EOF
       - name: Upload qualification report
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: full-vision-software-qualification-${{ env.VITE_SOFTWARE_REVISION }}
           path: qualification/full-vision-software.json
+          if-no-files-found: error
+
+  # Schema migration discipline (owned by packages/validation): every versioned
+  # artifact contract requires parser + validator + ArtifactMigrationRegistryV1
+  # tests before it is used in a release. This job does not change empirical
+  # v8 evidence semantics.
+  sbom:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare SBOM output directory
+        run: mkdir -p qualification
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: qualification/sbom.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+          dependency-snapshot: false
+      - name: Digest SBOM bytes
+        run: |
+          set -euo pipefail
+          test -f qualification/sbom.cdx.json
+          sha256sum qualification/sbom.cdx.json | tee qualification/sbom.cdx.json.sha256
+      - name: Upload CycloneDX SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cyclonedx-sbom-${{ env.VITE_SOFTWARE_REVISION }}
+          path: |
+            qualification/sbom.cdx.json
+            qualification/sbom.cdx.json.sha256
           if-no-files-found: error

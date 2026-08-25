@@ -85,3 +85,142 @@ export function evaluateSimilarityAlgorithmPromotion(
     improvements: { recallAt1: recall, meanReciprocalRank: mrr, rocAuc: auc, brierScoreReduction: brierReduction },
   };
 }
+
+export type PhysicalSonicTwinPromotionFreezeState = "unfrozen-template" | "frozen";
+
+/**
+ * Preregistration template for a physical Sonic Twin product claim.
+ * Distinct from DEFAULT_SIMILARITY_PROMOTION_POLICY, which is a development rule.
+ * Thresholds stay null until a named R2-scale policy is frozen before evaluation.
+ * This object is never itself a product-eligibility grant.
+ */
+export interface PhysicalSonicTwinPromotionPolicyV1 {
+  readonly policyVersion: "physical-sonic-twin-promotion-policy-1";
+  readonly freezeState: PhysicalSonicTwinPromotionFreezeState;
+  readonly productEligible: false;
+  readonly evaluationPopulation: string | null;
+  readonly minimumHeldOutSpecimenCount: number | null;
+  readonly minimumHeldOutQueryCount: number | null;
+  readonly minimumStationCount: number | null;
+  readonly maximumFalseMatchRate: number | null;
+  readonly minimumTrueNegativeRate: number | null;
+  readonly minimumCoverage: number | null;
+  readonly maximumBrierScore: number | null;
+  readonly maximumEce: number | null;
+  readonly minimumRecallAt1: number | null;
+  readonly preregisteredBeforeEvaluation: boolean;
+}
+
+export const UNFROZEN_PHYSICAL_SONIC_TWIN_PROMOTION_POLICY: PhysicalSonicTwinPromotionPolicyV1 = {
+  policyVersion: "physical-sonic-twin-promotion-policy-1",
+  freezeState: "unfrozen-template",
+  productEligible: false,
+  evaluationPopulation: null,
+  minimumHeldOutSpecimenCount: null,
+  minimumHeldOutQueryCount: null,
+  minimumStationCount: null,
+  maximumFalseMatchRate: null,
+  minimumTrueNegativeRate: null,
+  minimumCoverage: null,
+  maximumBrierScore: null,
+  maximumEce: null,
+  minimumRecallAt1: null,
+  preregisteredBeforeEvaluation: false,
+};
+
+export interface PhysicalSonicTwinHeldOutMetricsV1 {
+  readonly metricsVersion: "physical-sonic-twin-held-out-metrics-1";
+  readonly evaluationPopulation: string;
+  readonly specimenDisjoint: boolean;
+  readonly heldOutSpecimenCount: number;
+  readonly heldOutQueryCount: number;
+  readonly stationCount: number;
+  readonly falseMatchRate: number | null;
+  readonly trueNegativeRate: number | null;
+  readonly coverage: number;
+  readonly brierScore: number | null;
+  readonly ece: number | null;
+  readonly recallAt1: number | null;
+}
+
+export interface PhysicalSonicTwinPromotionVerdictV1 {
+  readonly verdictVersion: "physical-sonic-twin-promotion-verdict-1";
+  readonly policyVersion: "physical-sonic-twin-promotion-policy-1";
+  readonly freezeState: PhysicalSonicTwinPromotionFreezeState;
+  readonly productEligible: boolean;
+  readonly promoted: boolean;
+  readonly reasons: readonly string[];
+}
+
+function thresholdMissing(policy: PhysicalSonicTwinPromotionPolicyV1): boolean {
+  return policy.evaluationPopulation === null
+    || policy.minimumHeldOutSpecimenCount === null
+    || policy.minimumHeldOutQueryCount === null
+    || policy.minimumStationCount === null
+    || policy.maximumFalseMatchRate === null
+    || policy.minimumTrueNegativeRate === null
+    || policy.minimumCoverage === null
+    || policy.maximumBrierScore === null
+    || policy.maximumEce === null
+    || policy.minimumRecallAt1 === null;
+}
+
+export function evaluatePhysicalSonicTwinPromotion(
+  policy: PhysicalSonicTwinPromotionPolicyV1,
+  metrics: PhysicalSonicTwinHeldOutMetricsV1,
+): PhysicalSonicTwinPromotionVerdictV1 {
+  const reasons: string[] = [];
+  if (policy.freezeState !== "frozen" || !policy.preregisteredBeforeEvaluation || thresholdMissing(policy)) {
+    reasons.push("physical Sonic Twin promotion policy is an unfrozen preregistration template");
+    return {
+      verdictVersion: "physical-sonic-twin-promotion-verdict-1",
+      policyVersion: "physical-sonic-twin-promotion-policy-1",
+      freezeState: policy.freezeState,
+      productEligible: false,
+      promoted: false,
+      reasons,
+    };
+  }
+
+  if (!metrics.specimenDisjoint) reasons.push("physical promotion requires specimen-disjoint held-out evaluation");
+  if (policy.evaluationPopulation !== null && metrics.evaluationPopulation !== policy.evaluationPopulation) {
+    reasons.push("held-out metrics population does not match the frozen policy population");
+  }
+  if (policy.minimumHeldOutSpecimenCount !== null && metrics.heldOutSpecimenCount < policy.minimumHeldOutSpecimenCount) {
+    reasons.push("held-out specimen count is below the frozen policy");
+  }
+  if (policy.minimumHeldOutQueryCount !== null && metrics.heldOutQueryCount < policy.minimumHeldOutQueryCount) {
+    reasons.push("held-out query count is below the frozen policy");
+  }
+  if (policy.minimumStationCount !== null && metrics.stationCount < policy.minimumStationCount) {
+    reasons.push("station diversity is below the frozen policy");
+  }
+  if (policy.minimumCoverage !== null && metrics.coverage < policy.minimumCoverage) {
+    reasons.push("coverage is below the frozen policy");
+  }
+  if (policy.maximumFalseMatchRate !== null && (metrics.falseMatchRate === null || metrics.falseMatchRate > policy.maximumFalseMatchRate)) {
+    reasons.push("false-match rate is missing or above the frozen policy");
+  }
+  if (policy.minimumTrueNegativeRate !== null && (metrics.trueNegativeRate === null || metrics.trueNegativeRate < policy.minimumTrueNegativeRate)) {
+    reasons.push("nonmatch true-negative rate is missing or below the frozen policy");
+  }
+  if (policy.maximumBrierScore !== null && (metrics.brierScore === null || metrics.brierScore > policy.maximumBrierScore)) {
+    reasons.push("Brier score is missing or above the frozen policy");
+  }
+  if (policy.maximumEce !== null && (metrics.ece === null || metrics.ece > policy.maximumEce)) {
+    reasons.push("ECE is missing or above the frozen policy");
+  }
+  if (policy.minimumRecallAt1 !== null && (metrics.recallAt1 === null || metrics.recallAt1 < policy.minimumRecallAt1)) {
+    reasons.push("Recall@1 is missing or below the frozen policy");
+  }
+
+  const productEligible = reasons.length === 0;
+  return {
+    verdictVersion: "physical-sonic-twin-promotion-verdict-1",
+    policyVersion: "physical-sonic-twin-promotion-policy-1",
+    freezeState: policy.freezeState,
+    productEligible,
+    promoted: productEligible,
+    reasons,
+  };
+}

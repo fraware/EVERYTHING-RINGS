@@ -3,13 +3,23 @@ import { contentDigest } from "./provenance";
 export type EverythingRingsArtifactKind =
   | "measurement"
   | "derivation"
+  | "derivation-v2"
+  | "measurement-source-link"
   | "atlas-record"
   | "atlas-snapshot"
   | "atlas-collection"
+  | "atlas-observation"
+  | "atlas-specimen"
+  | "atlas-membership-assertion"
   | "station-calibration-protocol"
   | "station-calibration-verdict"
+  | "station-qualification"
   | "sonic-twin-benchmark"
-  | "software-qualification";
+  | "software-qualification"
+  | "specimen-registry"
+  | "research-observation"
+  | "research-benchmark-snapshot"
+  | "capability-registry";
 
 export interface ArtifactEnvelopeV1<T = unknown> {
   readonly schemaVersion: 1;
@@ -63,8 +73,11 @@ export type ArtifactEnvelopeParseResult =
   | { readonly ok: false; readonly error: string };
 
 const KINDS = new Set<EverythingRingsArtifactKind>([
-  "measurement", "derivation", "atlas-record", "atlas-snapshot", "atlas-collection",
-  "station-calibration-protocol", "station-calibration-verdict", "sonic-twin-benchmark", "software-qualification",
+  "measurement", "derivation", "derivation-v2", "measurement-source-link",
+  "atlas-record", "atlas-snapshot", "atlas-collection", "atlas-observation", "atlas-specimen", "atlas-membership-assertion",
+  "station-calibration-protocol", "station-calibration-verdict", "station-qualification",
+  "sonic-twin-benchmark", "software-qualification",
+  "specimen-registry", "research-observation", "research-benchmark-snapshot", "capability-registry",
 ]);
 
 export async function parseArtifactEnvelope(value: unknown): Promise<ArtifactEnvelopeParseResult> {

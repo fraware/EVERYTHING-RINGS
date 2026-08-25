@@ -1,0 +1,23 @@
+{
+  "name": "@everything-rings/atlas-api",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "conformance": "vitest run test/conformance.test.ts",
+    "start": "node --experimental-strip-types src/cli.ts"
+  },
+  "dependencies": {
+    "@everything-rings/atlas-client": "workspace:*",
+    "@everything-rings/validation": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0"
+  }
+}
