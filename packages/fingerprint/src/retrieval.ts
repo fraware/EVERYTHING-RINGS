@@ -29,8 +29,11 @@ export function buildSonicTwinIndex(
     grouped.set(normalized, current);
   }
   const entries = [...grouped.values()]
-    .map((group) => ({ specimenId: group[0]!.specimenId.trim(), model: buildAcousticObjectModel(group) }))
-    .sort((left, right) => left.specimenId.localeCompare(right.specimenId));
+    .map((group) => {
+      const model = buildAcousticObjectModel(group);
+      return { specimenId: model.specimenId, model };
+    })
+    .sort((left, right) => left.specimenId.localeCompare(right.specimenId, "en-US"));
   return { schemaVersion: 1, indexVersion: "sonic-twin-index-1", entries };
 }
 
@@ -60,7 +63,7 @@ export function retrieveSonicTwin(
         modelModeCount: comparison.modelModeCount,
       };
     })
-    .sort((left, right) => right.evidenceScore - left.evidenceScore || left.specimenId.localeCompare(right.specimenId))
+    .sort((left, right) => right.evidenceScore - left.evidenceScore || left.specimenId.localeCompare(right.specimenId, "en-US"))
     .slice(0, Math.min(limit, index.entries.length))
     .map((result, indexValue) => ({ rank: indexValue + 1, ...result }));
 }
