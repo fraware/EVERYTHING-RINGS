@@ -1,68 +1,181 @@
+<div align="center">
+
 # EVERYTHING RINGS
 
-**Hit anything. Discover how it rings.**
+### Hit anything. Discover how it rings.
 
-EVERYTHING RINGS is a local-first acoustic instrument for estimating the audible resonances of struck physical objects, reconstructing those resonances, and turning them into playable instruments.
+**A local-first acoustic instrument that turns one physical strike into an interpretable resonance model, a playable instrument, and a shareable acoustic artifact.**
 
-## Current phase
+[**Open the live instrument →**](https://fraware.github.io/EVERYTHING-RINGS/) · [Product principles](docs/PRODUCT.md) · [Science & DSP](docs/DSP.md) · [Full architecture](docs/ENGINEERING_TAKEOVER_AND_FULL_VISION_SPEC.md)
 
-MVP-0 contains the full software path from microphone capture to reveal and play: deterministic impact analysis, capture-quality gates, ringdown isolation, versioned acoustic fingerprints, one-to-one recurrence comparison, modal reconstruction, realtime playable modal synthesis, Acoustic DNA, and the consumer **STRIKE → REVEAL → HEAR → PLAY** loop. The reveal includes a Resonance Microscope for exact per-mode inspection and isolated audition, local CAPTURE ↔ MODEL listening, a Ringdown Lens that visualizes the fitted modal envelopes through time, a locally generated Acoustic DNA card, and a self-contained Acoustic Story that packages the fingerprint-derived model as an offline vertical sound-and-motion artifact without exporting microphone PCM.
+[![CI](https://github.com/fraware/EVERYTHING-RINGS/actions/workflows/ci.yml/badge.svg?branch=post-freeze-development)](https://github.com/fraware/EVERYTHING-RINGS/actions/workflows/ci.yml)
+[![Digital twin qualification](https://github.com/fraware/EVERYTHING-RINGS/actions/workflows/digital-twin-qualification.yml/badge.svg?branch=post-freeze-development)](https://github.com/fraware/EVERYTHING-RINGS/actions/workflows/digital-twin-qualification.yml)
+[![Full-vision qualification](https://github.com/fraware/EVERYTHING-RINGS/actions/workflows/full-vision-software-qualification.yml/badge.svg?branch=post-freeze-development)](https://github.com/fraware/EVERYTHING-RINGS/actions/workflows/full-vision-software-qualification.yml)
+[![Atlas contracts](https://github.com/fraware/EVERYTHING-RINGS/actions/workflows/atlas-production-conformance.yml/badge.svg?branch=post-freeze-development)](https://github.com/fraware/EVERYTHING-RINGS/actions/workflows/atlas-production-conformance.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](tsconfig.base.json)
 
-Successful consumer fingerprints can be retained in bounded local history and reopened later as fingerprint-derived model instruments; reopened views never retain or imply access to the original microphone recording. Two saved capture observations can be inspected in Resonance Diff with side-by-side Acoustic DNA, A/B model listening, deterministic observable summaries, and threshold-free mutual-nearest frequency pairs. Resonance Diff deliberately emits no identity verdict or aggregate similarity score.
+</div>
 
-Post-freeze product development also closes the sharing loop with **Acoustic Capsules**. A capsule is a bounded, versioned, fingerprint-only URL-fragment transport. The creator can share one interactive link; the recipient can immediately see the Acoustic DNA, hear the fingerprint-derived model, play it chromatically, reshare it, or move directly into `TRY YOUR OWN`. Opening and playing a capsule requires no account, backend fingerprint upload, raw microphone audio, or microphone permission. A capsule is user-shareable data, not authenticated provenance, a canonical physical-object identifier, release evidence, or a permanent public record.
+---
 
-The consumer path is gated in CI by a deterministic mobile browser journey that feeds a physical-style ringdown through the microphone interface and requires the real acquisition, analysis, reveal, listening, playable-instrument, share-download, and strike-again flow to complete. A separate local-history journey requires a successful strike to persist as a fingerprint-only record, survive a hard reload, reopen without reacquiring the microphone, reproduce model/mode/chromatic playback from the saved fingerprint, and return to history without mutation. That journey also creates two distinct equal-signature observations and requires Resonance Diff to keep both records separate, A/B-play both stored models with zero microphone reacquisition, return without mutation, and preserve share/removal behavior on a 390×844 viewport.
+## One strike. A whole instrument.
 
-A dedicated Acoustic Capsule journey requires the real history UI to create a fragment-only share link, opens the recipient experience at 390×844, verifies exact signature continuity and interpretation boundaries, requires zero microphone calls during recipient model/chromatic playback, audits phone interaction geometry, exercises reshare, and requires `TRY YOUR OWN` to clear the shared fragment and hand directly into exactly one microphone request. Malformed and oversized capsules must recover to the ordinary consumer landing. A denied-permission journey verifies clear microphone recovery, and phone-sized checks cover the campaign author, campaign collector, validation lab, and release console.
+A glass, bowl, bell, mug, plate, tool, or any other safe object has an audible ring shaped by the transient you record. EVERYTHING RINGS captures that strike in the browser, isolates the ringdown, estimates the resonant structure supported by the recording, reconstructs it, and turns the result into something you can **see, hear, play, save, compare, and share**.
 
-Playback is single-source for sample auditions and A/B comparison, recovers suspended browser audio contexts on user interaction, silences sample and realtime voices on reset/background/disposal, and exposes user-facing recovery instead of raw browser errors. Ringdown animation clamps browser-frame timing to the strike boundary, and render failures fall back to an explicit reload surface instead of an empty page.
+The first-use loop is intentionally simple:
 
-The empirical release gates remain open until representative physical and perceptual evidence passes their frozen contracts. Gate A2 defines each physical-session experiment as the first five acquisition-quality-passing attempts. Once an attempt qualifies, its analytical outcome is immutable: a failed analysis occupies its slot and cannot be retried away. Evidence schema v5 records those success/failure outcomes explicitly, stamps the exact software commit that produced each bundle, and recomputes recurrence from retained fingerprints with attempt 1 fixed as the reference.
+<div align="center">
 
-Every physical validation object also receives a stable `specimenId`. That identity, not a display label, defines release distinctness and links repeated sessions of the same physical specimen. Relabeling an object cannot manufacture another release specimen. An analysis-worker crash or other true internal session error terminates the current validation session; subsequent capture uses a new session ID and retains the specimen ID when the same object is tested again.
+### **STRIKE → REVEAL → HEAR → PLAY → SHARE**
 
-The campaign author creates a frozen `empirical-campaign-1` manifest from real physical specimen choices on the exact software revision that will collect them. The dedicated campaign collector then only arms planned specimens under their precommitted setup and authorized revision. The general validation lab hosts later blinded reconstruction and device-playability review, and the Release Console accounts for planned failures, missing specimens, extra sessions, substitutions, and unplanned evidence before evaluating Gate A2/B/C. Raw microphone PCM remains local throughout. Synthetic or cross-field tests never substitute for required physical evidence.
+</div>
 
-## Engineering invariants
+Underneath that interaction is a much stricter system: deterministic DSP, native-rate acquisition, explicit quality gates, content-addressed provenance, frozen empirical contracts, synthetic qualification, research-only identity/material models, and an emerging Resonance Atlas architecture.
 
-- Scientific claims stop at estimated audible resonances from the recorded transient.
-- DSP is deterministic and independent of React, the DOM, and Web Audio.
-- Native capture sample rates are propagated explicitly; no algorithm assumes 48 kHz.
-- Physical quantities include units in identifiers.
-- Microphone PCM remains local in MVP-0.
-- Consumer capture playback is local and never substitutes for blinded reconstruction evidence.
-- Consumer sample auditions do not overlap; a new sample playback replaces the previous sample playback.
-- Reset, stop, page backgrounding, and resource disposal silence sample playback and realtime voices.
-- Reconstruction synthesizes estimated modes; recorded audio is not mixed into the model output.
-- Ringdown visualization evaluates the fitted modal decay envelopes and adds no new analytical estimate.
-- Realtime notes preserve one global modal frequency ratio and the measured decay constants.
-- Acoustic DNA is a deterministic encoding of the measured fingerprint.
-- Acoustic DNA cards and Acoustic Stories derive from the fingerprint/model, contain no microphone PCM, and never count as release evidence.
-- Local consumer history stores bounded fingerprint records only; it stores no microphone PCM and does not define canonical physical-object identity.
-- Equal Acoustic DNA signatures are never treated as proof of object identity or as a deduplication rule.
-- Reopened saved captures synthesize model, mode, and chromatic playback from the stored fingerprint; original-capture playback remains explicitly unavailable.
-- Saved-capture playback owns an output-only audio lifecycle and never initializes microphone acquisition or analysis resources.
-- Resonance Diff compares capture observations only; it never emits a same/different-object verdict or aggregate identity score.
-- Mutual-nearest frequency pairs are symmetric, one-to-one, threshold-free navigation aids and never establish a shared physical mode.
-- Fingerprints from different algorithm revisions are visibly flagged instead of normalized into a comparison claim.
-- Acoustic Capsules are bounded, versioned fingerprint transports encoded in URL fragments; they contain no microphone PCM and recipient playback is output-only.
-- Acoustic Capsule parsing fails closed on malformed, oversized, unsupported-version, unsupported-algorithm, numerically invalid, or signature-inconsistent payloads.
-- Acoustic Capsules are not canonical object identifiers, authenticated provenance, release evidence, or permanent public records.
-- Changing a shared capsule payload disposes any playback resources bound to the prior fingerprint.
-- Gate A2 never substitutes or replaces a qualified analytical failure.
-- Physical release distinctness is keyed by stable specimen ID, not object label.
-- A precommitted empirical campaign keeps planned failures, missing specimens, setup deviations, extra sessions, and unplanned specimens visible without changing release thresholds.
-- Campaign authoring refuses placeholders and duplicate specimen IDs and binds the manifest to the exact running revision.
-- Campaign-bound collection cannot arm a specimen absent from the manifest or a build whose software revision differs from the campaign authorization.
-- Analysis-worker crashes and other fatal validation-session errors cannot continue on the same worker/audio resources.
-- Gate B reviews are bound to one exact passing session/attempt target per specimen.
-- Gate C inherits the exact Gate B target and requires explicit cross-device evidence from passing specimens.
-- Release thresholds are versioned and frozen before the corresponding empirical dataset is collected.
-- The dependency graph is committed and CI/deployment use frozen lockfile installs.
-- No learned model enters the pipeline until the deterministic baseline is characterized.
+## Try it in 60 seconds
 
-## Development
+1. Open the [live instrument](https://fraware.github.io/EVERYTHING-RINGS/) on a microphone-enabled browser.
+2. Tap **START LISTENING** and allow microphone access.
+3. Use a safe object and make one clean strike near the microphone.
+4. Explore the revealed modes, listen to the reconstructed model, and play the object chromatically.
+5. Save the fingerprint locally or share an Acoustic Capsule without uploading microphone PCM.
+
+> **Privacy by design:** raw microphone PCM stays local under the current product contract. Local history stores fingerprints, and Acoustic Capsules carry bounded fingerprint data in the URL fragment—not recordings.
+
+## What a strike becomes
+
+| Surface | What it gives you |
+|---|---|
+| **Acoustic DNA** | A deterministic visual identity for one measured fingerprint |
+| **Resonance Microscope** | Per-mode frequencies, decay, confidence, and isolated audition |
+| **Ringdown Lens** | A time-domain view of fitted modal envelopes |
+| **CAPTURE ↔ MODEL** | Local comparison between the isolated ringdown and modal reconstruction |
+| **Playable instrument** | Chromatic modal synthesis that preserves the measured frequency ratios and decay constants |
+| **Saved captures** | Fingerprint-only local history that can be reopened without microphone access |
+| **Resonance Diff** | Descriptive comparison of two capture observations without an identity verdict |
+| **Acoustic Capsules** | Fingerprint-only interactive share links: hear it, play it, then try your own |
+| **Acoustic Story** | A self-contained fingerprint-derived sound-and-motion artifact |
+
+## From a strike to the long-term vision
+
+```mermaid
+flowchart LR
+    A[Physical strike] --> B[Local microphone capture]
+    B --> C[Quality gate + ringdown isolation]
+    C --> D[er-dsp-2 fingerprint]
+    D --> E[Reveal]
+    D --> F[Modal reconstruction]
+    D --> G[Playable instrument]
+    D --> H[Local history + Capsules]
+
+    D --> I[Immutable measurement]
+    I --> J[Versioned derivations]
+    J --> K[Repeated-observation acoustic object model]
+    K --> L[Sonic Twin research]
+    K --> M[Spatial modal field]
+    I --> N[Resonance Atlas contracts]
+    L --> N
+    M --> N
+```
+
+The architectural rule is simple and important:
+
+> **A capture is one observation. A fingerprint is one analysis of that observation. Neither is automatically the physical object.**
+
+That distinction is what allows the repository to grow from a playful instrument into serious measurement, retrieval, and corpus infrastructure without turning a convenient hash into an unsupported scientific claim.
+
+## Why this repository is unusual
+
+### Deterministic first
+
+The evidence-eligible baseline is explicit and inspectable. The canonical `er-dsp-2` path estimates peaks, tracks persistent modes, fits decay, computes confidence, and emits a versioned fingerprint. Research estimators live on separate non-evidence paths until a future algorithm earns promotion.
+
+### Local-first by default
+
+Microphone PCM is not required for sharing, saved-capture playback, Resonance Diff, Twin demos, or Atlas contracts. A future network service must justify any remotely stored data instead of making upload the default architecture.
+
+### Measurement is separate from derivation
+
+The validation layer content-addresses immutable measurements independently from renderers, instruments, similarity systems, visualizations, embeddings, and Atlas artifacts. Multi-source derivation records and source links let downstream research evolve without rewriting measurement history.
+
+### Claims have maturity, not vibes
+
+Capabilities move through an explicit ladder:
+
+`prototype → software-qualified → synthetic-qualified → physical-research → held-out-validated → product-eligible → released`
+
+A green workflow cannot promote a synthetic result into physical evidence. The [claim registry](docs/CLAIM_REGISTRY.md) records the strongest proposition currently earned for each capability.
+
+## Current capability map
+
+| Capability | Current maturity | Scope |
+|---|---|---|
+| Consumer **STRIKE → REVEAL → HEAR → PLAY** | **software-qualified** | Browser and synthetic qualification |
+| Resonance estimation (`er-dsp-2`) | **software-qualified** | Estimated audible resonances supported by a recorded transient |
+| Modal reconstruction + playable instrument | **software-qualified** | Deterministic fingerprint-derived audio |
+| Sonic Twin retrieval / verification | **synthetic-qualified** | Named digital populations only |
+| Spatial modal-field prediction | **software-qualified** | Predicted fingerprints; never measurement evidence |
+| Material inference | **prototype / research** | No calibrated physical material claim |
+| Measurement + derivation provenance | **software-qualified** | Content-addressed V1 measurements and V2 multi-source derivations |
+| Atlas V1/V2 integrity contracts | **software-qualified** | Records, snapshots, public observations, specimen records, membership assertions |
+| Atlas client + local file-backed HTTP API | **software-contract qualified** | Local/durable software path; not a public production network |
+| Empirical Gate A2 / B / C | **not yet run** | Frozen physical/perceptual sequence remains separate |
+
+The authoritative wording and exclusions live in [`docs/CLAIM_REGISTRY.md`](docs/CLAIM_REGISTRY.md).
+
+## The research stack
+
+The post-freeze software line already contains foundations for the larger research program:
+
+- repeated-observation `AcousticObjectModelV1` estimates with frequency/decay/amplitude dispersion and observation support;
+- nuisance characterization across strike, support, room, station, operator, and day;
+- specimen-disjoint benchmark construction and hard-negative selection;
+- deterministic Sonic Twin verification with `match / nonmatch / abstain`;
+- ranked specimen retrieval with Recall@K and MRR;
+- group-disjoint isotonic probability calibration with Brier score, calibration error, ROC AUC, and risk/coverage analysis;
+- explicit similarity-algorithm promotion policy;
+- spatial modal sound fields with strike-location-conditioned excitation;
+- research-only high-resolution modal estimation and material inference;
+- station qualification contracts;
+- content-addressed measurement, derivation, artifact-envelope, Atlas, and assurance contracts;
+- Atlas V2 observation/specimen/membership semantics;
+- a typed Atlas client and local file-backed HTTP service with conformance, HTTP, persistence, and V2 tests;
+- an independent verification CLI for exact-byte hashing and artifact/evidence validation.
+
+The interactive research surfaces are deliberately labeled synthetic:
+
+- `?twin=1` — Sonic Twin software lab;
+- `?atlas=1` — local Resonance Atlas software lab;
+- `?lab=1` — validation/review lab.
+
+They are research and qualification surfaces, not product claims about physical identity.
+
+## Repository map
+
+```text
+EVERYTHING-RINGS/
+├── apps/
+│   ├── web/                 # consumer instrument + empirical/research surfaces
+│   └── atlas-api/           # local/durable Atlas HTTP service contracts
+├── packages/
+│   ├── acquisition/         # microphone acquisition + capture quality
+│   ├── dsp/                 # canonical DSP + research estimators
+│   ├── fingerprint/         # recurrence, object models, Twin, calibration, material/spatial research
+│   ├── synth/               # modal reconstruction
+│   ├── instrument/          # playable modal instrument semantics
+│   ├── visual/              # fingerprint-derived visual artifacts
+│   ├── validation/          # evidence, gates, provenance, Atlas, assurance
+│   ├── atlas-client/        # typed Atlas client
+│   ├── er-cli/              # independent verification CLI
+│   └── fixtures/            # deterministic test fixtures
+├── docs/                    # product, science, evidence, claims, release and takeover specs
+└── scripts/                 # browser, lifecycle and end-to-end qualification
+```
+
+## Run locally
+
+Requires Node.js 22 and the repository-declared pnpm version.
 
 ```bash
 corepack enable
@@ -70,10 +183,77 @@ pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm --filter @everything-rings/web dev
 ```
 
-Release-validation builds must set `VITE_SOFTWARE_REVISION` to the exact 40-hex Git commit. The GitHub Pages and CI workflows do this automatically; an unstamped local build can use consumer surfaces but cannot author or arm conforming release evidence collection.
+The root web app is the consumer experience. For local research surfaces, append `?lab=1`, `?twin=1`, or `?atlas=1` to the local URL.
 
-The root web experience is the consumer loop. Append `?campaign-author=1` to select and freeze the real physical campaign, `?campaign=1` for precommitted campaign collection, `?lab=1` for the general validation/review lab, and `?release=1` for the local release-evidence console. Acoustic Capsules use the `#ring=...` fragment on the ordinary consumer route and deliberately strip query-route state when shared.
+### Independent verification CLI
 
-See `docs/PRODUCT.md`, `docs/SPEC.md`, `docs/DSP.md`, `docs/VALIDATION.md`, `docs/GATE_A.md`, `docs/REALIMPACT.md`, `docs/GATE_B.md`, `docs/GATE_C.md`, `docs/VALIDATION_EVIDENCE.md`, `docs/EMPIRICAL_CAMPAIGN.md`, `docs/ACOUSTIC_DNA.md`, `docs/ACOUSTIC_CARD.md`, `docs/RINGDOWN_LENS.md`, `docs/ACOUSTIC_STORY.md`, `docs/SAVED_CAPTURES.md`, `docs/CAPTURE_COMPARISON.md`, `docs/ACOUSTIC_CAPSULE.md`, and `docs/DEPLOYMENT.md` for the product principles, implementation contracts, release gates, evidence model, campaign-integrity contract, visual/share artifacts, saved-capture and comparison boundaries, and deployment path.
+```bash
+pnpm --filter @everything-rings/er-cli test
+pnpm --filter @everything-rings/er-cli exec node ./bin/er.mjs hash path/to/file.json
+pnpm --filter @everything-rings/er-cli exec node ./bin/er.mjs verify evidence path/to/evidence.json
+pnpm --filter @everything-rings/er-cli exec node ./bin/er.mjs verify measurement path/to/measurement.json
+pnpm --filter @everything-rings/er-cli exec node ./bin/er.mjs verify derivation path/to/derivation.json
+```
+
+## Evidence, qualification, and branch authority
+
+The repository intentionally separates two lines of work:
+
+- **`main`** is the frozen empirical v8 authority for the current physical validation sequence. Its exact revision is intentionally preserved.
+- **`post-freeze-development`** carries product, research, provenance, Atlas, tooling, and future-system work.
+
+Software qualification covers deterministic execution, integrity, synthetic acoustic recovery, browser flows, and named digital-population behavior. It does **not** by itself establish microphone-transducer validity, human perceptual fidelity, physical-object identity, or material identity.
+
+The empirical sequence remains separately preregistered and version-bound. See [Gate A](docs/GATE_A.md), [Gate B](docs/GATE_B.md), [Gate C](docs/GATE_C.md), [validation evidence](docs/VALIDATION_EVIDENCE.md), and the [release checklist](docs/RELEASE_CHECKLIST.md).
+
+<details>
+<summary><strong>Scientific interpretation boundary</strong></summary>
+
+The current evidence-eligible interpretation is:
+
+> **Estimated audible resonances supported by each recorded transient.**
+
+The project does not currently promote a fingerprint into complete structural eigenmodes, a signature into canonical physical-object identity, a research material label into physical material identification, a reconstruction into calibrated loudness, or a digital-twin result into physical validation.
+
+Research code may explore those directions only behind explicit version, population, provenance, uncertainty, and maturity boundaries.
+
+</details>
+
+## Documentation
+
+| Start here | Purpose |
+|---|---|
+| [`docs/PRODUCT.md`](docs/PRODUCT.md) | Product principles and interaction doctrine |
+| [`docs/DSP.md`](docs/DSP.md) | Canonical signal model and DSP contract |
+| [`docs/FULL_VISION_SOFTWARE.md`](docs/FULL_VISION_SOFTWARE.md) | Long-term software architecture |
+| [`docs/ENGINEERING_TAKEOVER_AND_FULL_VISION_SPEC.md`](docs/ENGINEERING_TAKEOVER_AND_FULL_VISION_SPEC.md) | Full engineering/research execution specification |
+| [`docs/CLAIM_REGISTRY.md`](docs/CLAIM_REGISTRY.md) | Capability maturity and exact claim boundaries |
+| [`docs/DIGITAL_TWIN_QUALIFICATION.md`](docs/DIGITAL_TWIN_QUALIFICATION.md) | Synthetic qualification semantics |
+| [`docs/VALIDATION.md`](docs/VALIDATION.md) | Validation architecture |
+| [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) | Software release and assurance checklist |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contribution and change-class rules |
+| [`SECURITY.md`](SECURITY.md) | Security reporting and sensitive-artifact boundaries |
+
+## Contributing
+
+Contributions are welcome when they preserve the separation between consumer behavior, research diagnostics, and evidence-eligible empirical contracts. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before changing acquisition, DSP, evidence schemas, gate semantics, provenance, or public claim copy.
+
+## License
+
+Software in this repository is released under the [MIT License](LICENSE). Dataset, model, and future physical-corpus artifacts may carry separate terms when explicitly stated.
+
+---
+
+<div align="center">
+
+### The idea is simple.
+
+**The world is full of things that ring.**  
+**This is an instrument for discovering them.**
+
+[**Try EVERYTHING RINGS →**](https://fraware.github.io/EVERYTHING-RINGS/)
+
+</div>

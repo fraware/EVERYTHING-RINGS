@@ -2,6 +2,7 @@
   "name": "everything-rings",
   "private": true,
   "version": "0.0.0",
+  "license": "MIT",
   "packageManager": "pnpm@10.0.0",
   "scripts": {
     "build": "pnpm -r build",
