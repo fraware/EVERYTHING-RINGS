@@ -32,6 +32,11 @@ function normalized(value: string): string {
   return value.trim().toLocaleLowerCase("en-US");
 }
 
+function compareObservationId(left: TwinBenchmarkObservationV1, right: TwinBenchmarkObservationV1): number {
+  return left.observationId.trim().localeCompare(right.observationId.trim(), "en-US")
+    || normalized(left.specimenId).localeCompare(normalized(right.specimenId), "en-US");
+}
+
 export function validateTwinBenchmarkCorpus(corpus: TwinBenchmarkCorpusV1): TwinBenchmarkCorpusValidationV1 {
   const reasons: string[] = [];
   if (corpus.schemaVersion !== 1) reasons.push("schemaVersion must be 1");
@@ -96,7 +101,7 @@ export interface TwinVerificationPairV1 {
 }
 
 function pairId(left: TwinBenchmarkObservationV1, right: TwinBenchmarkObservationV1, kind: string): string {
-  return `${kind}:${left.observationId}::${right.observationId}`;
+  return `${kind}:${left.observationId.trim()}::${right.observationId.trim()}`;
 }
 
 export function buildTwinVerificationPairs(
@@ -110,7 +115,9 @@ export function buildTwinVerificationPairs(
   }
   const pairs: TwinVerificationPairV1[] = [];
   for (const split of ["train", "validation", "test"] as const) {
-    const observations = corpus.observations.filter((observation) => specimenDisjointSplit(observation.specimenId) === split);
+    const observations = corpus.observations
+      .filter((observation) => specimenDisjointSplit(observation.specimenId) === split)
+      .sort(compareObservationId);
     const bySpecimen = new Map<string, TwinBenchmarkObservationV1[]>();
     for (const observation of observations) {
       const key = normalized(observation.specimenId);
@@ -118,18 +125,19 @@ export function buildTwinVerificationPairs(
       group.push(observation);
       bySpecimen.set(key, group);
     }
-    for (const group of bySpecimen.values()) {
-      for (let leftIndex = 0; leftIndex < group.length; leftIndex += 1) {
-        for (let rightIndex = leftIndex + 1; rightIndex < group.length; rightIndex += 1) {
-          const left = group[leftIndex]!;
-          const right = group[rightIndex]!;
+    for (const group of [...bySpecimen.values()].sort((left, right) => normalized(left[0]!.specimenId).localeCompare(normalized(right[0]!.specimenId), "en-US"))) {
+      const orderedGroup = [...group].sort(compareObservationId);
+      for (let leftIndex = 0; leftIndex < orderedGroup.length; leftIndex += 1) {
+        for (let rightIndex = leftIndex + 1; rightIndex < orderedGroup.length; rightIndex += 1) {
+          const left = orderedGroup[leftIndex]!;
+          const right = orderedGroup[rightIndex]!;
           pairs.push({
             pairId: pairId(left, right, "same"),
             samePhysicalSpecimen: true,
-            leftObservationId: left.observationId,
-            rightObservationId: right.observationId,
-            leftSpecimenId: left.specimenId,
-            rightSpecimenId: right.specimenId,
+            leftObservationId: left.observationId.trim(),
+            rightObservationId: right.observationId.trim(),
+            leftSpecimenId: left.specimenId.trim(),
+            rightSpecimenId: right.specimenId.trim(),
             split,
             reference: left.fingerprint,
             candidate: right.fingerprint,
@@ -140,7 +148,7 @@ export function buildTwinVerificationPairs(
     }
 
     const hard = selectHardNegativePairs(observations, Math.min(hardNegativeLimitPerSplit, Math.max(1, observations.length * observations.length)));
-    const byObservation = new Map(observations.map((observation) => [observation.observationId, observation] as const));
+    const byObservation = new Map(observations.map((observation) => [observation.observationId.trim(), observation] as const));
     for (const negative of hard) {
       const left = byObservation.get(negative.leftObservationId);
       const right = byObservation.get(negative.rightObservationId);
@@ -148,10 +156,10 @@ export function buildTwinVerificationPairs(
       pairs.push({
         pairId: pairId(left, right, "hard-negative"),
         samePhysicalSpecimen: false,
-        leftObservationId: left.observationId,
-        rightObservationId: right.observationId,
-        leftSpecimenId: left.specimenId,
-        rightSpecimenId: right.specimenId,
+        leftObservationId: left.observationId.trim(),
+        rightObservationId: right.observationId.trim(),
+        leftSpecimenId: left.specimenId.trim(),
+        rightSpecimenId: right.specimenId.trim(),
         split,
         reference: left.fingerprint,
         candidate: right.fingerprint,
@@ -159,5 +167,5 @@ export function buildTwinVerificationPairs(
       });
     }
   }
-  return pairs.sort((left, right) => left.split.localeCompare(right.split) || left.pairId.localeCompare(right.pairId));
+  return pairs.sort((left, right) => left.split.localeCompare(right.split, "en-US") || left.pairId.localeCompare(right.pairId, "en-US"));
 }

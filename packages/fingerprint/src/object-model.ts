@@ -85,18 +85,26 @@ function validateConfig(config: AcousticObjectModelConfigV1): void {
   }
 }
 
+function compareObservationOrder(left: AcousticObjectObservationV1, right: AcousticObjectObservationV1): number {
+  return left.observationId.trim().localeCompare(right.observationId.trim(), "en-US")
+    || left.specimenId.trim().localeCompare(right.specimenId.trim(), "en-US");
+}
+
 export function buildAcousticObjectModel(
   observations: readonly AcousticObjectObservationV1[],
   config: AcousticObjectModelConfigV1 = DEFAULT_ACOUSTIC_OBJECT_MODEL_CONFIG,
 ): AcousticObjectModelV1 {
   validateConfig(config);
   if (observations.length === 0) throw new Error("object model requires at least one observation");
-  const specimenId = observations[0]!.specimenId.trim();
-  if (specimenId.length === 0) throw new Error("object model specimenId is required");
-  const normalized = specimenId.toLocaleLowerCase("en-US");
-  if (observations.some((observation) => observation.specimenId.trim().toLocaleLowerCase("en-US") !== normalized)) {
+
+  const trimmedSpecimenIds = observations.map((observation) => observation.specimenId.trim());
+  if (trimmedSpecimenIds.some((value) => value.length === 0)) throw new Error("object model specimenId is required");
+  const normalized = trimmedSpecimenIds[0]!.toLocaleLowerCase("en-US");
+  if (trimmedSpecimenIds.some((value) => value.toLocaleLowerCase("en-US") !== normalized)) {
     throw new Error("object model cannot mix different specimen IDs");
   }
+  const specimenId = [...new Set(trimmedSpecimenIds)].sort((left, right) => left.localeCompare(right, "en-US"))[0]!;
+
   const observationIds = new Set<string>();
   for (const observation of observations) {
     const id = observation.observationId.trim();
@@ -105,8 +113,13 @@ export function buildAcousticObjectModel(
     observationIds.add(id);
   }
 
+  // Clustering is incremental because one observation may contribute at most
+  // one mode to each cluster. Canonicalizing observation order makes the
+  // resulting model a deterministic function of the observation set rather
+  // than of caller iteration order.
+  const orderedObservations = [...observations].sort(compareObservationOrder);
   const clusters: MutableCluster[] = [];
-  for (const observation of observations) {
+  for (const observation of orderedObservations) {
     const usedClusters = new Set<number>();
     const modes = [...observation.fingerprint.modes].sort((left, right) => left.frequencyHz - right.frequencyHz);
     for (const mode of modes) {
@@ -121,7 +134,7 @@ export function buildAcousticObjectModel(
         }
       }
       const sample: ModeSample = {
-        observationId: observation.observationId,
+        observationId: observation.observationId.trim(),
         frequencyHz: mode.frequencyHz,
         decaySeconds: mode.decaySeconds,
         relativeAmplitude: mode.relativeAmplitude,
@@ -150,7 +163,7 @@ export function buildAcousticObjectModel(
       const decayLogs = decays.map((value) => Math.log(Math.max(value, 1e-9)));
       const amplitudes = cluster.samples.map((sample) => sample.relativeAmplitude);
       const amplitudeDb = amplitudes.map(dbAmplitude);
-      const sourceObservationIds = [...new Set(cluster.samples.map((sample) => sample.observationId))].sort();
+      const sourceObservationIds = [...new Set(cluster.samples.map((sample) => sample.observationId))].sort((left, right) => left.localeCompare(right, "en-US"));
       return {
         frequencyHzMedian: center,
         frequencyMadCents: medianAbsoluteDeviation(frequencyOffsets),
