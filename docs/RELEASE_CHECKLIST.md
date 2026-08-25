@@ -2,11 +2,13 @@
 
 Use this checklist for any named software revision on `post-freeze-development`. It does not authorize empirical claims. Completing it never implies physical-object identity, microphone validity, material identity, or human-perceptual evidence.
 
-Empirical authority remains `main` / `freeze/gate-a2-v8-2026-08-25` at `717a4c15a3b15e73c5883f34b86897c03ff70829`. Do not merge research or product work into `main` during the active v8 sequence. Do not change Gate A2/B/C thresholds or frozen contract semantics to "complete" a release.
+Empirical authority remains `main` / `freeze/gate-a2-v8-2026-08-25` at `717a4c15a3b15e73c5883f34b86897c03ff70829`. Do not merge research or product work into `main` during the active v8 sequence. Do not change Gate A2/B/C thresholds or frozen contract semantics to complete a software release.
 
-## License (#82)
+## Software license
 
-Issue #82 did not name a license. This tree records **MIT** in the root `LICENSE` file pending any owner amendment. Do not rewrite git history if the owner later selects a different license; add the new `LICENSE` on a subsequent commit. Dataset, model, and physical-corpus terms may require separate licenses later and are not implied by the software MIT grant.
+Repository software is licensed under the root **MIT License**. The root package metadata and contribution guide should remain aligned with `LICENSE`.
+
+Dataset, trained-model, media, benchmark-corpus, and future physical-corpus artifacts may require separate terms. The software license must not be described as automatically licensing separately identified data or third-party content.
 
 ## Record these identifiers
 
@@ -18,15 +20,16 @@ Copy exact values. Do not abbreviate commit SHAs.
 | Exact commit | `git rev-parse HEAD` (40 hex) | |
 | Tree | `git rev-parse HEAD^{tree}` | |
 | Tag / freeze name | Only after this revision itself is qualified. | |
-| Ordinary CI run | GitHub Actions workflow `ci`, job `validate` | |
+| Ordinary CI run | workflow `ci`, job `validate` | |
 | Digital-twin qualification run | workflow `digital-twin-qualification` | |
 | Full-vision software qualification run | workflow `full-vision-software-qualification` | |
+| Atlas software-conformance run | workflow `atlas-production-conformance` | |
 | SBOM workflow/job run | CycloneDX JSON artifact from the qualification `sbom` job | |
-| Atlas production-conformance run | workflow `atlas-production-conformance` (skeleton until `apps/atlas-api` exists) | |
-| Qualification report digest | SHA-256 of the uploaded `full-vision-software.json` bytes | |
-| Digital-twin report digest | SHA-256 of the uploaded digital-twin JSON bytes | |
-| SBOM digest | SHA-256 of the uploaded CycloneDX JSON bytes | |
-| Capability claims | Entries in `docs/CLAIM_REGISTRY.md` plus any machine-readable `CapabilityClaimV1` IDs | |
+| Qualification report digest | SHA-256 of uploaded `full-vision-software.json` bytes | |
+| Digital-twin report digest | SHA-256 of uploaded digital-twin JSON bytes | |
+| Atlas conformance report digest | SHA-256 of uploaded Atlas conformance JSON bytes | |
+| SBOM digest | SHA-256 of uploaded CycloneDX JSON bytes | |
+| Capability claims | `docs/CLAIM_REGISTRY.md` plus machine-readable registry/claim IDs | |
 | Known exclusions | Must include: software qualification is not physical evidence | |
 
 Reproducibility command on a clean checkout of the named revision:
@@ -43,41 +46,55 @@ Installs must use the committed `pnpm-lock.yaml`. Do not update the lockfile as 
 
 ## Capability claims
 
-List every product-facing proposition this revision is allowed to support, with maturity from `docs/CLAIM_REGISTRY.md`. Software qualification may support deterministic execution, artifact integrity, synthetic recovery, and named digital-population metrics. It does not support physical-object identity, material identity in the world, calibrated loudness, microphone-transducer behavior, or playback-chain fidelity.
+List every product-facing proposition this revision is allowed to support, with maturity from `docs/CLAIM_REGISTRY.md`. Software qualification may support deterministic execution, artifact integrity, synthetic recovery, local service behavior, and named digital-population metrics. It does not support physical-object identity, material identity in the world, calibrated loudness, microphone-transducer behavior, or playback-chain fidelity.
 
-Machine-readable claims, when emitted, use `CapabilityClaimV1` in `packages/validation`. The human-readable registry is the index. Do not promote a registry row past the evidence actually attached.
+Machine-readable maturity and assurance objects live in `packages/validation`. The human-readable registry is the project index. Do not promote a registry row past the evidence actually attached.
 
-## Known exclusions (required)
+## Known exclusions — required
 
 State at least:
 
-- No physical campaign object was tested by this software qualification.
-- Gate A2/B/C status is independent of this checklist; see E1 below.
-- `?twin=1` and `?atlas=1` remain synthetic demonstrations.
-- Predicted spatial fingerprints remain `evidenceEligible: false`.
-- Material inference remains research-only (`evidenceEligible: false`) until a held-out physical claim is earned.
+- No physical campaign object was tested by software qualification.
+- Gate A2/B/C status is independent of this checklist.
+- `?twin=1` and `?atlas=1` remain synthetic/local research surfaces.
+- Predicted spatial fingerprints remain non-measurement outputs and are not evidence-eligible measurements.
+- Material inference remains research-only until a held-out physical claim is earned.
+- Atlas client/API conformance is a local software-contract qualification, not a public production-network qualification.
+- Content digests establish byte identity, not the truth of physical specimen/material assertions.
 
 ## Schema migration discipline
 
-`packages/validation` owns versioned artifact schemas. This checklist does not change those packages. Every new or bumped artifact contract (`schemaVersion` / `*ContractVersion`) requires, in the validation package, before the contract is used in a release:
+`packages/validation` owns versioned artifact schemas. Every new or bumped artifact contract (`schemaVersion` / `*ContractVersion`) requires, before use in a named release:
 
 1. a parser that fails closed on unsupported versions;
-2. a validator / content-address verification test;
-3. an explicit migration test through `ArtifactMigrationRegistryV1` when a prior contract version must still be read.
+2. validator/content-address verification tests;
+3. an explicit migration test through the artifact migration registry when a prior contract version must remain readable;
+4. exact test vectors for content-addressed contracts where cross-runtime stability matters.
 
-CI comments in the qualification and Atlas conformance workflows restate this rule. Missing migration tests block adopting a new artifact version, not the frozen v8 evidence contract (`validation-evidence-5` / `schemaVersion: 5`).
+This discipline does not alter the frozen v8 evidence contract (`validation-evidence-5` / `schemaVersion: 5`).
 
-## E1 — empirical v8 support (tooling only)
+## Atlas software-contract conformance
+
+The repository now contains both `@everything-rings/atlas-client` and `@everything-rings/atlas-api`. The API has memory and local file-backed storage paths plus HTTP, persistence, service-conformance, and Atlas V2 tests.
+
+The `atlas-production-conformance` workflow therefore runs those packages directly. A successful report may state only that the named software revision passed the checked local contracts. It must retain:
+
+- `softwareOnly: true`;
+- `physicalObjectTested: false`;
+- `releaseGateEquivalent: false`;
+- `publicNetworkQualified: false`.
+
+Public-network production remains downstream of authentication/authorization, rate limits and abuse controls, multi-tenant durability/backup/restore, operational rollback/recovery, deployment security review, and load/concurrency characterization.
+
+## E1 — empirical v8 support
 
 Physical sequence, do not reorder:
 
 `#64 intended-device preflight → #65 specimen/manifest freeze → #66 collection / #25 Gate A2 adjudication → #28 Gate B → #29 Gate C`
 
-This repository's software cannot execute that campaign. Independent verification tooling (`pnpm --filter @everything-rings/er-cli`) hashes source bytes and verifies evidence JSON against schema v5. It must never reserialize source evidence when reporting an original digest. It must never become part of the frozen evidence-production path.
+This repository's post-freeze software cannot execute or substitute for that campaign. Independent verification tooling may hash source bytes and verify schema-v5 evidence, but it must never reserialize source evidence when reporting an original digest and must never become part of the frozen evidence-production path.
 
 **E1 exit:** Gate A2/B/C status is recorded under the frozen contracts, whether PASS or fail. Failure is an experimental result. Engineers must not change thresholds, attempt counts, or contract versions to obtain a pass.
-
-Record gate status here when it exists (PASS / fail / not-yet-run). Do not leave E1 "done" by software work alone.
 
 | Gate | Contract | Status | Evidence artifact digest | Notes |
 |------|----------|--------|--------------------------|-------|
@@ -85,97 +102,23 @@ Record gate status here when it exists (PASS / fail / not-yet-run). Do not leave
 | B | `gate-b-1` | not-yet-run | | |
 | C | `gate-c-1` | not-yet-run | | |
 
-## Branch protection / rulesets (#81)
+## Repository rulesets
 
-Required GitHub rulesets (repository policy only; not scientific evidence):
+The authority branches and freeze refs are protected by active repository rulesets applied 2026-08-25:
 
-### Ruleset A — `authority-pr-required`
+- `authority-pr-required` — id `21426242`;
+- `immutable-freeze-refs` — id `21426245`.
 
-- Target: `refs/heads/main`, `refs/heads/post-freeze-development`
-- Enforcement: active
-- Rules:
-  - `deletion` (block branch deletion)
-  - `non_fast_forward` (block force-push)
-  - `pull_request` with `required_review_thread_resolution: true`, `required_approving_review_count: 0` until additional reviewers exist, `require_code_owner_review: false` until additional GitHub users exist, `dismiss_stale_reviews_on_push: true`
-  - `required_status_checks` with `strict_required_status_checks_policy: true` and check context `validate` (workflow `ci`, job `validate`; GitHub Actions app integration id `15368`)
-- No bypass actors. A direct unreviewed push must be rejected.
+Required authority behavior:
 
-When additional maintainers exist, raise `required_approving_review_count` to 1 and set `require_code_owner_review: true`.
+- `main` and `post-freeze-development` require pull requests;
+- the `ci` / `validate` check is required;
+- force pushes and deletion are blocked;
+- review threads must be resolved;
+- `freeze/**` refs cannot be force-pushed or deleted;
+- bypass actors remain empty.
 
-### Ruleset B — `immutable-freeze-refs`
-
-- Target: `refs/heads/freeze/**`
-- Enforcement: active
-- Rules: `deletion`, `non_fast_forward` only
-- New `freeze/*` refs may be created; existing freeze refs must not be rewritten or deleted.
-
-Example create payloads (REST `POST /repos/fraware/EVERYTHING-RINGS/rulesets`):
-
-```json
-{
-  "name": "authority-pr-required",
-  "target": "branch",
-  "enforcement": "active",
-  "conditions": {
-    "ref_name": {
-      "include": ["refs/heads/main", "refs/heads/post-freeze-development"],
-      "exclude": []
-    }
-  },
-  "rules": [
-    { "type": "deletion" },
-    { "type": "non_fast_forward" },
-    {
-      "type": "pull_request",
-      "parameters": {
-        "required_approving_review_count": 0,
-        "dismiss_stale_reviews_on_push": true,
-        "require_code_owner_review": false,
-        "require_last_push_approval": false,
-        "required_review_thread_resolution": true
-      }
-    },
-    {
-      "type": "required_status_checks",
-      "parameters": {
-        "strict_required_status_checks_policy": true,
-        "required_status_checks": [
-          { "context": "validate", "integration_id": 15368 }
-        ]
-      }
-    }
-  ]
-}
-```
-
-```json
-{
-  "name": "immutable-freeze-refs",
-  "target": "branch",
-  "enforcement": "active",
-  "conditions": {
-    "ref_name": {
-      "include": ["refs/heads/freeze/**"],
-      "exclude": []
-    }
-  },
-  "rules": [
-    { "type": "deletion" },
-    { "type": "non_fast_forward" }
-  ]
-}
-```
-
-If the API rejects the create (permissions, enterprise policy, or check-name mismatch), record the HTTP status here and keep this section as the required configuration.
-
-**Applied 2026-08-25** (authenticated `gh api` as repository admin):
-
-- `authority-pr-required` id `21426242` — [ruleset](https://github.com/fraware/EVERYTHING-RINGS/rules/21426242)
-- `immutable-freeze-refs` id `21426245` — [ruleset](https://github.com/fraware/EVERYTHING-RINGS/rules/21426245)
-
-GitHub stored additional pull-request defaults (`allowed_merge_methods`, `require_extra_approval_for_unattributed_changes`). Bypass actors remain empty (`current_user_can_bypass: never`). Direct pushes to `main` and `post-freeze-development` must go through a pull request; `ci` job `validate` is required; `freeze/**` cannot be force-pushed or deleted.
-
-Observed before apply: classic branch protection was off for `main` and `post-freeze-development`, and `GET /repos/fraware/EVERYTHING-RINGS/rulesets` returned `[]`.
+When additional maintainers exist, require at least one approving review and CODEOWNER review for authority-branch changes.
 
 ## GitHub Actions pins
 
@@ -203,4 +146,4 @@ pnpm --filter @everything-rings/er-cli exec node ./bin/er.mjs verify derivation 
 pnpm --filter @everything-rings/er-cli exec node ./bin/er.mjs verify repository path/to/repository.json
 ```
 
-`freeze dataset` and `inspect lineage` are stubs until E2. They exit 2 and must not be treated as a freeze or a lineage proof.
+Verification tooling reports the contracts it actually checks. A command name or successful hash is never itself a scientific maturity promotion.
