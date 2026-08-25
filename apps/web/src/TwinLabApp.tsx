@@ -109,7 +109,7 @@ export function TwinLabApp() {
     <header>
       <p className="eyebrow">EVERYTHING RINGS / SONIC TWIN LAB</p>
       <h1>Object models, retrieval, held-out calibration, abstention</h1>
-      <p className="lede">A local software-only qualification surface. The built-in corpus is synthetic and is not physical identity evidence.</p>
+      <p className="lede">A local software-only qualification surface. Every result on this page is synthetic. This is not a network, not a physical-identity product, and not evidence that two real objects are the same.</p>
     </header>
 
     <section className="release-status">
@@ -143,7 +143,7 @@ export function TwinLabApp() {
     <section className="release-detail-grid">
       <article className="release-detail"><h3>Verification pairs</h3><p>{report.pairs.length} deterministic same-specimen / hard-negative pairs.</p></article>
       <article className="release-detail"><h3>Risk / coverage</h3><p>{report.heldOutCalibration.riskCoverage.map((point) => `${point.minimumConfidence.toFixed(2)}→${point.coverage.toFixed(2)}`).join(" · ")}</p></article>
-      <article className="release-detail"><h3>Boundary</h3><p>No built-in result is a calibrated claim about physical objects. Calibration fitting and evaluation use disjoint digital query groups and remain bound to the named digital populations.</p></article>
+      <article className="release-detail"><h3>Boundary</h3><p>No built-in result is a calibrated claim about physical objects. Scores are ranking and software-qualification numbers only. They are not the probability that two physical objects are the same, and this lab does not publish or join a Resonance Atlas network.</p></article>
     </section>
   </main>;
 }
