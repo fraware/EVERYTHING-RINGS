@@ -78,6 +78,7 @@ const chrome = spawn(browser, [
   `--user-data-dir=${profileDir}`,
   `${baseUrl}/`,
 ], { stdio: ["ignore", "ignore", "pipe"] });
+const chromeExit = new Promise((resolve) => chrome.once("exit", resolve));
 
 let stderr = "";
 chrome.stderr.on("data", (chunk) => { stderr += String(chunk); });
@@ -149,6 +150,18 @@ async function waitFor(expression, label, timeoutMs = 18_000) {
     await sleep(150);
   }
   throw new Error(`Timed out waiting for ${label}. Body: ${await evaluate("document.body?.innerText ?? ''")}`);
+}
+
+async function terminateChrome() {
+  if (chrome.exitCode !== null || chrome.signalCode !== null) return;
+  chrome.kill("SIGTERM");
+  const exitedGracefully = await Promise.race([
+    chromeExit.then(() => true),
+    sleep(2_000).then(() => false),
+  ]);
+  if (exitedGracefully) return;
+  chrome.kill("SIGKILL");
+  await Promise.race([chromeExit, sleep(1_000)]);
 }
 
 async function layoutAudit() {
@@ -368,7 +381,11 @@ try {
   console.log("Consumer history E2E passed: strike → fingerprint-only storage → reload → saved player → distinct equal-signature observations → Resonance Diff A/B → zero microphone reacquisition → share → remove on 390×844 viewport.");
 } finally {
   try { socket.close(); } catch { /* already closed */ }
-  chrome.kill("SIGTERM");
-  await sleep(100);
-  rmSync(workDir, { recursive: true, force: true });
+  await terminateChrome();
+  try {
+    rmSync(workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.warn(`Browser profile cleanup deferred after completed history assertions: ${detail}`);
+  }
 }
