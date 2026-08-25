@@ -5,6 +5,8 @@ export interface AcousticObjectObservationV1 {
   readonly observationId: string;
   readonly specimenId: string;
   readonly fingerprint: AcousticFingerprintV1;
+  /** Optional immutable measurement content address. Omitted from AcousticObjectModelV1. */
+  readonly measurementId?: string;
 }
 
 export interface AcousticObjectModelConfigV1 {
@@ -39,6 +41,40 @@ export interface AcousticObjectModelV1 {
   readonly fingerprintAlgorithmVersions: readonly AcousticFingerprintAlgorithmVersion[];
   readonly sampleRates: readonly number[];
   readonly modes: readonly AcousticObjectModeEstimateV1[];
+}
+
+export interface AcousticObjectModeEstimateV2 extends AcousticObjectModeEstimateV1 {
+  readonly belowRecommendedSupport: boolean;
+}
+
+export interface AcousticObjectModelQualityV1 {
+  readonly qualityVersion: "acoustic-object-model-quality-1";
+  readonly productEligible: false;
+  readonly homogeneousAlgorithmVersion: boolean;
+  readonly minimumSupportSatisfied: boolean;
+  readonly observationCount: number;
+  readonly modeCount: number;
+  readonly lowestModeSupportCount: number | null;
+  readonly lowestModeSupportFraction: number | null;
+  readonly sourceMeasurementIdCount: number;
+  readonly warnings: readonly string[];
+}
+
+/**
+ * V2 adds source measurement IDs and model-quality diagnostics without
+ * mutating content-addressed AcousticObjectModelV1 hashes.
+ */
+export interface AcousticObjectModelV2 {
+  readonly schemaVersion: 2;
+  readonly objectModelVersion: "acoustic-object-model-2";
+  readonly specimenId: string;
+  readonly observationCount: number;
+  readonly fingerprintAlgorithmVersion: AcousticFingerprintAlgorithmVersion;
+  readonly sampleRates: readonly number[];
+  readonly sourceObservationIds: readonly string[];
+  readonly sourceMeasurementIds: readonly string[];
+  readonly modes: readonly AcousticObjectModeEstimateV2[];
+  readonly quality: AcousticObjectModelQualityV1;
 }
 
 interface ModeSample {
@@ -106,11 +142,18 @@ export function buildAcousticObjectModel(
   const specimenId = [...new Set(trimmedSpecimenIds)].sort((left, right) => left.localeCompare(right, "en-US"))[0]!;
 
   const observationIds = new Set<string>();
+  const algorithmVersions = new Set<AcousticFingerprintAlgorithmVersion>();
   for (const observation of observations) {
     const id = observation.observationId.trim();
     if (id.length === 0) throw new Error("object model observationId is required");
     if (observationIds.has(id)) throw new Error(`duplicate object-model observationId ${id}`);
     observationIds.add(id);
+    algorithmVersions.add(observation.fingerprint.algorithmVersion);
+  }
+  if (algorithmVersions.size > 1) {
+    throw new Error(
+      `object model cannot mix fingerprint algorithm versions (${[...algorithmVersions].sort().join(", ")}); cross-version models require validated normalization`,
+    );
   }
 
   // Clustering is incremental because one observation may contribute at most
@@ -189,6 +232,88 @@ export function buildAcousticObjectModel(
   };
 }
 
+function canonicalIds(values: readonly string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))]
+    .sort((left, right) => left.localeCompare(right, "en-US"));
+}
+
+export function assessAcousticObjectModelQuality(
+  model: AcousticObjectModelV1 | AcousticObjectModelV2,
+  extras?: {
+    readonly sourceMeasurementIdCount?: number;
+    readonly observationCountForMeasurementIds?: number;
+  },
+): AcousticObjectModelQualityV1 {
+  const warnings: string[] = [];
+  const supportCounts = model.modes.map((mode) => mode.observationSupportCount);
+  const supportFractions = model.modes.map((mode) => mode.observationSupportFraction);
+  const lowestModeSupportCount = supportCounts.length === 0 ? null : Math.min(...supportCounts);
+  const lowestModeSupportFraction = supportFractions.length === 0 ? null : Math.min(...supportFractions);
+  const homogeneousAlgorithmVersion = "fingerprintAlgorithmVersion" in model
+    ? true
+    : model.fingerprintAlgorithmVersions.length <= 1;
+  if (!homogeneousAlgorithmVersion) warnings.push("model mixes fingerprint algorithm versions");
+  if (model.observationCount < DEFAULT_ACOUSTIC_OBJECT_MODEL_CONFIG.minimumObservationSupportCount) {
+    warnings.push("repeated-observation support is below the configured minimum capture count");
+  }
+  if (model.modes.length === 0) warnings.push("no modes met minimum observation support");
+  if (model.sampleRates.length > 1) warnings.push("model mixes sample rates");
+  if (lowestModeSupportFraction !== null && lowestModeSupportFraction < 1) {
+    warnings.push("one or more modes lack unanimous observation support");
+  }
+  const sourceMeasurementIdCount = extras?.sourceMeasurementIdCount
+    ?? ("sourceMeasurementIds" in model ? model.sourceMeasurementIds.length : 0);
+  const observationCountForMeasurementIds = extras?.observationCountForMeasurementIds ?? model.observationCount;
+  if (sourceMeasurementIdCount === 0) warnings.push("source measurement IDs are absent");
+  else if (sourceMeasurementIdCount < observationCountForMeasurementIds) {
+    warnings.push("source measurement IDs are incomplete relative to observation count");
+  }
+
+  return {
+    qualityVersion: "acoustic-object-model-quality-1",
+    productEligible: false,
+    homogeneousAlgorithmVersion,
+    minimumSupportSatisfied: model.modes.length > 0
+      && model.observationCount >= DEFAULT_ACOUSTIC_OBJECT_MODEL_CONFIG.minimumObservationSupportCount,
+    observationCount: model.observationCount,
+    modeCount: model.modes.length,
+    lowestModeSupportCount,
+    lowestModeSupportFraction,
+    sourceMeasurementIdCount,
+    warnings,
+  };
+}
+
+export function buildAcousticObjectModelV2(
+  observations: readonly AcousticObjectObservationV1[],
+  config: AcousticObjectModelConfigV1 = DEFAULT_ACOUSTIC_OBJECT_MODEL_CONFIG,
+): AcousticObjectModelV2 {
+  const v1 = buildAcousticObjectModel(observations, config);
+  const algorithmVersion = v1.fingerprintAlgorithmVersions[0];
+  if (algorithmVersion === undefined) throw new Error("object model V2 requires a homogeneous fingerprint algorithm version");
+  const sourceObservationIds = canonicalIds(observations.map((observation) => observation.observationId));
+  const sourceMeasurementIds = canonicalIds(observations.map((observation) => observation.measurementId ?? ""));
+  const quality = assessAcousticObjectModelQuality(v1, {
+    sourceMeasurementIdCount: sourceMeasurementIds.length,
+    observationCountForMeasurementIds: observations.length,
+  });
+  return {
+    schemaVersion: 2,
+    objectModelVersion: "acoustic-object-model-2",
+    specimenId: v1.specimenId,
+    observationCount: v1.observationCount,
+    fingerprintAlgorithmVersion: algorithmVersion,
+    sampleRates: v1.sampleRates,
+    sourceObservationIds,
+    sourceMeasurementIds,
+    modes: v1.modes.map((mode) => ({
+      ...mode,
+      belowRecommendedSupport: mode.observationSupportFraction < 1,
+    })),
+    quality,
+  };
+}
+
 export interface FingerprintToObjectModelComparisonV1 {
   readonly comparisonVersion: "fingerprint-object-model-comparison-1";
   readonly specimenId: string;
@@ -210,7 +335,7 @@ function percentile(values: readonly number[], quantile: number): number | null 
 
 export function compareFingerprintToObjectModel(
   fingerprint: AcousticFingerprintV1,
-  model: AcousticObjectModelV1,
+  model: AcousticObjectModelV1 | AcousticObjectModelV2,
   maximumMatchDistanceCents = 180,
 ): FingerprintToObjectModelComparisonV1 {
   if (!(maximumMatchDistanceCents > 0) || !Number.isFinite(maximumMatchDistanceCents)) {

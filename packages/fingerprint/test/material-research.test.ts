@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
-import { benchmarkMaterialResearch, buildAcousticObjectModel, fitMaterialCentroidResearch, predictMaterialResearch } from "../src";
+import {
+  assignMaterialAssertion,
+  benchmarkMaterialResearch,
+  buildAcousticObjectModel,
+  createMaterialAssertion,
+  fitAndBenchmarkMaterialFamilyDisjoint,
+  fitMaterialCentroidResearch,
+  isInferredMaterialAssertion,
+  isVerifiedMaterialAssertion,
+  materialExamplesEligibleForTraining,
+  predictMaterialResearch,
+} from "../src";
 
 function fp(base: number, ratios: readonly number[], decays: readonly number[]): AcousticFingerprintV1 {
   return {
@@ -63,6 +74,94 @@ describe("research-only material inference", () => {
     ], 0);
     expect(report.coverage).toBe(1);
     expect(report.coveredAccuracy).toBe(1);
+    expect(report.macroF1).toBe(1);
+    expect(report.balancedAccuracy).toBe(1);
     expect(report.errors).toHaveLength(0);
+  });
+
+  it("preserves verified material provenance and rejects inferred overwrite", () => {
+    const verified = createMaterialAssertion({
+      materialLabel: "bronze",
+      source: "manufacturer",
+      sourceReference: "foundry-lot-1",
+      confidenceClass: "verified",
+      algorithmDerivationId: null,
+    });
+    const inferred = createMaterialAssertion({
+      materialLabel: "glass",
+      source: "inferred",
+      sourceReference: null,
+      confidenceClass: "inferred",
+      algorithmDerivationId: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    });
+    expect(isVerifiedMaterialAssertion(verified)).toBe(true);
+    expect(isInferredMaterialAssertion(inferred)).toBe(true);
+    expect(() => assignMaterialAssertion(verified, inferred)).toThrow(/must not overwrite verified truth/);
+    expect(assignMaterialAssertion(inferred, verified).materialLabel).toBe("bronze");
+  });
+
+  it("evaluates family-disjoint splits so object-family shortcut can be measured", () => {
+    const metalBell = model("metal-bell", [fp(440, [1, 2.05, 3.2], [1.1, 0.8, 0.6]), fp(442, [1, 2.04, 3.19], [1.05, 0.78, 0.58])]);
+    const metalBowl = model("metal-bowl", [fp(500, [1, 2.02, 3.15], [1.0, 0.75, 0.55]), fp(502, [1, 2.03, 3.16], [1.02, 0.77, 0.56])]);
+    const glassBell = model("glass-bell", [fp(600, [1, 2.45, 4.1], [1.8, 1.3, 1.0]), fp(602, [1, 2.44, 4.08], [1.75, 1.28, 0.98])]);
+    const glassBowl = model("glass-bowl", [fp(670, [1, 2.48, 4.12], [1.7, 1.25, 0.95]), fp(672, [1, 2.47, 4.11], [1.72, 1.27, 0.96])]);
+    const inferred = createMaterialAssertion({
+      materialLabel: "plastic",
+      source: "inferred",
+      sourceReference: null,
+      confidenceClass: "inferred",
+      algorithmDerivationId: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    });
+    const examples = [
+      {
+        exampleId: "mbell",
+        specimenId: "metal-bell",
+        objectFamily: "bell",
+        assertion: createMaterialAssertion({ materialLabel: "metal", source: "inspection", sourceReference: "lab", confidenceClass: "verified", algorithmDerivationId: null }),
+        model: metalBell,
+      },
+      {
+        exampleId: "mbowl",
+        specimenId: "metal-bowl",
+        objectFamily: "bowl",
+        assertion: createMaterialAssertion({ materialLabel: "metal", source: "expert", sourceReference: "curator", confidenceClass: "verified", algorithmDerivationId: null }),
+        model: metalBowl,
+      },
+      {
+        exampleId: "gbell",
+        specimenId: "glass-bell",
+        objectFamily: "bell",
+        assertion: createMaterialAssertion({ materialLabel: "glass", source: "manufacturer", sourceReference: "catalog", confidenceClass: "verified", algorithmDerivationId: null }),
+        model: glassBell,
+      },
+      {
+        exampleId: "gbowl",
+        specimenId: "glass-bowl",
+        objectFamily: "bowl",
+        assertion: createMaterialAssertion({ materialLabel: "glass", source: "inspection", sourceReference: "lab", confidenceClass: "verified", algorithmDerivationId: null }),
+        model: glassBowl,
+      },
+      {
+        exampleId: "inferred-skip",
+        specimenId: "plastic-cup",
+        objectFamily: "cup",
+        assertion: inferred,
+        model: metalBell,
+      },
+    ];
+    expect(materialExamplesEligibleForTraining(examples)).toHaveLength(4);
+    const evaluation = fitAndBenchmarkMaterialFamilyDisjoint(
+      examples,
+      "digital-family-disjoint-1",
+      0,
+      (family) => family === "bell" ? "train" : "test",
+    );
+    expect(evaluation.evidenceEligible).toBe(false);
+    expect(evaluation.trainFamilyCount).toBe(1);
+    expect(evaluation.evaluationFamilyCount).toBe(1);
+    expect(evaluation.metrics.coverage).toBeGreaterThan(0);
+    expect(evaluation.metrics.macroF1).not.toBeNull();
+    expect(evaluation.metrics.balancedAccuracy).not.toBeNull();
+    expect(evaluation.metrics.perClass.length).toBeGreaterThanOrEqual(2);
   });
 });

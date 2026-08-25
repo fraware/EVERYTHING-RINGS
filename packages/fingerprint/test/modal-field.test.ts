@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
-import { buildSpatialModalSoundField, fingerprintAtSpatialPoint } from "../src";
+import {
+  buildSpatialModalSoundField,
+  evaluateSpatialHeldOutLocations,
+  fingerprintAtSpatialPoint,
+  isSpatialPredictedFingerprint,
+} from "../src";
 
 function fp(amplitudes: readonly number[]): AcousticFingerprintV1 {
   const frequencies = [440, 880, 1320];
@@ -48,5 +53,39 @@ describe("spatial modal sound field", () => {
       { observationId: "a", specimenId: "a", strikePoint: { x: 0, y: 0, z: 0 }, fingerprint: fp([1, 1, 1]) },
       { observationId: "b", specimenId: "b", strikePoint: { x: 1, y: 0, z: 0 }, fingerprint: fp([1, 1, 1]) },
     ])).toThrow(/mix specimen IDs/);
+  });
+
+  it("evaluates held-out strike locations against predictions without treating predictions as measurements", () => {
+    const training = [
+      { observationId: "left", specimenId: "specimen-field", strikePoint: { x: 0, y: 0, z: 0 }, fingerprint: fp([1, 0.2, 0.1]) },
+      { observationId: "right", specimenId: "specimen-field", strikePoint: { x: 1, y: 0, z: 0 }, fingerprint: fp([0.1, 1, 0.4]) },
+      { observationId: "top", specimenId: "specimen-field", strikePoint: { x: 0.5, y: 1, z: 0 }, fingerprint: fp([0.3, 0.4, 1]) },
+    ];
+    const heldOut = [
+      { observationId: "mid", specimenId: "specimen-field", strikePoint: { x: 0.5, y: 0.2, z: 0 }, fingerprint: fp([0.6, 0.7, 0.5]) },
+    ];
+    const report = evaluateSpatialHeldOutLocations(training, heldOut);
+    expect(report.evaluationVersion).toBe("spatial-held-out-evaluation-1");
+    expect(report.evidenceEligible).toBe(false);
+    expect(report.releaseGateEquivalent).toBe(false);
+    expect("algorithmVersion" in report).toBe(false);
+    expect(report.heldOutCount).toBe(1);
+    expect(report.modePresencePrecision).not.toBeNull();
+    expect(report.modePresenceRecall).not.toBeNull();
+    expect(report.frequencyConsistencyMedianCents).not.toBeNull();
+    expect(report.relativeAmplitudeErrorDbMedian).not.toBeNull();
+    expect(report.interpolationDistanceMedian).toBeGreaterThan(0);
+    expect(report.cases).toHaveLength(1);
+
+    const field = buildSpatialModalSoundField(training);
+    const predicted = fingerprintAtSpatialPoint(field, { point: { x: 0.5, y: 0.2, z: 0 } });
+    expect(isSpatialPredictedFingerprint(predicted)).toBe(true);
+    expect(predicted.evidenceEligible).toBe(false);
+    expect(() => evaluateSpatialHeldOutLocations(training, [{
+      observationId: "forged-prediction",
+      specimenId: "specimen-field",
+      strikePoint: { x: 0.25, y: 0.25, z: 0 },
+      fingerprint: predicted as unknown as AcousticFingerprintV1,
+    }])).toThrow(/predicted fingerprint, not a measurement/);
   });
 });

@@ -13,6 +13,9 @@ export interface SpatialFingerprintObservationV1 {
   readonly specimenId: string;
   readonly strikePoint: SpatialPointV1;
   readonly fingerprint: AcousticFingerprintV1;
+  readonly measurementId?: string;
+  readonly support?: string;
+  readonly stationId?: string;
 }
 
 export interface SpatialModalSampleV1 {
@@ -41,6 +44,21 @@ function assertPoint(point: SpatialPointV1): void {
   if (![point.x, point.y, point.z].every(Number.isFinite)) throw new Error("spatial strike point coordinates must be finite");
 }
 
+export function isSpatialPredictedFingerprint(value: unknown): value is SpatialPredictedFingerprintV1 {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as { predictionContractVersion?: unknown; evidenceEligible?: unknown };
+  return record.predictionContractVersion === "spatial-predicted-fingerprint-1" && record.evidenceEligible === false;
+}
+
+function assertSpatialObservationIsMeasurement(observation: SpatialFingerprintObservationV1): void {
+  if (isSpatialPredictedFingerprint(observation.fingerprint)) {
+    throw new Error(`spatial observation ${observation.observationId} is a predicted fingerprint, not a measurement`);
+  }
+  if (!("algorithmVersion" in observation.fingerprint)) {
+    throw new Error(`spatial observation ${observation.observationId} is missing measurement algorithm provenance`);
+  }
+}
+
 export function buildSpatialModalSoundField(
   observations: readonly SpatialFingerprintObservationV1[],
   maximumModeAssociationCents = 120,
@@ -56,6 +74,7 @@ export function buildSpatialModalSoundField(
     if (observationIds.has(observation.observationId)) throw new Error(`duplicate spatial observationId ${observation.observationId}`);
     observationIds.add(observation.observationId);
     assertPoint(observation.strikePoint);
+    assertSpatialObservationIsMeasurement(observation);
   }
   const objectModel = buildAcousticObjectModel(observations.map((observation) => ({
     observationId: observation.observationId,
@@ -178,5 +197,193 @@ export function fingerprintAtSpatialPoint(
         },
       }];
     }),
+  };
+}
+
+export interface SpatialHeldOutCaseV1 {
+  readonly observationId: string;
+  readonly interpolationDistance: number;
+  readonly matchedModeCount: number;
+  readonly predictedModeCount: number;
+  readonly measuredModeCount: number;
+  readonly frequencyErrorCentsMedian: number | null;
+  readonly relativeAmplitudeErrorDbMedian: number | null;
+  readonly meanPredictionUncertainty: number | null;
+}
+
+/**
+ * Held-out strike-location evaluation. Predictions remain
+ * SpatialPredictedFingerprintV1 and are never ingested as measurements.
+ */
+export interface SpatialHeldOutEvaluationV1 {
+  readonly evaluationVersion: "spatial-held-out-evaluation-1";
+  readonly evidenceEligible: false;
+  readonly releaseGateEquivalent: false;
+  readonly heldOutCount: number;
+  readonly frequencyConsistencyMedianCents: number | null;
+  readonly modePresencePrecision: number | null;
+  readonly modePresenceRecall: number | null;
+  readonly relativeAmplitudeErrorDbMedian: number | null;
+  readonly uncertaintyErrorPearson: number | null;
+  readonly interpolationDistanceMedian: number | null;
+  readonly cases: readonly SpatialHeldOutCaseV1[];
+}
+
+function medianNumber(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  const ordered = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(ordered.length / 2);
+  if (ordered.length % 2 === 1) return ordered[middle]!;
+  return (ordered[middle - 1]! + ordered[middle]!) / 2;
+}
+
+function pearson(xs: readonly number[], ys: readonly number[]): number | null {
+  if (xs.length !== ys.length || xs.length < 3) return null;
+  const meanX = xs.reduce((sum, value) => sum + value, 0) / xs.length;
+  const meanY = ys.reduce((sum, value) => sum + value, 0) / ys.length;
+  let numerator = 0;
+  let denomX = 0;
+  let denomY = 0;
+  for (let index = 0; index < xs.length; index += 1) {
+    const dx = xs[index]! - meanX;
+    const dy = ys[index]! - meanY;
+    numerator += dx * dy;
+    denomX += dx * dx;
+    denomY += dy * dy;
+  }
+  if (!(denomX > 0) || !(denomY > 0)) return null;
+  return numerator / Math.sqrt(denomX * denomY);
+}
+
+function nearestTrainingDistance(
+  point: SpatialPointV1,
+  training: readonly SpatialFingerprintObservationV1[],
+): number {
+  return Math.min(...training.map((observation) => distance(point, observation.strikePoint)));
+}
+
+function matchPredictedToMeasured(
+  predicted: SpatialPredictedFingerprintV1,
+  measured: AcousticFingerprintV1,
+  associationCents: number,
+): {
+  matched: number;
+  frequencyErrors: number[];
+  amplitudeErrorsDb: number[];
+  uncertainties: number[];
+} {
+  const usedMeasured = new Set<number>();
+  const frequencyErrors: number[] = [];
+  const amplitudeErrorsDb: number[] = [];
+  const uncertainties: number[] = [];
+  let matched = 0;
+  for (const predictedMode of predicted.modes) {
+    let bestIndex = -1;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < measured.modes.length; index += 1) {
+      if (usedMeasured.has(index)) continue;
+      const cents = centsDistance(predictedMode.frequencyHz, measured.modes[index]!.frequencyHz);
+      if (cents < bestDistance) {
+        bestIndex = index;
+        bestDistance = cents;
+      }
+    }
+    if (bestIndex >= 0 && bestDistance <= associationCents) {
+      usedMeasured.add(bestIndex);
+      matched += 1;
+      frequencyErrors.push(bestDistance);
+      amplitudeErrorsDb.push(
+        20 * Math.abs(Math.log10(Math.max(predictedMode.relativeAmplitude, 1e-9) / Math.max(measured.modes[bestIndex]!.relativeAmplitude, 1e-9))),
+      );
+      uncertainties.push(1 - Math.min(1, Math.max(0, predictedMode.confidence)));
+    }
+  }
+  return { matched, frequencyErrors, amplitudeErrorsDb, uncertainties };
+}
+
+export function evaluateSpatialHeldOutLocations(
+  trainingObservations: readonly SpatialFingerprintObservationV1[],
+  heldOutObservations: readonly SpatialFingerprintObservationV1[],
+  options?: {
+    readonly maximumModeAssociationCents?: number;
+    readonly interpolationPower?: number;
+  },
+): SpatialHeldOutEvaluationV1 {
+  if (heldOutObservations.length === 0) throw new Error("spatial held-out evaluation requires held-out observations");
+  const trainingIds = new Set(trainingObservations.map((observation) => observation.observationId.trim()));
+  for (const observation of heldOutObservations) {
+    assertSpatialObservationIsMeasurement(observation);
+    assertPoint(observation.strikePoint);
+    if (trainingIds.has(observation.observationId.trim())) {
+      throw new Error(`held-out spatial observation ${observation.observationId} is also in the training field`);
+    }
+  }
+  const field = buildSpatialModalSoundField(
+    trainingObservations,
+    options?.maximumModeAssociationCents ?? 120,
+  );
+  const associationCents = options?.maximumModeAssociationCents ?? 120;
+  const cases: SpatialHeldOutCaseV1[] = [];
+  const allFrequencyErrors: number[] = [];
+  const allAmplitudeErrors: number[] = [];
+  const interpolationDistances: number[] = [];
+  const uncertaintySeries: number[] = [];
+  const errorSeries: number[] = [];
+  let predictedPositive = 0;
+  let measuredPositive = 0;
+  let truePositive = 0;
+
+  for (const observation of heldOutObservations) {
+    const query: SpatialModalFieldQueryV1 = {
+      point: observation.strikePoint,
+      sampleRate: observation.fingerprint.sampleRate,
+      durationSeconds: observation.fingerprint.durationSeconds,
+      ...(options?.interpolationPower === undefined ? {} : { interpolationPower: options.interpolationPower }),
+    };
+    const predicted = fingerprintAtSpatialPoint(field, query);
+    if (predicted.evidenceEligible !== false) {
+      throw new Error("spatial held-out evaluation produced an evidence-eligible prediction");
+    }
+    if (isSpatialPredictedFingerprint(observation.fingerprint)) {
+      throw new Error("spatial predicted fingerprints cannot be used as held-out measurements");
+    }
+    const matching = matchPredictedToMeasured(predicted, observation.fingerprint, associationCents);
+    predictedPositive += predicted.modes.length;
+    measuredPositive += observation.fingerprint.modes.length;
+    truePositive += matching.matched;
+    interpolationDistances.push(nearestTrainingDistance(observation.strikePoint, trainingObservations));
+    allFrequencyErrors.push(...matching.frequencyErrors);
+    allAmplitudeErrors.push(...matching.amplitudeErrorsDb);
+    for (let index = 0; index < matching.frequencyErrors.length; index += 1) {
+      uncertaintySeries.push(matching.uncertainties[index]!);
+      errorSeries.push(matching.frequencyErrors[index]!);
+    }
+    cases.push({
+      observationId: observation.observationId.trim(),
+      interpolationDistance: interpolationDistances[interpolationDistances.length - 1]!,
+      matchedModeCount: matching.matched,
+      predictedModeCount: predicted.modes.length,
+      measuredModeCount: observation.fingerprint.modes.length,
+      frequencyErrorCentsMedian: medianNumber(matching.frequencyErrors),
+      relativeAmplitudeErrorDbMedian: medianNumber(matching.amplitudeErrorsDb),
+      meanPredictionUncertainty: matching.uncertainties.length === 0
+        ? null
+        : matching.uncertainties.reduce((sum, value) => sum + value, 0) / matching.uncertainties.length,
+    });
+  }
+
+  cases.sort((left, right) => left.observationId.localeCompare(right.observationId, "en-US"));
+  return {
+    evaluationVersion: "spatial-held-out-evaluation-1",
+    evidenceEligible: false,
+    releaseGateEquivalent: false,
+    heldOutCount: heldOutObservations.length,
+    frequencyConsistencyMedianCents: medianNumber(allFrequencyErrors),
+    modePresencePrecision: predictedPositive === 0 ? null : truePositive / predictedPositive,
+    modePresenceRecall: measuredPositive === 0 ? null : truePositive / measuredPositive,
+    relativeAmplitudeErrorDbMedian: medianNumber(allAmplitudeErrors),
+    uncertaintyErrorPearson: pearson(uncertaintySeries, errorSeries),
+    interpolationDistanceMedian: medianNumber(interpolationDistances),
+    cases,
   };
 }

@@ -37,4 +37,15 @@ describe("research-only Prony damped-mode estimator", () => {
     expect(result).not.toHaveProperty("algorithmVersion");
     expect(result.evidenceEligible).toBe(false);
   });
+
+  it("remains a research-only estimator and is not promoted to a fingerprint algorithm version", () => {
+    const samples = synthesize(8_000, 0.8, [
+      { f: 520, tau: 0.6, amplitude: 1, phase: 0.4 },
+      { f: 533, tau: 0.5, amplitude: 0.7, phase: 1.3 },
+    ]);
+    const result = estimateDampedModesPronyResearch(samples, 8_000, 2);
+    expect(result.evidenceEligible).toBe(false);
+    expect(JSON.stringify(result)).not.toContain("er-dsp-3");
+    expect(result.researchEstimatorVersion).not.toMatch(/^er-dsp-/);
+  });
 });
