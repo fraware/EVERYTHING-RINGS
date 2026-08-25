@@ -77,12 +77,35 @@ function differingFactors(left: NuisanceMetadataV1, right: NuisanceMetadataV1): 
   return NUISANCE_FACTORS.filter((factor) => left[factor] !== right[factor]);
 }
 
+function normalized(value: string): string {
+  return value.trim().toLocaleLowerCase("en-US");
+}
+
+function canonicalObservationOrder(
+  left: LabeledFingerprintObservationV1,
+  right: LabeledFingerprintObservationV1,
+): number {
+  return left.observationId.trim().localeCompare(right.observationId.trim(), "en-US")
+    || normalized(left.specimenId).localeCompare(normalized(right.specimenId), "en-US");
+}
+
+function validateObservationIds(observations: readonly LabeledFingerprintObservationV1[]): void {
+  const seen = new Set<string>();
+  for (const observation of observations) {
+    const id = observation.observationId.trim();
+    if (id.length === 0) throw new Error("nuisance observations require observationId");
+    if (seen.has(id)) throw new Error(`duplicate nuisance observationId ${id}`);
+    seen.add(id);
+  }
+}
+
 export function characterizeNuisance(
   observations: readonly LabeledFingerprintObservationV1[],
 ): NuisanceCharacterizationV1 {
+  validateObservationIds(observations);
   const bySpecimen = new Map<string, LabeledFingerprintObservationV1[]>();
   for (const observation of observations) {
-    const key = observation.specimenId.trim().toLocaleLowerCase("en-US");
+    const key = normalized(observation.specimenId);
     if (key.length === 0) throw new Error("nuisance observations require specimenId");
     const current = bySpecimen.get(key) ?? [];
     current.push(observation);
@@ -90,16 +113,18 @@ export function characterizeNuisance(
   }
 
   const pairs: WithinSpecimenPairMetricV1[] = [];
-  for (const specimenObservations of bySpecimen.values()) {
+  const specimenGroups = [...bySpecimen.entries()].sort(([left], [right]) => left.localeCompare(right, "en-US"));
+  for (const [, unsortedObservations] of specimenGroups) {
+    const specimenObservations = [...unsortedObservations].sort(canonicalObservationOrder);
     for (let leftIndex = 0; leftIndex < specimenObservations.length; leftIndex += 1) {
       for (let rightIndex = leftIndex + 1; rightIndex < specimenObservations.length; rightIndex += 1) {
         const left = specimenObservations[leftIndex]!;
         const right = specimenObservations[rightIndex]!;
         const recurrence = fingerprintRecurrence(left.fingerprint, right.fingerprint);
         pairs.push({
-          leftObservationId: left.observationId,
-          rightObservationId: right.observationId,
-          specimenId: left.specimenId,
+          leftObservationId: left.observationId.trim(),
+          rightObservationId: right.observationId.trim(),
+          specimenId: left.specimenId.trim(),
           differingFactors: differingFactors(left.nuisance, right.nuisance),
           matchedModes: recurrence.matchedCount,
           medianFrequencyDriftCents: recurrence.medianCents,
@@ -146,25 +171,30 @@ export function selectHardNegativePairs(
   limit: number,
 ): readonly HardNegativePairV1[] {
   if (!Number.isInteger(limit) || limit <= 0) throw new Error("hard-negative limit must be a positive integer");
+  validateObservationIds(observations);
+  const orderedObservations = [...observations].sort(canonicalObservationOrder);
   const pairs: HardNegativePairV1[] = [];
-  for (let leftIndex = 0; leftIndex < observations.length; leftIndex += 1) {
-    for (let rightIndex = leftIndex + 1; rightIndex < observations.length; rightIndex += 1) {
-      const left = observations[leftIndex]!;
-      const right = observations[rightIndex]!;
-      if (left.specimenId.trim().toLocaleLowerCase("en-US") === right.specimenId.trim().toLocaleLowerCase("en-US")) continue;
+  for (let leftIndex = 0; leftIndex < orderedObservations.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < orderedObservations.length; rightIndex += 1) {
+      const left = orderedObservations[leftIndex]!;
+      const right = orderedObservations[rightIndex]!;
+      if (normalized(left.specimenId) === normalized(right.specimenId)) continue;
       const recurrence = fingerprintRecurrence(left.fingerprint, right.fingerprint);
       pairs.push({
-        leftObservationId: left.observationId,
-        rightObservationId: right.observationId,
-        leftSpecimenId: left.specimenId,
-        rightSpecimenId: right.specimenId,
+        leftObservationId: left.observationId.trim(),
+        rightObservationId: right.observationId.trim(),
+        leftSpecimenId: left.specimenId.trim(),
+        rightSpecimenId: right.specimenId.trim(),
         medianFrequencyDriftCents: recurrence.medianCents,
         matchedModes: recurrence.matchedCount,
       });
     }
   }
   return pairs
-    .sort((left, right) => left.medianFrequencyDriftCents - right.medianFrequencyDriftCents || right.matchedModes - left.matchedModes)
+    .sort((left, right) => left.medianFrequencyDriftCents - right.medianFrequencyDriftCents
+      || right.matchedModes - left.matchedModes
+      || left.leftObservationId.localeCompare(right.leftObservationId, "en-US")
+      || left.rightObservationId.localeCompare(right.rightObservationId, "en-US"))
     .slice(0, limit);
 }
 
