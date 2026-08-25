@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@everything-rings/acquisition": "workspace:*",
+    "@everything-rings/atlas-client": "workspace:*",
     "@everything-rings/dsp": "workspace:*",
     "@everything-rings/fingerprint": "workspace:*",
     "@everything-rings/instrument": "workspace:*",
