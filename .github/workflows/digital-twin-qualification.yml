@@ -32,8 +32,8 @@ jobs:
     env:
       VITE_SOFTWARE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22
       - name: Enable Corepack
@@ -73,7 +73,7 @@ jobs:
           EOF
           cat /tmp/everything-rings-digital-twin-qualification.json
       - name: Upload qualification report
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: digital-twin-qualification-${{ env.VITE_SOFTWARE_REVISION }}
           path: /tmp/everything-rings-digital-twin-qualification.json

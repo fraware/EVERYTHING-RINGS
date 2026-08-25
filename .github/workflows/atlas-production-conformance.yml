@@ -1,0 +1,104 @@
+# Atlas production-conformance (CI lane E skeleton).
+# A green run is not production-network qualification, physical evidence, or a
+# security audit. When apps/atlas-api exists, unit/contract tests may run; the
+# production checks listed in the report remain unimplemented until a durable
+# adapter, authz, rate limits, and migration tests ship.
+#
+# Schema migration discipline: every versioned Atlas/artifact contract requires
+# parser + validator + ArtifactMigrationRegistryV1 tests in packages/validation
+# before it is used in a release. This workflow must not change empirical v8
+# gate semantics.
+name: atlas-production-conformance
+
+on:
+  pull_request:
+    branches:
+      - post-freeze-development
+  push:
+    branches:
+      - post-freeze-development
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-production-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  VITE_SOFTWARE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  skeleton:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Emit production-conformance skeleton report
+        run: |
+          set -euo pipefail
+          mkdir -p qualification
+          api_present=false
+          client_present=false
+          if [ -f apps/atlas-api/package.json ]; then api_present=true; fi
+          if [ -f packages/atlas-client/package.json ]; then client_present=true; fi
+          cat > qualification/atlas-production-conformance.json <<EOF
+          {
+            "conformanceContractVersion": "atlas-production-conformance-1",
+            "status": "skeleton",
+            "softwareOnly": true,
+            "physicalObjectTested": false,
+            "releaseGateEquivalent": false,
+            "sourceRevision": "${VITE_SOFTWARE_REVISION}",
+            "workflowRunId": "github-run:${{ github.run_id }}",
+            "productionAdapterPresent": false,
+            "atlasApiPackagePresent": ${api_present},
+            "atlasClientPackagePresent": ${client_present},
+            "memoryAdapterContract": "resonance-atlas-service-1",
+            "pendingProductionChecks": [
+              "restart-durability",
+              "concurrent-idempotent-publish",
+              "rollback",
+              "canonical-byte-preservation",
+              "snapshot-repeatability",
+              "schema-parser-validator-migration-tests",
+              "authz",
+              "rate-limits",
+              "malformed-artifact-rejection"
+            ]
+          }
+          EOF
+          cat qualification/atlas-production-conformance.json
+      - name: Upload skeleton report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: atlas-production-conformance-${{ env.VITE_SOFTWARE_REVISION }}
+          path: qualification/atlas-production-conformance.json
+          if-no-files-found: error
+
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    if: hashFiles('apps/atlas-api/package.json', 'packages/atlas-client/package.json') != ''
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck Atlas client when present
+        if: hashFiles('packages/atlas-client/package.json') != ''
+        run: pnpm --filter @everything-rings/atlas-client typecheck
+      - name: Atlas client tests when present
+        if: hashFiles('packages/atlas-client/package.json') != ''
+        run: pnpm --filter @everything-rings/atlas-client test
+      - name: Typecheck Atlas API when present
+        if: hashFiles('apps/atlas-api/package.json') != ''
+        run: pnpm --filter @everything-rings/atlas-api typecheck
+      - name: Atlas API tests when present
+        if: hashFiles('apps/atlas-api/package.json') != ''
+        run: pnpm --filter @everything-rings/atlas-api test
