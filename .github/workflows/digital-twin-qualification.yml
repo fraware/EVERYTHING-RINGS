@@ -14,18 +14,26 @@ on:
       - "apps/web/**"
       - "scripts/**"
       - "docs/DIGITAL_TWIN_QUALIFICATION.md"
+  push:
+    branches:
+      - post-freeze-development
 
 permissions:
   contents: read
 
+concurrency:
+  group: digital-twin-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   qualify:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     env:
-      VITE_SOFTWARE_REVISION: ${{ github.sha }}
+      VITE_SOFTWARE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22
       - name: Enable Corepack
@@ -45,12 +53,14 @@ jobs:
           cat > /tmp/everything-rings-digital-twin-qualification.json <<EOF
           {
             "schemaVersion": 1,
-            "qualificationContractVersion": "digital-twin-qualification-1",
-            "softwareRevision": "${GITHUB_SHA}",
+            "qualificationContractVersion": "digital-twin-qualification-2",
+            "softwareRevision": "${VITE_SOFTWARE_REVISION}",
+            "workflowRunId": "github-run:${{ github.run_id }}",
             "releaseGateEquivalent": false,
             "physicalMicrophonePathTested": false,
             "physicalObjectTested": false,
             "layers": [
+              "frozen-dependency-install",
               "typecheck",
               "unit-tests",
               "digital-twin-acoustic-stress",
@@ -63,8 +73,8 @@ jobs:
           EOF
           cat /tmp/everything-rings-digital-twin-qualification.json
       - name: Upload qualification report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: digital-twin-qualification-${{ github.sha }}
+          name: digital-twin-qualification-${{ env.VITE_SOFTWARE_REVISION }}
           path: /tmp/everything-rings-digital-twin-qualification.json
           if-no-files-found: error

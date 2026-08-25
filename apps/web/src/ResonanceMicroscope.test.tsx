@@ -43,6 +43,7 @@ describe("Resonance Microscope ringdown reveal", () => {
     expect(markup).toContain("Analyzed microphone ringdown");
     expect(markup).toContain("Same deterministic isolation used for analysis");
     expect(markup).toContain("gain-only peak matched");
+    expect(markup).toContain("HEAR CAPTURE");
     expect(markup).toContain("MODEL");
     expect(markup).toContain("Measured-mode reconstruction");
     expect(markup).toContain("WATCH + HEAR MODEL");
@@ -53,5 +54,22 @@ describe("Resonance Microscope ringdown reveal", () => {
     expect(markup).toContain("100% of its fitted initial envelope at +0.00 s");
     expect(markup).toContain("STRONGEST AT STRIKE");
     expect(markup).toContain("DOMINANT NOW");
+  });
+
+  it("states explicitly when a saved fingerprint has no retained capture", () => {
+    const markup = renderToStaticMarkup(
+      <ResonanceMicroscope
+        fingerprint={FINGERPRINT}
+        onHearMode={() => undefined}
+        onHearAll={() => undefined}
+        captureUnavailableCopy="Original microphone audio was intentionally excluded from local history."
+      />,
+    );
+
+    expect(markup).toContain("Original capture unavailable");
+    expect(markup).toContain("Original microphone audio was intentionally excluded from local history");
+    expect(markup).toContain("CAPTURE NOT STORED");
+    expect(markup).toContain("disabled");
+    expect(markup).toContain("Measured-mode reconstruction");
   });
 });

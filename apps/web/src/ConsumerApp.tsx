@@ -1,14 +1,46 @@
+import type { AcousticFingerprintV1 } from "@everything-rings/dsp";
 import { DEFAULT_MODAL_RENDER_CONFIG, renderAcousticFingerprint } from "@everything-rings/synth";
 import { createAcousticCardSvg, createAcousticStoryHtml, fingerprintSignature } from "@everything-rings/visual";
+import { useEffect, useRef, useState } from "react";
+import {
+  createAcousticCapsuleUrl,
+  isAcousticCapsuleHash,
+  parseAcousticCapsuleHash,
+} from "./acousticCapsule";
+import { CaptureComparisonView } from "./CaptureComparisonView";
 import {
   ConsumerFailure,
   ConsumerLanding,
   ConsumerProgress,
   ConsumerReveal,
 } from "./ConsumerExperience";
+import {
+  clearConsumerHistory,
+  createConsumerCaptureRecord,
+  loadConsumerHistory,
+  persistConsumerHistory,
+  prependConsumerCapture,
+  removeConsumerCapture,
+  type ConsumerCaptureRecord,
+  type ConsumerHistoryStorage,
+} from "./consumerHistory";
 import { failureCopy } from "./failureCopy";
 import { captureRingdownAuditionSamples, peakMatchSamples } from "./ringdownPresentation";
+import { SavedCaptureView } from "./SavedCaptureView";
+import { SharedCaptureView } from "./SharedCaptureView";
 import { useStrikeSession } from "./useStrikeSession";
+
+const SOFTWARE_REVISION = ((import.meta as ImportMeta & {
+  readonly env?: { readonly VITE_SOFTWARE_REVISION?: string };
+}).env?.VITE_SOFTWARE_REVISION ?? "").trim();
+
+function browserHistoryStorage(): ConsumerHistoryStorage | undefined {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
 
 function downloadFile(file: File): void {
   const url = URL.createObjectURL(file);
@@ -31,8 +63,113 @@ function shareOrDownload(file: File, title: string, text: string): void {
   downloadFile(file);
 }
 
+function shareAcousticCard(fingerprint: AcousticFingerprintV1): void {
+  const signature = fingerprintSignature(fingerprint);
+  const file = new File(
+    [createAcousticCardSvg(fingerprint)],
+    `everything-rings-${signature}.svg`,
+    { type: "image/svg+xml" },
+  );
+  shareOrDownload(
+    file,
+    "Everything Rings — Acoustic DNA",
+    `${fingerprint.modes.length} measured resonances · ${signature}`,
+  );
+}
+
+function copyTextFallback(value: string): boolean {
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    textarea.remove();
+  }
+}
+
+function clearAcousticCapsuleHash(): void {
+  if (!isAcousticCapsuleHash(window.location.hash)) return;
+  window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+}
+
 export function ConsumerApp() {
   const session = useStrikeSession();
+  const [initialCapsule] = useState(() => parseAcousticCapsuleHash(window.location.hash));
+  const [capsuleRouteActive, setCapsuleRouteActive] = useState(() => isAcousticCapsuleHash(window.location.hash));
+  const [sharedCapsule, setSharedCapsule] = useState(() => initialCapsule.ok
+    ? { fingerprint: initialCapsule.fingerprint, signature: initialCapsule.signature }
+    : undefined);
+  const [history, setHistory] = useState<readonly ConsumerCaptureRecord[]>(
+    () => loadConsumerHistory(browserHistoryStorage()),
+  );
+  const historyRef = useRef(history);
+  const [historyStatus, setHistoryStatus] = useState<string | undefined>(() => (
+    !initialCapsule.ok && initialCapsule.reason !== "missing"
+      ? "This shared ring link could not be opened. You can still strike something and make your own."
+      : undefined
+  ));
+  const [openedCaptureId, setOpenedCaptureId] = useState<string>();
+  const [compareAnchorId, setCompareAnchorId] = useState<string>();
+  const [comparisonPairIds, setComparisonPairIds] = useState<readonly [string, string]>();
+  const savedFingerprint = useRef<AcousticFingerprintV1 | undefined>(undefined);
+
+  useEffect(() => {
+    const applyHash = (): void => {
+      const capsuleRoute = isAcousticCapsuleHash(window.location.hash);
+      setCapsuleRouteActive(capsuleRoute);
+      if (capsuleRoute) session.stop();
+
+      const parsed = parseAcousticCapsuleHash(window.location.hash);
+      if (parsed.ok) {
+        setSharedCapsule({ fingerprint: parsed.fingerprint, signature: parsed.signature });
+        setOpenedCaptureId(undefined);
+        setCompareAnchorId(undefined);
+        setComparisonPairIds(undefined);
+        setHistoryStatus(undefined);
+        return;
+      }
+      setSharedCapsule(undefined);
+      if (parsed.reason !== "missing") {
+        setOpenedCaptureId(undefined);
+        setCompareAnchorId(undefined);
+        setComparisonPairIds(undefined);
+        setHistoryStatus("This shared ring link could not be opened. You can still strike something and make your own.");
+      }
+    };
+    window.addEventListener("hashchange", applyHash);
+    return () => window.removeEventListener("hashchange", applyHash);
+  }, []);
+
+  function replaceHistory(next: readonly ConsumerCaptureRecord[]): void {
+    historyRef.current = next;
+    setHistory(next);
+  }
+
+  useEffect(() => {
+    const fingerprint = session.fingerprint;
+    if (session.state !== "success" || fingerprint === undefined || savedFingerprint.current === fingerprint) return;
+    savedFingerprint.current = fingerprint;
+    const record = createConsumerCaptureRecord(
+      fingerprint,
+      new Date().toISOString(),
+      SOFTWARE_REVISION,
+    );
+    const next = prependConsumerCapture(historyRef.current, record);
+    replaceHistory(next);
+    const persisted = persistConsumerHistory(browserHistoryStorage(), next);
+    setHistoryStatus(
+      persisted
+        ? "Fingerprint saved locally on this device. Microphone audio was not stored."
+        : "This fingerprint is available for this session, but local browser storage is unavailable.",
+    );
+  }, [session.state, session.fingerprint]);
 
   function retry(): void {
     if (session.state === "error") {
@@ -40,6 +177,16 @@ export function ConsumerApp() {
       return;
     }
     session.reset();
+  }
+
+  function startListening(): void {
+    clearAcousticCapsuleHash();
+    setCapsuleRouteActive(false);
+    setSharedCapsule(undefined);
+    setOpenedCaptureId(undefined);
+    setCompareAnchorId(undefined);
+    setComparisonPairIds(undefined);
+    void session.start();
   }
 
   function hearCapture(): void {
@@ -67,20 +214,45 @@ export function ConsumerApp() {
     void session.play(renderAcousticFingerprint({ ...fingerprint, modes: [mode] }, sampleRate), sampleRate);
   }
 
-  function shareAcousticCard(): void {
+  async function shareFingerprintLink(fingerprint: AcousticFingerprintV1): Promise<void> {
+    let url: string;
+    try {
+      url = createAcousticCapsuleUrl(fingerprint, window.location.href);
+    } catch {
+      setHistoryStatus("This fingerprint is too large to package as a share link. DNA and Story sharing are still available.");
+      return;
+    }
+
+    const shareData: ShareData = {
+      title: "Everything Rings — Shared Ring",
+      text: `Hear and play ${fingerprint.modes.length} estimated resonances from one physical strike.`,
+      url,
+    };
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share(shareData);
+        setHistoryStatus("Shared the fingerprint link. Microphone audio was not included.");
+        return;
+      } catch (error: unknown) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+      }
+    }
+
+    try {
+      if (navigator.clipboard !== undefined && typeof navigator.clipboard.writeText === "function") {
+        await navigator.clipboard.writeText(url);
+      } else if (!copyTextFallback(url)) {
+        throw new Error("copy unavailable");
+      }
+      setHistoryStatus("Share link copied. It contains the fingerprint only, not microphone audio.");
+    } catch {
+      setHistoryStatus("This browser could not open sharing or copy the link. DNA and Story sharing are still available.");
+    }
+  }
+
+  function shareCurrentAcousticCard(): void {
     const fingerprint = session.fingerprint;
-    if (fingerprint === undefined) return;
-    const signature = fingerprintSignature(fingerprint);
-    const file = new File(
-      [createAcousticCardSvg(fingerprint)],
-      `everything-rings-${signature}.svg`,
-      { type: "image/svg+xml" },
-    );
-    shareOrDownload(
-      file,
-      "Everything Rings — Acoustic DNA",
-      `${fingerprint.modes.length} measured resonances · ${signature}`,
-    );
+    if (fingerprint !== undefined) shareAcousticCard(fingerprint);
   }
 
   function shareAcousticStory(): void {
@@ -101,8 +273,102 @@ export function ConsumerApp() {
     );
   }
 
+  function openHistoryRecord(record: ConsumerCaptureRecord): void {
+    setCompareAnchorId(undefined);
+    setComparisonPairIds(undefined);
+    setOpenedCaptureId(record.id);
+  }
+
+  function compareHistoryRecord(record: ConsumerCaptureRecord): void {
+    if (compareAnchorId === undefined) {
+      setOpenedCaptureId(undefined);
+      setCompareAnchorId(record.id);
+      setHistoryStatus("Choose a second saved capture for Resonance Diff.");
+      return;
+    }
+    if (compareAnchorId === record.id) {
+      setCompareAnchorId(undefined);
+      setHistoryStatus(undefined);
+      return;
+    }
+    setOpenedCaptureId(undefined);
+    setComparisonPairIds([compareAnchorId, record.id]);
+    setCompareAnchorId(undefined);
+    setHistoryStatus(undefined);
+  }
+
+  function removeHistoryRecord(id: string): void {
+    const next = removeConsumerCapture(historyRef.current, id);
+    replaceHistory(next);
+    if (openedCaptureId === id) setOpenedCaptureId(undefined);
+    if (compareAnchorId === id) setCompareAnchorId(undefined);
+    if (comparisonPairIds?.includes(id) === true) setComparisonPairIds(undefined);
+    const persisted = persistConsumerHistory(browserHistoryStorage(), next);
+    setHistoryStatus(persisted ? "Capture removed from this device." : "Local browser storage could not be updated.");
+  }
+
+  function clearHistory(): void {
+    setOpenedCaptureId(undefined);
+    setCompareAnchorId(undefined);
+    setComparisonPairIds(undefined);
+    replaceHistory([]);
+    const cleared = clearConsumerHistory(browserHistoryStorage());
+    setHistoryStatus(cleared ? "Local capture history cleared." : "Local browser storage could not be cleared.");
+  }
+
+  function landing(): React.ReactNode {
+    return <ConsumerLanding
+      onStart={startListening}
+      recentCaptures={history}
+      historyStatus={historyStatus}
+      compareAnchorId={compareAnchorId}
+      onOpenCapture={openHistoryRecord}
+      onCompareCapture={history.length >= 2 ? compareHistoryRecord : undefined}
+      onShareCaptureLink={(record) => { void shareFingerprintLink(record.fingerprint); }}
+      onShareCapture={(record) => shareAcousticCard(record.fingerprint)}
+      onRemoveCapture={removeHistoryRecord}
+      onClearCaptures={clearHistory}
+    />;
+  }
+
+  if (capsuleRouteActive) {
+    if (sharedCapsule !== undefined) {
+      return <SharedCaptureView
+        fingerprint={sharedCapsule.fingerprint}
+        signature={sharedCapsule.signature}
+        status={historyStatus}
+        onShareAgain={() => { void shareFingerprintLink(sharedCapsule.fingerprint); }}
+        onTryOwn={startListening}
+      />;
+    }
+    return landing();
+  }
+
   if (session.state === "idle") {
-    return <ConsumerLanding onStart={() => void session.start()} />;
+    if (comparisonPairIds !== undefined) {
+      const left = history.find((record) => record.id === comparisonPairIds[0]);
+      const right = history.find((record) => record.id === comparisonPairIds[1]);
+      if (left !== undefined && right !== undefined && left.id !== right.id) {
+        return <CaptureComparisonView
+          left={left}
+          right={right}
+          onBack={() => setComparisonPairIds(undefined)}
+        />;
+      }
+    }
+    const openedCapture = openedCaptureId === undefined
+      ? undefined
+      : history.find((record) => record.id === openedCaptureId);
+    if (openedCapture !== undefined) {
+      return <SavedCaptureView
+        record={openedCapture}
+        status={historyStatus}
+        onBack={() => setOpenedCaptureId(undefined)}
+        onShareLink={() => { void shareFingerprintLink(openedCapture.fingerprint); }}
+        onShareDna={() => shareAcousticCard(openedCapture.fingerprint)}
+      />;
+    }
+    return landing();
   }
 
   if (session.state === "warming" || session.state === "armed" || session.state === "capturing" || session.state === "analyzing") {
@@ -129,12 +395,14 @@ export function ConsumerApp() {
     instrumentReady={session.instrumentReady}
     instrumentFailure={session.instrumentFailure}
     playbackFailure={session.playbackFailure}
+    historyStatus={historyStatus}
     onHearMode={hearMode}
     onHearModel={hearModel}
     onHearCapture={hearCapture}
     onNote={(midiNote) => { session.noteOn(midiNote); }}
+    onShareLink={() => { void shareFingerprintLink(fingerprint); }}
     onShareStory={shareAcousticStory}
-    onShareDna={shareAcousticCard}
+    onShareDna={shareCurrentAcousticCard}
     onStrikeAnother={session.reset}
   />;
 }

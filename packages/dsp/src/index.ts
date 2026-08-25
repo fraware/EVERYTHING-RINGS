@@ -9,6 +9,26 @@ export {
   analyzeImpactWithConfig,
 } from "./analysis/analyze-impact";
 export {
+  estimateDampedModesPronyResearch,
+  type PronyResearchResultV1,
+  type ResearchDampedModeEstimateV1,
+} from "./analysis/prony-research";
+export {
+  estimateDampedModesWithResearchEstimator,
+  isResearchDampedModeEstimatorId,
+  RESEARCH_DAMPED_MODE_ESTIMATOR_IDS,
+  type ResearchDampedModeEstimatorId,
+} from "./analysis/research-estimators";
+export {
+  compileErDsp2FailureMapReport,
+  ER_DSP_2_FAILURE_MAP_REGIMES,
+  evaluateErDsp2SyntheticFailureMapCase,
+  type DspFailureMapCaseResultV1,
+  type DspFailureMapReportV1,
+  type ErDsp2FailureMapRegimeId,
+  type SyntheticTrueModeV1,
+} from "./analysis/failure-map";
+export {
   DEFAULT_DECAY_FIT_CONFIG,
   type DecayEstimate,
   type DecayFitConfig,

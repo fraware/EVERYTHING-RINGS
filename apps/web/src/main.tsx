@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { AppErrorBoundary } from "./AppErrorBoundary";
 import "./styles.css";
-import "./campaign.css";
 
 const root = document.getElementById("root");
 if (root === null) throw new Error("Missing #root element");

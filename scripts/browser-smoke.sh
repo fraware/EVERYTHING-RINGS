@@ -64,6 +64,8 @@ check_route "/?campaign=1" "Precommitted physical collection" "campaign"
 check_route "/?release=1" "Empirical release gates" "release"
 check_route "/?gate-b=1" "Post-collection blinded reconstruction" "gate-b"
 check_route "/?gate-c=1" "Post-Gate-B playable identity" "gate-c"
+check_route "/?twin=1" "Object models, retrieval, held-out calibration, abstention" "twin"
+check_route "/?atlas=1" "Content-addressed acoustic provenance" "atlas"
 check_route "/?campaign-author=1&release=1" "Empirical release gates" "release-author-precedence"
 check_route "/?gate-b=1&release=1" "Empirical release gates" "release-review-precedence"
 check_route "/?campaign-author=1&campaign=1" "Freeze the experiment before the first strike." "author-precedence"
@@ -72,6 +74,8 @@ check_route "/?gate-b=1&campaign=1" "Post-collection blinded reconstruction" "re
 
 echo "Browser route smoke tests passed."
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/consumer-e2e.mjs
+BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/consumer-history-e2e.mjs
+BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/acoustic-capsule-e2e.mjs
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/session-lifecycle-e2e.mjs
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/permission-e2e.mjs
 BROWSER="$BROWSER" BASE_URL="$BASE_URL" node scripts/mobile-surfaces-e2e.mjs

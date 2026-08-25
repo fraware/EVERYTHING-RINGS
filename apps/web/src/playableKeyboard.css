@@ -1,0 +1,11 @@
+.playable-keys button {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+@media (max-width: 760px) {
+  .playable-keys-lab {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}

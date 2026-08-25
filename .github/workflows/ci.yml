@@ -3,19 +3,24 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, post-freeze-development]
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
-      VITE_SOFTWARE_REVISION: ${{ github.sha }}
+      VITE_SOFTWARE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22
       - name: Enable Corepack

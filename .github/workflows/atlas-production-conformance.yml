@@ -1,0 +1,90 @@
+# Atlas software-contract conformance lane.
+#
+# A green run qualifies the checked Atlas client/API contracts on one exact
+# software revision. It is not a public-network qualification, security audit,
+# physical-object claim, or empirical release gate.
+name: atlas-production-conformance
+
+on:
+  pull_request:
+    branches:
+      - post-freeze-development
+  push:
+    branches:
+      - post-freeze-development
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-production-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  VITE_SOFTWARE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck Atlas client
+        run: pnpm --filter @everything-rings/atlas-client typecheck
+      - name: Test Atlas client
+        run: pnpm --filter @everything-rings/atlas-client test
+      - name: Typecheck Atlas API
+        run: pnpm --filter @everything-rings/atlas-api typecheck
+      - name: Test Atlas API contracts, HTTP surface, persistence, and V2 records
+        run: pnpm --filter @everything-rings/atlas-api test
+      - name: Emit scoped conformance report
+        run: |
+          set -euo pipefail
+          mkdir -p qualification
+          cat > qualification/atlas-production-conformance.json <<EOF
+          {
+            "conformanceContractVersion": "atlas-production-conformance-1",
+            "status": "software-contract-qualified",
+            "softwareOnly": true,
+            "physicalObjectTested": false,
+            "releaseGateEquivalent": false,
+            "publicNetworkQualified": false,
+            "sourceRevision": "${VITE_SOFTWARE_REVISION}",
+            "workflowRunId": "github-run:${{ github.run_id }}",
+            "atlasApiPackagePresent": true,
+            "atlasClientPackagePresent": true,
+            "localFileStorePresent": true,
+            "httpSurfacePresent": true,
+            "qualifiedChecks": [
+              "atlas-client-typecheck-and-tests",
+              "atlas-api-typecheck-and-tests",
+              "atlas-v2-contract-tests",
+              "http-contract-tests",
+              "local-persistence-tests",
+              "service-conformance-tests"
+            ],
+            "pendingProductionChecks": [
+              "production-authentication-and-authorization",
+              "rate-limits-and-abuse-controls",
+              "multi-tenant-durability-backup-and-restore",
+              "operational-rollback-and-recovery",
+              "deployment-security-review",
+              "load-and-concurrency-characterization"
+            ]
+          }
+          EOF
+          cat qualification/atlas-production-conformance.json
+      - name: Upload conformance report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: atlas-production-conformance-${{ env.VITE_SOFTWARE_REVISION }}
+          path: qualification/atlas-production-conformance.json
+          if-no-files-found: error

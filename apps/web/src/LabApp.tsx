@@ -16,15 +16,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AcousticDnaView } from "./AcousticDnaView";
 import { failureCopy } from "./failureCopy";
 import { GateReviewPanel } from "./GateReviewPanel";
+import { PlayableKeyboard } from "./PlayableKeyboard";
 import { useStrikeSession } from "./useStrikeSession";
-
-const KEYBOARD_NOTES = [
-  { midi: 60, label: "C4" }, { midi: 61, label: "C♯4" }, { midi: 62, label: "D4" },
-  { midi: 63, label: "D♯4" }, { midi: 64, label: "E4" }, { midi: 65, label: "F4" },
-  { midi: 66, label: "F♯4" }, { midi: 67, label: "G4" }, { midi: 68, label: "G♯4" },
-  { midi: 69, label: "A4" }, { midi: 70, label: "A♯4" }, { midi: 71, label: "B4" },
-  { midi: 72, label: "C5" },
-] as const;
 
 const MATERIALS: readonly { readonly value: MaterialClass; readonly label: string }[] = [
   { value: "metal", label: "metal" },
@@ -358,7 +351,12 @@ export function LabApp() {
         <div className="result-head"><div><p className="eyebrow">{fingerprint.algorithmVersion}</p><h2>Estimated acoustic modes</h2></div><strong>{fingerprint.modes.length}</strong></div>
         <AcousticDnaView fingerprint={fingerprint} />
         <ModeTable modes={fingerprint.modes} />
-        <div className="instrument-lab"><p className="eyebrow">GATE C</p><h3>Realtime playable object</h3><p className="small">{session.instrumentReady ? "Modal voices are rendered continuously in the audio thread. Scheduling delay excludes the browser-reported output path." : session.instrumentFailure !== undefined ? "Realtime playback is unavailable in this browser session." : "Preparing the audio thread…"}</p><div className="keyboard">{KEYBOARD_NOTES.map((note) => <button key={note.midi} disabled={!session.instrumentReady} onPointerDown={() => session.noteOn(note.midi)}>{note.label}</button>)}</div></div>
+        <div className="instrument-lab">
+          <p className="eyebrow">GATE C</p>
+          <h3>Realtime playable object</h3>
+          <p className="small">{session.instrumentReady ? "Modal voices are rendered continuously in the audio thread. Scheduling delay excludes the browser-reported output path." : session.instrumentFailure !== undefined ? "Realtime playback is unavailable in this browser session." : "Preparing the audio thread…"}</p>
+          <PlayableKeyboard disabled={!session.instrumentReady} playbackFailure={session.playbackFailure} onNoteOn={session.noteOn} />
+        </div>
         <GateReviewPanel
           sessionId={sessionId}
           attemptId={reviewAttemptId}

@@ -1,0 +1,38 @@
+# Default ownership until additional GitHub users are added as maintainers.
+* @fraware
+
+# Acquisition and DSP (frozen fingerprint algorithm er-dsp-2 lives here).
+/packages/acquisition/ @fraware
+/packages/dsp/ @fraware
+
+# Empirical validation contracts, evidence parsers, provenance, Atlas contracts.
+/packages/validation/ @fraware
+/docs/VALIDATION.md @fraware
+/docs/VALIDATION_EVIDENCE.md @fraware
+/docs/EMPIRICAL_CAMPAIGN.md @fraware
+/packages/er-cli/ @fraware
+
+# Research / identity (object models, retrieval, calibration, material/spatial).
+/packages/fingerprint/ @fraware
+
+# Backend / security (production Atlas surfaces; directories may be added later).
+/apps/atlas-api/ @fraware
+/packages/atlas-client/ @fraware
+/.github/workflows/atlas-production-conformance.yml @fraware
+/.github/workflows/full-vision-software-qualification.yml @fraware
+
+# Web consumer and campaign/release consoles.
+/apps/web/ @fraware
+
+# Gate protocol docs (freeze-sensitive; do not treat edits as empirical threshold changes).
+/docs/GATE_A.md @fraware
+/docs/GATE_B.md @fraware
+/docs/GATE_C.md @fraware
+/docs/GATE_*.md @fraware
+
+# Freeze-sensitive validation UI and independent verification tooling.
+/apps/web/src/ReleaseApp.tsx @fraware
+/apps/web/src/CampaignAuthorApp.tsx @fraware
+/apps/web/src/CampaignCollectionApp.tsx @fraware
+/docs/RELEASE_CHECKLIST.md @fraware
+/docs/CLAIM_REGISTRY.md @fraware

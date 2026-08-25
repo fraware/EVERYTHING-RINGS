@@ -1,0 +1,155 @@
+.shared-capsule-view {
+  gap: 24px;
+}
+
+.shared-capsule-hero {
+  max-width: 920px;
+  margin-top: 7vh;
+}
+
+.shared-capsule-hero h1 {
+  margin: 0;
+  max-width: 900px;
+  font-size: clamp(52px, 8vw, 108px);
+  line-height: .94;
+  font-weight: 520;
+  letter-spacing: -.055em;
+}
+
+.shared-capsule-hero > p:last-child {
+  max-width: 700px;
+  margin: 22px 0 0;
+  color: #878780;
+  font-size: clamp(15px, 2vw, 19px);
+  line-height: 1.5;
+}
+
+.shared-capsule-view .dna-view {
+  width: 100%;
+  margin: 10px 0 0;
+  grid-template-columns: minmax(280px, 540px) 1fr;
+  border-color: #242421;
+}
+
+.shared-capsule-listen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.shared-capsule-hear {
+  min-width: min(100%, 260px);
+}
+
+.shared-capsule-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid #292925;
+  border-left: 1px solid #292925;
+}
+
+.shared-capsule-facts > div {
+  min-width: 0;
+  padding: 16px;
+  border-right: 1px solid #292925;
+  border-bottom: 1px solid #292925;
+  display: grid;
+  gap: 7px;
+}
+
+.shared-capsule-facts span {
+  color: #777771;
+  font-size: 10px;
+  letter-spacing: .12em;
+}
+
+.shared-capsule-facts strong {
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.shared-capsule-facts code {
+  font-size: 11px;
+}
+
+.shared-capsule-signature {
+  grid-column: 1 / -1;
+}
+
+.shared-capsule-boundary {
+  padding: 18px;
+  border: 1px solid #353530;
+  display: grid;
+  gap: 6px;
+}
+
+.shared-capsule-boundary strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.shared-capsule-boundary p {
+  max-width: 780px;
+  margin: 0;
+  color: #8f8f88;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.shared-capsule-handoff {
+  margin-top: 22px;
+  padding: 28px 0 8px;
+  border-top: 1px solid #292925;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 28px;
+}
+
+.shared-capsule-handoff h2 {
+  margin: 4px 0 0;
+  font-size: clamp(26px, 4vw, 44px);
+  font-weight: 500;
+  letter-spacing: -.035em;
+}
+
+.shared-capsule-handoff-copy {
+  max-width: 480px;
+  margin: 10px 0 0;
+  color: #777771;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  .shared-capsule-hero {
+    margin-top: 5vh;
+  }
+
+  .shared-capsule-hero h1 {
+    font-size: clamp(48px, 14vw, 74px);
+  }
+
+  .shared-capsule-view .dna-view,
+  .shared-capsule-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .shared-capsule-signature {
+    grid-column: auto;
+  }
+
+  .shared-capsule-listen,
+  .shared-capsule-handoff {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .shared-capsule-listen button,
+  .shared-capsule-handoff button {
+    width: 100%;
+  }
+}
