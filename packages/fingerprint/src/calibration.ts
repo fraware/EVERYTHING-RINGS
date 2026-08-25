@@ -14,7 +14,7 @@ export interface IsotonicCalibrationBinV1 {
 
 export interface SonicTwinCalibrationModelV1 {
   readonly schemaVersion: 1;
-  readonly calibrationVersion: "sonic-twin-isotonic-calibration-1";
+  readonly calibrationVersion: "sonic-twin-isotonic-calibration-2";
   readonly trainingPopulation: string;
   readonly labelSemantics: "same-physical-specimen";
   readonly trainingSampleCount: number;
@@ -55,14 +55,29 @@ export function fitIsotonicCalibration(
     if (seen.has(sample.pairId)) throw new Error(`duplicate calibration pairId ${sample.pairId}`);
     seen.add(sample.pairId);
   }
+  assertBinarySupport(samples, "calibration samples");
 
   const ordered = [...samples].sort((left, right) => left.score - right.score || left.pairId.localeCompare(right.pairId));
-  const blocks: MutableBlock[] = ordered.map((sample) => ({
-    minimumScore: sample.score,
-    maximumScore: sample.score,
-    sampleCount: 1,
-    positiveCount: sample.samePhysicalSpecimen ? 1 : 0,
-  }));
+
+  // Isotonic regression is a function of score, not of sample identity. All
+  // observations with an exactly equal predictor score must therefore enter
+  // PAV as one weighted block. Otherwise conflicting labels at a tied score
+  // can produce different fitted probabilities solely from pairId ordering.
+  const blocks: MutableBlock[] = [];
+  for (const sample of ordered) {
+    const last = blocks[blocks.length - 1];
+    if (last !== undefined && last.minimumScore === sample.score && last.maximumScore === sample.score) {
+      last.sampleCount += 1;
+      if (sample.samePhysicalSpecimen) last.positiveCount += 1;
+    } else {
+      blocks.push({
+        minimumScore: sample.score,
+        maximumScore: sample.score,
+        sampleCount: 1,
+        positiveCount: sample.samePhysicalSpecimen ? 1 : 0,
+      });
+    }
+  }
 
   let index = 0;
   while (index < blocks.length - 1) {
@@ -83,7 +98,7 @@ export function fitIsotonicCalibration(
 
   return {
     schemaVersion: 1,
-    calibrationVersion: "sonic-twin-isotonic-calibration-1",
+    calibrationVersion: "sonic-twin-isotonic-calibration-2",
     trainingPopulation: trainingPopulation.trim(),
     labelSemantics: "same-physical-specimen",
     trainingSampleCount: samples.length,
